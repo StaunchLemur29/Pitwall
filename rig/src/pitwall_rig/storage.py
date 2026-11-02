@@ -1,0 +1,188 @@
+"""Local SQLite store for laps and markers. Full-resolution traces live here."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import threading
+import time
+import zlib
+from pathlib import Path
+from typing import Any
+
+from .models import Lap
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS laps (
+    id INTEGER PRIMARY KEY,
+    game TEXT NOT NULL,
+    car TEXT NOT NULL,
+    track_key TEXT NOT NULL,
+    lap_number INTEGER NOT NULL,
+    lap_time_ms INTEGER NOT NULL,
+    valid INTEGER NOT NULL,
+    out_lap INTEGER NOT NULL,
+    started_at REAL NOT NULL,
+    sector_ms TEXT NOT NULL,
+    trace BLOB NOT NULL,
+    synced_at REAL
+);
+CREATE INDEX IF NOT EXISTS laps_combo ON laps (game, track_key, car, lap_time_ms);
+
+CREATE TABLE IF NOT EXISTS markers (
+    id INTEGER PRIMARY KEY,
+    game TEXT NOT NULL,
+    car TEXT NOT NULL,
+    track_key TEXT NOT NULL,
+    progress REAL NOT NULL,
+    x REAL, z REAL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+"""
+
+SCHEMA_VERSION = "1"
+
+
+def pack_trace(trace: dict[str, list[float]]) -> bytes:
+    return zlib.compress(json.dumps(trace, separators=(",", ":")).encode(), level=6)
+
+
+def unpack_trace(blob: bytes) -> dict[str, list[float]]:
+    return json.loads(zlib.decompress(blob))
+
+
+class Store:
+    def __init__(self, path: Path | str) -> None:
+        if str(path) != ":memory:":
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+        self._db = sqlite3.connect(str(path), check_same_thread=False)
+        self._db.row_factory = sqlite3.Row
+        self._lock = threading.Lock()
+        with self._lock, self._db:
+            self._db.executescript(SCHEMA)
+            self._db.execute(
+                "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
+                (SCHEMA_VERSION,),
+            )
+
+    # -- laps ---------------------------------------------------------------
+
+    def add_lap(self, lap: Lap) -> int:
+        with self._lock, self._db:
+            cur = self._db.execute(
+                """INSERT INTO laps (game, car, track_key, lap_number, lap_time_ms, valid,
+                   out_lap, started_at, sector_ms, trace) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    lap.game,
+                    lap.car,
+                    lap.track_key,
+                    lap.lap_number,
+                    lap.lap_time_ms,
+                    int(lap.valid),
+                    int(lap.out_lap),
+                    lap.started_at,
+                    json.dumps(lap.sector_ms),
+                    pack_trace(lap.trace),
+                ),
+            )
+            lap.id = int(cur.lastrowid)
+            return lap.id
+
+    def laps(
+        self,
+        game: str | None = None,
+        track_key: str | None = None,
+        car: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        where, args = self._filter(game, track_key, car)
+        rows = self._db.execute(
+            f"""SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap,
+                started_at, sector_ms FROM laps {where} ORDER BY started_at DESC LIMIT ?""",
+            (*args, limit),
+        ).fetchall()
+        return [self._summary(r) for r in rows]
+
+    def best_lap(self, game: str, track_key: str, car: str) -> dict[str, Any] | None:
+        row = self._db.execute(
+            """SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap,
+               started_at, sector_ms FROM laps
+               WHERE game=? AND track_key=? AND car=? AND valid=1
+               ORDER BY lap_time_ms ASC LIMIT 1""",
+            (game, track_key, car),
+        ).fetchone()
+        return self._summary(row) if row else None
+
+    def best_sectors(self, game: str, track_key: str, car: str) -> list[int]:
+        """Best time for each sector over valid laps (for the theoretical best)."""
+        rows = self._db.execute(
+            "SELECT sector_ms FROM laps WHERE game=? AND track_key=? AND car=? AND valid=1",
+            (game, track_key, car),
+        ).fetchall()
+        best: list[int] = []
+        for r in rows:
+            secs = json.loads(r["sector_ms"])
+            if not best:
+                best = list(secs)
+            elif len(secs) == len(best):
+                best = [min(a, b) for a, b in zip(best, secs, strict=True)]
+        return best
+
+    def trace(self, lap_id: int) -> dict[str, list[float]] | None:
+        row = self._db.execute("SELECT trace FROM laps WHERE id=?", (lap_id,)).fetchone()
+        return unpack_trace(row["trace"]) if row else None
+
+    def outline_lap_id(self, game: str, track_key: str) -> int | None:
+        """A lap to draw the track map from: the best valid lap in any car,
+        falling back to any complete lap."""
+        row = self._db.execute(
+            """SELECT id FROM laps WHERE game=? AND track_key=?
+               ORDER BY valid DESC, out_lap ASC, lap_time_ms ASC LIMIT 1""",
+            (game, track_key),
+        ).fetchone()
+        return int(row["id"]) if row else None
+
+    # -- markers ------------------------------------------------------------
+
+    def add_marker(
+        self, game: str, car: str, track_key: str, progress: float, x: float | None, z: float | None
+    ) -> int:
+        with self._lock, self._db:
+            cur = self._db.execute(
+                """INSERT INTO markers (game, car, track_key, progress, x, z, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (game, car, track_key, progress, x, z, time.time()),
+            )
+            return int(cur.lastrowid)
+
+    def markers(self, game: str, track_key: str) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            "SELECT * FROM markers WHERE game=? AND track_key=? ORDER BY progress",
+            (game, track_key),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- helpers ------------------------------------------------------------
+
+    @staticmethod
+    def _filter(game: str | None, track_key: str | None, car: str | None) -> tuple[str, list[str]]:
+        clauses, args = [], []
+        for col, val in (("game", game), ("track_key", track_key), ("car", car)):
+            if val is not None:
+                clauses.append(f"{col}=?")
+                args.append(val)
+        return ("WHERE " + " AND ".join(clauses)) if clauses else "", args
+
+    @staticmethod
+    def _summary(r: sqlite3.Row) -> dict[str, Any]:
+        d = dict(r)
+        d["valid"] = bool(d["valid"])
+        d["out_lap"] = bool(d["out_lap"])
+        d["sector_ms"] = json.loads(d["sector_ms"])
+        return d
+
+    def close(self) -> None:
+        self._db.close()
