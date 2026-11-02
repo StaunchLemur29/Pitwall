@@ -1,0 +1,157 @@
+// Mirrors the rig service's wire format (rig/src/pitwall_rig/models.py).
+
+export type GameStatus = "off" | "replay" | "live" | "paused";
+export type Mode = "driving" | "analysis" | "idle";
+
+export interface Frame {
+  t: number;
+  status: GameStatus;
+  packet_id: number;
+  gas: number;
+  brake: number;
+  clutch: number;
+  steer: number;
+  speed_kmh: number;
+  gear: number;
+  rpm: number;
+  fuel_l: number;
+  brake_bias: number | null;
+  abs: number | null;
+  tc: number | null;
+  abs_active: boolean;
+  tc_active: boolean;
+  tyre_pressure_psi: number[] | null;
+  tyre_core_temp_c: number[] | null;
+  tyres_out: number;
+  lap: number;
+  lap_time_ms: number;
+  last_lap_ms: number;
+  best_lap_ms: number;
+  lap_progress: number;
+  sector: number;
+  in_pit_box: boolean;
+  in_pit_lane: boolean;
+  world: [number, number, number] | null;
+  session_time_left_s: number | null;
+  position: number;
+}
+
+export interface SessionInfo {
+  game: string;
+  car: string;
+  track: string;
+  track_config: string;
+  track_key: string;
+  session_type: string;
+  track_length_m: number;
+  max_rpm: number;
+  max_fuel_l: number;
+  sector_count: number;
+  player_name: string;
+}
+
+export interface Capabilities {
+  reports_brake_bias: boolean;
+  reports_abs_level: boolean;
+  reports_tc_level: boolean;
+  reports_tyre_pressure: boolean;
+  reports_world_position: boolean;
+  can_retry_section: boolean;
+}
+
+export interface LapSummary {
+  id: number;
+  game: string;
+  car: string;
+  track_key: string;
+  lap_number: number;
+  lap_time_ms: number;
+  valid: boolean;
+  out_lap: boolean;
+  started_at: number;
+  sector_ms: number[];
+}
+
+export interface Marker {
+  id: number;
+  progress: number;
+  x: number | null;
+  z: number | null;
+  note: string;
+}
+
+export type WidgetId =
+  | "next_corner"
+  | "track_map"
+  | "drill"
+  | "coach_tip"
+  | "electronics"
+  | "lap_times"
+  | "tyres"
+  | "session_bar"
+  | "recent_laps";
+
+export interface WidgetSlot {
+  widget: WidgetId;
+  size: number;
+}
+
+export type Binding =
+  | { type: "key"; combo: string }
+  | {
+      type: "button" | "axis";
+      device: string;
+      device_name: string;
+      index: number;
+      rest?: number;
+      direction?: number;
+    };
+
+export interface Config {
+  game: "ac" | "demo" | "replay";
+  server: { host: string; port: number };
+  rates: { poll_hz: number; broadcast_hz: number };
+  laps: { max_tyres_out: number };
+  units: { speed: string; pressure: string; temperature: string };
+  display: {
+    accent: string;
+    open_browser: boolean;
+    browser: "auto" | "edge" | "chrome";
+    window_x: number;
+    window_y: number;
+  };
+  session_timer: { break_reminder_min: number };
+  layouts: { driving: WidgetSlot[][]; analysis: WidgetSlot[][] };
+  bindings: Record<string, Binding[]>;
+}
+
+export interface Live {
+  frame: Frame | null;
+  delta_s: number | null;
+  ref_lap_ms: number | null;
+  theoretical_best_ms: number | null;
+  driving_s: number;
+}
+
+export type ServerEvent =
+  | ({ type: "frame" } & Live)
+  | {
+      type: "hello";
+      config: Config;
+      actions: Record<string, string>;
+      capabilities: Capabilities;
+      game: string;
+      session: SessionInfo | null;
+      mode: Mode;
+      started_at: number;
+      recent_laps: LapSummary[];
+    }
+  | { type: "session"; session: SessionInfo | null }
+  | { type: "mode"; mode: Mode }
+  | { type: "lap"; lap: LapSummary; new_best: boolean }
+  | { type: "outline"; points: [number, number, number][]; markers: Marker[] }
+  | { type: "markers"; markers: Marker[] }
+  | { type: "action"; action: string }
+  | { type: "config"; config: Config }
+  | { type: "binding"; action: string }
+  | { type: "bound"; action: string; binding: Binding };

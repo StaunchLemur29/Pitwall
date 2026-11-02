@@ -132,7 +132,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     if args.open or config["display"]["open_browser"]:
         d = config["display"]
         _open_browser(url, d["window_x"], d["window_y"], d["browser"])
-    web.run_app(app, host=host, port=port, print=None)
+    web.run_app(app, host=host, port=port, print=None, access_log=None)
 
 
 def cmd_make_demo(args: argparse.Namespace) -> None:

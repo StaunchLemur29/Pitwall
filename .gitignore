@@ -15,3 +15,6 @@ dashboard/dist/
 !rig/tests/fixtures/*.pwrec
 .env
 .env.*
+
+# TypeScript build info
+*.tsbuildinfo

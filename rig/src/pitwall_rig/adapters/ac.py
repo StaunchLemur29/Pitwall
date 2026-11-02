@@ -26,30 +26,64 @@ from .ac_structs import (
 
 _STATUS = {AC_REPLAY: GameStatus.REPLAY, AC_LIVE: GameStatus.LIVE, AC_PAUSE: GameStatus.PAUSED}
 
-# Reserve more than we declare: real pages are larger and grow with AC/CSP versions.
-_MAP_SIZE = {PHYSICS_TAG: 2048, GRAPHICS_TAG: 2048, STATIC_TAG: 2048}
-
-
 class PageReader(Protocol):
-    def read(self, tag: str, size: int) -> bytes: ...
+    def read(self, tag: str, size: int) -> bytes | None:
+        """Bytes of the named page, or None if it doesn't exist (game not running)."""
+        ...
 
 
 class WindowsSharedMemory:
-    """Reads named shared memory. Windows only."""
+    """Opens AC's named shared memory read-only. Windows only.
+
+    We only ever *open* existing mappings: creating them first (as
+    ``mmap.mmap(tagname=...)`` would) can leave AC mapping a page smaller than
+    it expects. Pages are re-opened after ``reset()`` (e.g. when AC restarts).
+    """
+
+    FILE_MAP_READ = 0x0004
 
     def __init__(self) -> None:
-        import mmap
+        from ctypes import wintypes
 
-        self._maps = {tag: mmap.mmap(-1, size, tagname=tag) for tag, size in _MAP_SIZE.items()}
+        k32 = C.WinDLL("kernel32", use_last_error=True)
+        k32.OpenFileMappingW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+        k32.OpenFileMappingW.restype = wintypes.HANDLE
+        k32.MapViewOfFile.argtypes = [
+            wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, C.c_size_t,
+        ]
+        k32.MapViewOfFile.restype = C.c_void_p
+        k32.UnmapViewOfFile.argtypes = [C.c_void_p]
+        k32.CloseHandle.argtypes = [wintypes.HANDLE]
+        self._k32 = k32
+        self._views: dict[str, tuple[int, int, int]] = {}  # tag -> (handle, view, size)
 
-    def read(self, tag: str, size: int) -> bytes:
-        m = self._maps[tag]
-        m.seek(0)
-        return m.read(size)
+    def read(self, tag: str, size: int) -> bytes | None:
+        view = self._views.get(tag)
+        if view is None or view[2] < size:
+            if view is not None:
+                self._close(tag)
+            handle = self._k32.OpenFileMappingW(self.FILE_MAP_READ, False, tag)
+            if not handle:
+                return None
+            ptr = self._k32.MapViewOfFile(handle, self.FILE_MAP_READ, 0, 0, size)
+            if not ptr:
+                self._k32.CloseHandle(handle)
+                return None
+            view = (handle, ptr, size)
+            self._views[tag] = view
+        return C.string_at(view[1], size)
+
+    def _close(self, tag: str) -> None:
+        handle, ptr, _ = self._views.pop(tag)
+        self._k32.UnmapViewOfFile(ptr)
+        self._k32.CloseHandle(handle)
+
+    def reset(self) -> None:
+        for tag in list(self._views):
+            self._close(tag)
 
     def close(self) -> None:
-        for m in self._maps.values():
-            m.close()
+        self.reset()
 
 
 def _parse(struct: type[C.Structure], data: bytes) -> C.Structure:
@@ -75,6 +109,7 @@ class AssettoCorsaAdapter(GameAdapter):
         reader: PageReader | None = None,
         clock: Callable[[], float] = time.monotonic,
         static_refresh_s: float = 2.0,
+        stale_after_s: float = 3.0,
     ) -> None:
         if reader is None:
             if sys.platform != "win32":
@@ -86,21 +121,43 @@ class AssettoCorsaAdapter(GameAdapter):
         self._static: SessionInfo | None = None
         self._static_read_at = -1e9
         self._session_type = SessionType.UNKNOWN
+        self._stale_after_s = stale_after_s
+        self._last_packet = -1
+        self._packet_changed_at = clock()
 
     # -- public -------------------------------------------------------------
 
     def poll(self) -> Frame | None:
-        phys = _parse(SPageFilePhysics, self._reader.read(PHYSICS_TAG, C.sizeof(SPageFilePhysics)))
-        gfx = _parse(SPageFileGraphic, self._reader.read(GRAPHICS_TAG, C.sizeof(SPageFileGraphic)))
+        now = self._clock()
+        raw_phys = self._reader.read(PHYSICS_TAG, C.sizeof(SPageFilePhysics))
+        raw_gfx = self._reader.read(GRAPHICS_TAG, C.sizeof(SPageFileGraphic))
+        if raw_phys is None or raw_gfx is None:
+            self._static = None
+            return Frame(t=now, status=GameStatus.OFF)
+        phys = _parse(SPageFilePhysics, raw_phys)
+        gfx = _parse(SPageFileGraphic, raw_gfx)
         status = _STATUS.get(gfx.status, GameStatus.OFF)
         self._session_type = SessionType(SESSION_TYPES.get(gfx.session, "unknown"))
+
+        # When AC quits, our open handle keeps the last page alive, frozen on
+        # "live". Treat a live page whose packet id stops moving as closed.
+        if phys.packetId != self._last_packet:
+            self._last_packet = int(phys.packetId)
+            self._packet_changed_at = now
+        elif status == GameStatus.LIVE and now - self._packet_changed_at > self._stale_after_s:
+            reset = getattr(self._reader, "reset", None)
+            if reset:
+                reset()
+            self._static = None
+            return Frame(t=now, status=GameStatus.OFF)
+
         if status == GameStatus.OFF:
-            return Frame(t=self._clock(), status=status)
+            return Frame(t=now, status=status)
 
         bb = float(phys.brakeBias)
         left = float(gfx.sessionTimeLeft)
         return Frame(
-            t=self._clock(),
+            t=now,
             status=status,
             packet_id=int(phys.packetId),
             gas=float(phys.gas),
@@ -138,7 +195,11 @@ class AssettoCorsaAdapter(GameAdapter):
         now = self._clock()
         if now - self._static_read_at >= self._static_refresh_s:
             self._static_read_at = now
-            st = _parse(SPageFileStatic, self._reader.read(STATIC_TAG, C.sizeof(SPageFileStatic)))
+            raw = self._reader.read(STATIC_TAG, C.sizeof(SPageFileStatic))
+            if raw is None:
+                self._static = None
+                return None
+            st = _parse(SPageFileStatic, raw)
             car = decode_wstr(st.carModel)
             track = decode_wstr(st.track)
             if not car or not track:

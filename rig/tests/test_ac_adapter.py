@@ -99,3 +99,31 @@ def test_brake_bias_zero_means_unknown(clock):
     pages = FakePages()
     pages.gfx.status = AC_LIVE
     assert AssettoCorsaAdapter(reader=pages, clock=clock).poll().brake_bias is None
+
+
+def test_missing_pages_mean_game_off(clock):
+    class Nothing:
+        def read(self, tag, size):
+            return None
+
+    ac = AssettoCorsaAdapter(reader=Nothing(), clock=clock)
+    assert ac.poll().status == GameStatus.OFF
+    assert ac.session() is None
+
+
+def test_frozen_live_page_is_treated_as_closed(clock):
+    pages = FakePages()
+    pages.gfx.status = AC_LIVE
+    pages.phys.packetId = 10
+    resets = []
+    pages.reset = lambda: resets.append(1)
+    ac = AssettoCorsaAdapter(reader=pages, clock=clock, stale_after_s=3.0)
+    assert ac.poll().status == GameStatus.LIVE
+    clock.advance(2.0)
+    assert ac.poll().status == GameStatus.LIVE
+    clock.advance(2.0)  # packet id hasn't moved for 4 s: AC has quit
+    assert ac.poll().status == GameStatus.OFF
+    assert resets
+    pages.phys.packetId = 11  # AC is back
+    clock.advance(0.1)
+    assert ac.poll().status == GameStatus.LIVE
