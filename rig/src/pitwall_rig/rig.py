@@ -73,6 +73,7 @@ class Rig:
         self._last_tick = now
 
         self.frame = frame
+        self.laps.max_tyres_out = self.config["laps"]["max_tyres_out"]
         self.laps.feed(frame, session)
         if self.recorder is not None and frame.status != GameStatus.OFF:
             self.recorder.add(frame, session)

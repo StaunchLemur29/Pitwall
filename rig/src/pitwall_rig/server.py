@@ -108,6 +108,9 @@ async def put_config(request: web.Request) -> web.Response:
 async def reset_config(request: web.Request) -> web.Response:
     rig, hub = request.app[RIG_KEY], request.app[HUB_KEY]
     rig.config.reset()
+    on_change = request.app.get(ON_CONFIG_KEY)
+    if on_change:
+        on_change()
     await hub.broadcast({"type": "config", "config": rig.config.data})
     return web.json_response(rig.config.data)
 

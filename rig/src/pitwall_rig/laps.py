@@ -81,7 +81,7 @@ class LapRecorder:
         finalize_timeout_s: float = 1.0,
     ) -> None:
         self._on_lap = on_lap
-        self._max_tyres_out = max_tyres_out
+        self.max_tyres_out = max_tyres_out
         self._wall = wall_clock
         self._timeout = finalize_timeout_s
         self._session_key: tuple[str, str, str] | None = None
@@ -155,7 +155,7 @@ class LapRecorder:
             track_key=self._session.track_key,
             lap_number=buf.lap_number + 1,
             lap_time_ms=lap_ms,
-            valid=(not out_lap) and buf.max_tyres_out <= self._max_tyres_out,
+            valid=(not out_lap) and buf.max_tyres_out <= self.max_tyres_out,
             out_lap=out_lap,
             started_at=buf.started_at,
             sector_ms=sectors,
