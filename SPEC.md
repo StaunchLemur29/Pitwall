@@ -115,7 +115,9 @@ The dashboard switches mode automatically from game state:
 Examples: lock-ups → BB/ABS advice; exit wheelspin → TC/throttle advice; braking earlier than reference; coasting; stepped brake release; throttle hesitation; not using track width; wrong gear; lifting instead of light braking; not adjusting BB/TC as fuel/tyres change.
 
 ### Blind-spot scan
-Runs silently over the first sessions. Only surfaces fundamentals the telemetry shows being missed; each becomes a 2-min lesson + drill. Complemented by a one-off ~5-min **knowledge quiz** (on the Mac) for things telemetry can't reveal (flags, pressures, ABS/TC theory, track limits).
+Order: **telemetry scan first, then the quiz.**
+1. **Scan** — runs silently over the first sessions. Only surfaces fundamentals the telemetry shows being missed; each becomes a 2-min lesson + drill.
+2. **Quiz** — offered once the scan has enough data: a one-off ~5-min **knowledge quiz** (on the Mac) for things telemetry can't reveal (flags, pressures, ABS/TC theory, track limits). It skips topics the scan already shows you handle, so it stays short.
 
 ### AI debrief (Claude)
 Post-session race-engineer debrief: explains *why*, answers follow-up questions, teaches theory in context. Also generates the **AI "time to beat"**: a realistic per-corner stretch target based on consistency and where time is lost.
