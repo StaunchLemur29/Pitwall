@@ -1,0 +1,271 @@
+# Pitwall — Spec
+
+A personal sim-racing coach and racing hub. A live dashboard runs on a vertical second monitor while driving; a cloud-synced hub (on a MacBook or anywhere) holds history, lessons, guides and analysis.
+
+Status: design agreed, not yet built. Owner: single user (for now).
+
+---
+
+## 1. Goals
+
+1. **Improve an already-quick, self-taught driver** (~600 h, mostly hotlaps/practice/AI races) — find the gaps in fundamentals they don't know they have, without re-teaching what they already do well.
+2. **Learn tracks fast**, including long ones (Nordschleife) section by section, with repeatable drills.
+3. **Learn cars**, especially the large modded collection (RSS open-wheel, GT, road, etc.).
+4. **Teach car electronics and setup** progressively (BB/ABS/TC first), without overload.
+5. **Build online racing confidence** through racecraft and etiquette teaching.
+6. Be a clean, portfolio-worthy project (private repo first, public later).
+
+### Driver context that shapes the design
+- ADHD: one focus per session, bite-sized lessons, minimal clutter, no nagging, optional gamification.
+- Drives first-person with the car's own dash visible; the in-game HUD already shows sectors, tyres, radar and a reference delta bar. **Pitwall must not duplicate these.**
+- Hardware: Thrustmaster TS-PC base, SF1000 rim (spare buttons/dials/one rear clutch paddle available) and a plain rim (no spare buttons → keyboard fallback). Second monitor: LG 24G411A-B, 1920×1080 used in portrait (1080×1920), not touch, same PC as the game.
+
+### Non-goals (for now)
+- Duplicating the in-game HUD (speed, gear, radar, sector times, tyre widget).
+- Multi-user / social features (structure for them, don't build them).
+- Full garage-setup coaching before the electronics stage is learned.
+
+---
+
+## 2. Games
+
+| Game | Priority | Telemetry | Section retry | Notes |
+|---|---|---|---|---|
+| Assetto Corsa (CM + CSP + Pure, heavily modded) | **Primary** | Shared memory `acpmf_physics/graphics/static` | CSP Lua companion app: rewind mod (TBC) or `physics.setCarPosition` teleport (offline only) | Exposes BB, ABS, TC, tyre pressures |
+| Assetto Corsa EVO | Casual, later | Shared memory `acevo_pmf_*` (undocumented, changes between builds — patch 0.6 renamed segments) | None (lap-pass attempts only) | BB/ABS/TC levels & pressures unconfirmed; version-check the layout |
+| BeamNG.drive | Later | OutGauge / MotionSim UDP | Vehicle Lua `setPositionRotation` | No third-party reference data |
+| iRacing | Future (if bought) | iRacing SDK memory map (60 Hz) + .ibt | Simulated "Active Reset" keybind (solo practice only) | Garage61 API for reference laps |
+
+**Rule:** each game is an *adapter* that declares capabilities (e.g. `canRetrySection`, `reportsBrakeBias`). UI features appear only when the active game supports them.
+
+---
+
+## 3. Architecture
+
+```
+┌──────────── Rig PC (Windows) ────────────┐        ┌──── Cloud ────┐
+│ Game ──shared mem/UDP──► Rig Service (Py)│        │ Supabase      │
+│   ▲  CSP Lua companion ◄─socket─┘   │    │──sync─►│  Postgres     │
+│   │  (rewind/teleport, markers)     │    │        │  Storage      │
+│ SF1000 (DirectInput, background) ──►│    │        │  Auth (1 user)│
+│ Windows media session (music) ◄────►│    │        │  Edge fns (AI)│
+│ Local SQLite + full 60 Hz traces    │    │        └──────┬────────┘
+│        │ WebSocket 30–60 Hz         │    │               │
+│        ▼                                 │        ┌──────▼────────┐
+│ Dashboard (browser, fullscreen, 1080×1920)│        │ Hub (Vercel)  │
+└──────────────────────────────────────────┘        │ MacBook/any   │
+                                                    └───────────────┘
+```
+
+- **Rig Service (Python)**: game adapters, lap/section detection, corner detection, live rules coach, TTS output, wheel input (DirectInput background, non-exclusive), music control via Windows `GlobalSystemMediaTransportControls` (works with Spotify and Apple Music), local SQLite, sync uploader, demo/replay source.
+- **Dashboard (TypeScript/React)**: the live portrait view, served locally; also openable on the LAN (e.g. the Mac as a second live screen when the PC is on).
+- **Hub (TypeScript/React, hosted on Vercel)**: history, progress, comparison, guides, lessons, quizzes, AI debrief; works when the rig PC is off.
+- **Cloud (Supabase)**: lap summaries, corner stats, progress, lesson state, downsampled traces (10–20 Hz). Full-res traces stay on the PC. Data model keeps a `user_id` everywhere so sharing/public profile can come later.
+- **AI**: Claude, called server-side only (Supabase edge function / rig service) so the API key is never in the browser. All AI features toggleable; everything else works without a key.
+- **Config without code**: layouts, widgets, thresholds, button mappings, verbosity, toggles — all editable in a settings UI (backed by a config file).
+- **Demo mode**: replay recorded sessions through the same pipeline (dev, Mac, portfolio).
+
+---
+
+## 4. Modes
+
+The dashboard switches mode automatically from game state:
+
+- **Driving** (on track): glanceable, high contrast.
+- **Analysis** (pits/menus/replay): last-stint summary, corner breakdown, debrief, start a drill.
+- **Pre-race** (race session before start): briefing (see §9).
+
+### Driving layout (default, 1080×1920, rearrangeable)
+
+```
+┌──────────────────────┐
+│  NEXT CORNER CARD    │  name/№, direction, gear, brake marker
+├──────────────────────┤
+│  MINI MAP + next 2   │  active section highlighted
+├──────────────────────┤
+│  DRILL / FOCUS       │  "Focus: trail brake T1 · 3/5 clean"
+│  + section delta     │
+├──────────────────────┤
+│  COACH TIP (1 line)  │  fades
+├──────────────────────┤
+│  BB / ABS / TC → sugg│
+├──────────────────────┤
+│  session timer · ♪   │
+└──────────────────────┘
+```
+
+---
+
+## 5. Input mapping
+
+- SF1000: 3–4 buttons/dials + optional rear clutch paddle. Default actions: next page, play/pause & skip, repeat last tip, retry section (rewind/teleport), mark corner.
+- Plain rim: keyboard shortcuts fallback.
+- All mappings set in the settings UI ("press the button to bind").
+
+---
+
+## 6. Coaching
+
+### Delivery
+- Audio + visual. Default **max one tip per lap**, delivered on a straight, never mid-corner.
+- Verbosity: silent / key only / chatty. **Quiet mode** silences audio in the corner being worked on.
+- **One focus per session** ("today: brake bias") — the coach ignores everything else.
+
+### Live rules engine (offline, free)
+Examples: lock-ups → BB/ABS advice; exit wheelspin → TC/throttle advice; braking earlier than reference; coasting; stepped brake release; throttle hesitation; not using track width; wrong gear; lifting instead of light braking; not adjusting BB/TC as fuel/tyres change.
+
+### Blind-spot scan
+Runs silently over the first sessions. Only surfaces fundamentals the telemetry shows being missed; each becomes a 2-min lesson + drill. Complemented by a one-off ~5-min **knowledge quiz** (on the Mac) for things telemetry can't reveal (flags, pressures, ABS/TC theory, track limits).
+
+### AI debrief (Claude)
+Post-session race-engineer debrief: explains *why*, answers follow-up questions, teaches theory in context. Also generates the **AI "time to beat"**: a realistic per-corner stretch target based on consistency and where time is lost.
+
+### Electronics & setup (progressive unlock tree)
+1. BB, ABS, TC (+ engine map where present) — explanation + telemetry-based suggestion.
+2. Tyre pressures (AC reports them live).
+3. Deeper garage setup (springs, dampers, aero…) — only once earlier stages are mastered.
+
+---
+
+## 7. Reference laps & targets
+
+Selectable / combinable:
+- Own best lap (**default delta**)
+- Theoretical best (best sectors)
+- AI time to beat (**default in drills**)
+- Online lap times as *targets* (via RSR / SRS / CM leaderboards — times only, no telemetry), labelled elite / average / your level
+- Imported laps (own older laps, friend's file, exports from paid tools where permitted)
+- AC AI line (for line drawing on the map)
+- **Famous times**: real records and well-known laps per track pack, **compared within car class**; where official timing with sector splits exists (e.g. Nürburgring 24h, Spa), use it as a sector-level reference
+- Future: Garage61 full-telemetry references (iRacing)
+
+Known gap: no free source of other drivers' telemetry exists for AC/EVO.
+
+---
+
+## 8. Track learning
+
+- **Auto corner detection** from lap/AI-line curvature → numbered corners on any (modded) track from day one.
+- **Track packs** (JSON/Markdown) override with real names, reference points, common mistakes, video timestamps, famous times; matched by track folder + layout. Corners can be renamed/merged in the hub.
+- **Next-corner card + map** (driving mode).
+- **Corner progress**: green when mastered, red when inconsistent.
+- **Audio pace notes** (rally-style), auto-fade per corner once consistent.
+- **Drill mode**: picks the weakest corner and focuses coaching there.
+
+### Section practice
+- Pick a section: one corner, a dragged range on the map, or a named section from a pack.
+- Section gets its own timer, delta, all-time best; every pass is an attempt.
+- **Retry** (AC + CSP, offline): rewind mod if it can be triggered (keeps momentum), else teleport slightly before section start. **Retry is button-only by default**; auto-retry-after-mistake optional per drill.
+- **Pass targets** (e.g. 3 clean attempts within 0.3 s of best).
+- End-of-drill summary ("12 attempts, best −0.4 s, consistency ↑").
+
+### Guides (structured, not just a clickable map)
+Each section/corner guide is a short chaptered lesson:
+1. Why it matters / what's tricky
+2. How to drive it (reference points, line, gear, where time can be sacrificed)
+3. Your data there
+4. Drive-along lap with pace notes
+5. Drill with pass target
+6. Recap → unlocks next chapter
+
+Nordschleife ≈ 8–10 chapters, one per session. Clickable map, line-vs-reference scrubber, onboard video timestamps and quiz cards support the guides.
+
+**Starter packs:** Nordschleife, Spa, Hampton Downs; then the major circuits.
+
+---
+
+## 9. Car learning
+
+- **Car profile card**: drivetrain, power/weight, aero dependence, electronics available + ranges, category. From readable data files where possible; otherwise **learned from telemetry** (real braking g, top speed, cornering g, rotation tendency) — many RSS/mod cars are encrypted.
+- **Shakedown routine** (3–5 laps, guided tasks: find braking limit, TC needs, where aero comes in) → AI summary.
+- **Transfer tips** relative to known cars.
+- **Per-car and car×track progress.**
+
+---
+
+## 10. Racecraft & online confidence
+
+(No radar/gaps — the in-game HUD has them.)
+1. Lesson cards: overtaking, defending, blue flags, rejoining, starts, lap 1.
+2. **Pre-race briefing**: track-specific danger corners, 3 rules to remember, safe passing spots.
+3. **Post-race incident review** from telemetry (contact, offs, unsafe rejoins) with what to do differently.
+4. Scenario drills vs AI ("follow 3 laps no contact, then pass clean").
+
+Assists/realism guidance (what servers expect) lives inside the guides.
+
+---
+
+## 11. Lessons & content
+
+- **Curated library** (Markdown, written once, reviewed): fundamentals, setup unlock tree, racecraft.
+- **AI follow-ups** for deeper questions.
+- Format: 1–3 min cards, never walls of text.
+- Gamification (streaks, corner greens, drills passed, car/track XP): light, on by default, can be turned off.
+
+### Voice
+Natural, informative race-engineer voice (not generic/obviously-AI). Pace notes rally-style. High-quality TTS **generated once and cached** for pace notes and lessons; Windows local TTS for instant live tips. 2–3 candidate voices to be auditioned.
+
+---
+
+## 12. Settings tools (for new users; owner already set up)
+
+Standalone tools, recommended during onboarding:
+1. FOV calculator (monitor size/aspect/distance → FOV, seat/camera position)
+2. Wheel/FFB: Thrustmaster Control Panel, AC FFB, CSP FFB tweaks; per-car steering lock & FFB
+3. Controls: deadzones, curves, brake gamma, SF1000 bindings
+4. Assists & realism (in guides)
+5. Graphics/performance (CSP + Pure)
+
+Reads AC `cfg/*.ini`; writes only after one-click confirm, with automatic backup, only while AC is closed.
+
+---
+
+## 13. Extras
+
+- **Music**: now playing + play/pause/skip via Windows media session (Spotify, Apple Music) and wheel buttons.
+- **Session timer**: compact — race time/laps remaining when relevant, rig-session timer, optional break reminder.
+- **Discord** (low priority): Rich Presence status ("Nordschleife · 911 GT3 · PB 7:12.4 · learning Fuchsröhre") via local IPC.
+- **Home Assistant** (very last): flags, shift light, pit lane, PB flash via HA WebSocket API; each toggleable.
+
+---
+
+## 14. Units & locale
+
+Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
+
+---
+
+## 15. Roadmap
+
+| Phase | Contents |
+|---|---|
+| **0 Foundation** | AC adapter, lap recording, SQLite, WebSocket, driving layout, settings UI, SF1000 input, demo/replay mode |
+| **1 Track learning core** | Auto corner detection, map, next-corner card, corner progress, section timing, drills + pass targets, CSP companion app (rewind/teleport), **mini Nordschleife pack** (corner names + chapter boundaries) |
+| **2 Cloud hub** | Supabase sync, hosted hub, history, lap comparison, AI debrief, AI time to beat |
+| **3 Coaching** | Live tips (audio+visual), blind-spot scan, electronics + pressure advisor, music, session timer |
+| **— v1 = phases 0–3 —** | |
+| 4 Content | Full Nordschleife/Spa/Hampton Downs packs, lesson library, setup unlock tree, quiz, pace notes, drive-along, famous times |
+| 5 Car learning | Profiles, shakedown, transfer tips |
+| 6 Racecraft | Lessons, pre-race briefing, incident review, AI scenario drills |
+| 7 Settings tools | FOV, FFB, controls, graphics; more track packs |
+| 8 Extras | Discord RP, EVO + BeamNG adapters, iRacing + Garage61, Home Assistant, polished README + demo GIF, public repo |
+
+---
+
+## 16. Open items
+
+- **Rewind mod**: name and whether it can be triggered from a CSP Lua app / externally. Affects only phase 1 retry implementation; teleport is the fallback.
+- **AC EVO fields**: confirm BB/ABS/TC levels and tyre pressures exist before building EVO electronics features.
+- **TTS voice**: audition 2–3 voices.
+
+---
+
+## 17. Key technical facts (from research, 2026-11)
+
+- AC EVO shared memory: `Local\acevo_pmf_physics|graphics|static`, ACC-style, undocumented; layout changed in patch 0.6.
+- CSP Lua: `physics.setCarPosition(carIndex, pos, dir)` — offline only; `shared/socket` and `web.*` available for talking to the rig service.
+- iRacing: no teleport API; Active Reset is keybind-only, solo practice.
+- BeamNG: OutGauge/MotionSim UDP; teleport via vehicle Lua (resets momentum).
+- Background wheel input: DirectInput `DISCL_BACKGROUND | DISCL_NONEXCLUSIVE` (or SDL with `SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1`).
+- Reference platforms (Track Titan, Coach Dave Delta, VRS) have no public APIs; Garage61 (iRacing) has one.
+- Discord Rich Presence still works via local IPC (`\\.\pipe\discord-ipc-0`).
