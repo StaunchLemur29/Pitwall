@@ -5,3 +5,6 @@ rem   start.bat --record "%USERPROFILE%\Desktop\spa.pwrec"     (save raw telemet
 rem   start.bat --game demo                                    (no game needed)
 cd /d "%~dp0\..\rig"
 uv run --extra input pitwall-rig run --open %*
+echo.
+echo Pitwall stopped.
+pause

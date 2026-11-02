@@ -18,9 +18,11 @@ popd
 
 echo.
 echo Done. Start Pitwall with scripts\start.bat
+pause
 exit /b 0
 
 :fail
 echo.
 echo Setup failed - see the error above.
+pause
 exit /b 1
