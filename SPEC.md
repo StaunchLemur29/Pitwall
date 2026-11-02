@@ -258,6 +258,8 @@ Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
 - **AC EVO fields**: confirm BB/ABS/TC levels and tyre pressures exist before building EVO electronics features.
 - **TTS voice**: audition 2–3 voices.
 
+- **GitHub Student Developer Pack** perks to check and use (offers change; verify at education.github.com/pack): free domain for the hosted hub, Azure for Students credit (Azure neural TTS as a voice candidate), Sentry for error tracking, Copilot, cloud credits as a fallback host.
+
 ---
 
 ## 17. Key technical facts (from research, 2026-11)
