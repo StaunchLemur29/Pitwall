@@ -34,6 +34,9 @@ log = logging.getLogger(__name__)
 
 TRACE_HZ = 20
 BATCH = 10  # laps per upload request
+# Bump when uploads gain something the hub needs from laps already uploaded:
+# every lap then goes up once more on the next start.
+UPLOAD_VERSION = 2  # 2: track-width advice and battery & DRS with each lap
 
 
 class CloudError(Exception):
@@ -152,6 +155,11 @@ class CloudSync:
             self.client.refresh_token = s["refresh_token"]
             self.client.user_id = s.get("user_id")
             self.state = "idle"
+            if s.get("upload_version", 1) < UPLOAD_VERSION:
+                log.info("Cloud: uploading every lap again with the fuller analysis")
+                self.store.mark_all_unsynced()
+                s["upload_version"] = UPLOAD_VERSION
+                self._save()
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -172,6 +180,7 @@ class CloudSync:
                 "user_id": client.user_id,
                 "refresh_token": client.refresh_token,
                 "rig_id": self.settings.get("rig_id") or uuid.uuid4().hex[:12],
+                "upload_version": UPLOAD_VERSION,
             }
             self._save()
             self.state, self.error = "idle", None
