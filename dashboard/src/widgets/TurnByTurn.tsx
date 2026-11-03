@@ -45,7 +45,15 @@ export function TurnByTurn() {
   const groupEl = useRef<SVGGElement>(null);
   const carEl = useRef<SVGPathElement>(null);
   const labelsEl = useRef<SVGGElement>(null);
-  const anim = useRef({ x: 0, z: 0, vx: 0, vz: 0, at: 0, view: 0, viewTarget: 0, car: null as number | null, ahead: 150, aheadTarget: 150 });
+  const anim = useRef({
+    x: 0, z: 0, vx: 0, vz: 0, at: 0,
+    view: 0, viewSet: false, idx: -1,
+    car: null as number | null, carRate: 0, carAt: 0,
+    ahead: 150, aheadTarget: 150,
+  });
+  const gaugeCar = useRef<HTMLDivElement>(null);
+  const geo = useRef(g);
+  geo.current = g;
 
   // Feed each telemetry sample into the animator.
   useEffect(() => {
@@ -55,9 +63,18 @@ export function TurnByTurn() {
     a.z = f.world[2];
     a.vx = f.velocity ? f.velocity[0] : 0;
     a.vz = f.velocity ? f.velocity[2] : 0;
-    a.at = performance.now();
-    a.viewTarget = tl.heading;
-    a.car = tl.car_heading ?? null;
+    const now = performance.now();
+    a.at = now;
+    // (Re)find ourselves on the outline at start, after a rewind or a new track.
+    const c0 = a.idx >= 0 && a.idx < g.center.length ? g.center[a.idx] : null;
+    if (!c0 || (c0[0] - a.x) ** 2 + (c0[1] - a.z) ** 2 > 40 * 40) a.idx = indexAt(g, tl.p);
+    const car = tl.car_heading ?? null;
+    if (car !== null && a.car !== null && now > a.carAt) {
+      // turning rate, so the arrow can keep rotating smoothly between updates
+      a.carRate = angDiff(car, a.car) / ((now - a.carAt) / 1000);
+    }
+    a.car = car;
+    a.carAt = now;
     const c = tl.corner;
     const toExit = c ? ((((c.exit - tl.p) % 1) + 1) % 1) * g.length_m : 0;
     const span = c ? (c.distance_m > 0 ? c.distance_m + 90 : toExit + 60) : 150;
@@ -74,15 +91,31 @@ export function TurnByTurn() {
       const lead = Math.min(EXTRAP_MAX_S, (now - a.at) / 1000);
       const x = a.x + a.vx * lead;
       const z = a.z + a.vz * lead;
-      // Ease the view rotation and zoom so the picture never jumps.
-      a.view += angDiff(a.viewTarget, a.view) * Math.min(1, dt * 6);
+      // Road direction and left/right position are worked out here, every
+      // display frame, from the predicted position — no waiting, no lag.
+      const gg = geo.current;
+      let frac: number | null = null;
+      if (gg && a.idx >= 0) {
+        a.idx = nearestIndex(gg, x, z, a.idx);
+        const roadDir = roadHeading(gg, a.idx);
+        // Only a whisper of smoothing, to hide the 3 m steps in the outline.
+        if (!a.viewSet) {
+          a.view = roadDir;
+          a.viewSet = true;
+        } else a.view += angDiff(roadDir, a.view) * Math.min(1, dt * 25);
+        frac = gg.has_edges ? acrossTrack(gg, a.idx, x, z) : null;
+      }
       a.ahead += (a.aheadTarget - a.ahead) * Math.min(1, dt * 3);
       const cx = w / 2;
       const cy = h * 0.8;
       const scale = h > 0 ? (cy - 24) / a.ahead : 1;
       const rot = -90 - a.view;
       groupEl.current?.setAttribute("transform", `translate(${cx},${cy}) rotate(${rot}) scale(${scale}) translate(${-x},${-z})`);
-      const carRot = a.car === null ? 0 : a.car - a.view;
+      const carLead = Math.min(EXTRAP_MAX_S, (now - a.carAt) / 1000);
+      const carRot = a.car === null ? 0 : a.car + a.carRate * carLead - a.view;
+      if (gaugeCar.current && frac !== null) {
+        gaugeCar.current.style.left = `${Math.max(-0.05, Math.min(1.05, frac)) * 100}%`;
+      }
       carEl.current?.setAttribute("transform", `translate(${cx},${cy}) rotate(${carRot})`);
       // Corner labels stay upright: place them in screen space.
       const rad = (rot * Math.PI) / 180;
@@ -149,7 +182,7 @@ export function TurnByTurn() {
           </svg>
         )}
       </div>
-      {live && tl?.frac != null && <WidthGauge frac={tl.frac} />}
+      {live && tl?.frac != null && <WidthGauge frac={tl.frac} carRef={gaugeCar} />}
     </Card>
   );
 }
@@ -174,6 +207,41 @@ function windowPaths(g: TrackGeometry, p: number) {
   };
 }
 
+/** Nearest outline point to (x, z), searching around the last one. */
+function nearestIndex(g: TrackGeometry, x: number, z: number, hint: number): number {
+  const n = g.center.length;
+  let best = hint;
+  let bestD = Infinity;
+  for (let k = -25; k <= 40; k++) {
+    const i = (((hint + k) % n) + n) % n;
+    const c = g.center[i];
+    const d = (c[0] - x) ** 2 + (c[1] - z) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/** Road direction (map degrees) averaged over ±12 m, so it turns smoothly. */
+function roadHeading(g: TrackGeometry, i: number): number {
+  const n = g.center.length;
+  const a = g.center[(((i - 4) % n) + n) % n];
+  const b = g.center[(i + 4) % n];
+  return (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
+}
+
+/** 0 at the left edge, 1 at the right edge (beyond = off track). */
+function acrossTrack(g: TrackGeometry, i: number, x: number, z: number): number {
+  const l = g.left[i];
+  const r = g.right[i];
+  const wx = r[0] - l[0];
+  const wz = r[1] - l[1];
+  const w2 = wx * wx + wz * wz;
+  return w2 > 0 ? ((x - l[0]) * wx + (z - l[1]) * wz) / w2 : 0.5;
+}
+
 function inRange(q: number, lo: number, hi: number): boolean {
   const span = (((hi - lo) % 1) + 1) % 1;
   return ((((q - lo) % 1) + 1) % 1) <= span;
@@ -191,13 +259,13 @@ function sideText(frac: number): string {
 }
 
 /** A strip across the track: left edge → right edge, with your car on it. */
-function WidthGauge({ frac }: { frac: number }) {
+function WidthGauge({ frac, carRef }: { frac: number; carRef: React.RefObject<HTMLDivElement> }) {
   const x = Math.max(-0.05, Math.min(1.05, frac));
   return (
     <div className="wgauge" aria-label="Position across the track">
       <span>L</span>
       <div className="wgauge__bar">
-        <div className="wgauge__car" style={{ left: `${x * 100}%` }} />
+        <div ref={carRef} className="wgauge__car" style={{ left: `${x * 100}%` }} />
       </div>
       <span>R</span>
     </div>
