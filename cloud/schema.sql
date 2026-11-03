@@ -67,6 +67,10 @@ create table if not exists public.debriefs (
   created_at  timestamptz not null default now()
 );
 
+-- One debrief per session (the rig uploads it, and may replace it).
+create unique index if not exists debriefs_session
+  on public.debriefs (user_id, game, car, track_key, session_start);
+
 -- Only your own rows, for every table.
 alter table public.laps enable row level security;
 alter table public.tracks enable row level security;

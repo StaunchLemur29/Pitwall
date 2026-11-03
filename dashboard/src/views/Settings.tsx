@@ -3,7 +3,7 @@ import { cancelBinding, inputDevices, resetConfig, saveConfig, startBinding, use
 import type { Binding, Config, WidgetId, WidgetSlot } from "../lib/types";
 import { WIDGETS } from "../widgets";
 
-type Tab = "general" | "layout" | "controls" | "cloud" | "advanced";
+type Tab = "general" | "layout" | "controls" | "cloud" | "ai" | "advanced";
 
 export function Settings() {
   const live = useRig((s) => s.config);
@@ -74,9 +74,9 @@ export function Settings() {
       )}
 
       <nav className="tabs">
-        {(["general", "layout", "controls", "cloud", "advanced"] as Tab[]).map((t) => (
+        {(["general", "layout", "controls", "cloud", "ai", "advanced"] as Tab[]).map((t) => (
           <button key={t} className={`tabs__tab ${tab === t ? "tabs__tab--on" : ""}`} onClick={() => setTab(t)}>
-            {t[0].toUpperCase() + t.slice(1)}
+            {t === "ai" ? "AI" : t[0].toUpperCase() + t.slice(1)}
           </button>
         ))}
       </nav>
@@ -88,6 +88,7 @@ export function Settings() {
         <Controls draft={draft} edit={edit} actions={actions} bindingAction={bindingAction} dirty={dirty} />
       )}
       {tab === "cloud" && <Cloud />}
+      {tab === "ai" && <AI />}
       {tab === "advanced" && (
         <Advanced
           draft={draft}
@@ -195,6 +196,83 @@ function Cloud() {
           {busy ? "Connecting…" : "Connect"}
         </button>
       </div>
+    </div>
+  );
+}
+
+interface AIStatus {
+  configured: boolean;
+  key_hint?: string | null;
+  auto?: boolean;
+  model?: string;
+  state?: string;
+  error?: string | null;
+  available?: boolean;
+}
+
+/** The AI debrief: your Anthropic API key (kept on this PC only) and automatic debriefs. */
+function AI() {
+  const [st, setSt] = useState<AIStatus | null>(null);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/ai").then((r) => r.json()).then(setSt).catch(() => {});
+  }, []);
+  const post = async (body: unknown) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok) setErr(j.error ?? "Something went wrong");
+      else {
+        setSt(j);
+        setKey("");
+      }
+    } catch {
+      setErr("Couldn't reach the Pitwall service");
+    }
+    setBusy(false);
+  };
+  if (!st) return <div className="panel">Loading…</div>;
+  return (
+    <div className="panel">
+      <p className="field__hint">
+        After a session with at least 3 clean laps, Claude writes a short race-engineer debrief: the one thing worth the most
+        time, a couple of smaller notes, what's going well, and a section to drill. It appears in the analysis here and in the hub.
+        Each debrief costs roughly 10 cents, billed to your Anthropic account.
+      </p>
+      {st.configured ? (
+        <>
+          <p>
+            <span className="good">●</span> API key saved ({st.key_hint}) · model {st.model}
+          </p>
+          {st.state === "error" && st.error && <p className="warn">Last debrief failed: {st.error}</p>}
+          <Field label="Write a debrief automatically when a session ends">
+            <input type="checkbox" checked={!!st.auto} disabled={busy} onChange={(e) => post({ auto: e.target.checked })} />
+          </Field>
+          <Field label="Replace the key">
+            <input className="textin" type="password" value={key} placeholder="sk-ant-…" onChange={(e) => setKey(e.target.value)} />
+          </Field>
+          <div className="row">
+            <button className="btn" disabled={busy || !key} onClick={() => post({ api_key: key })}>{busy ? "Checking…" : "Save key"}</button>
+            <button className="btn btn--ghost" disabled={busy} onClick={() => confirm("Remove the API key from this PC?") && post({ clear: true })}>
+              Remove key
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <Field label="Anthropic API key" hint="Create one at console.anthropic.com → API Keys (and add some credit under Billing). It's checked, then kept on this PC only.">
+            <input className="textin" type="password" value={key} placeholder="sk-ant-…" onChange={(e) => setKey(e.target.value)} />
+          </Field>
+          <div className="row">
+            <button className="btn" disabled={busy || !key} onClick={() => post({ api_key: key })}>{busy ? "Checking…" : "Save key"}</button>
+          </div>
+        </>
+      )}
+      {err && <p className="warn">{err}</p>}
     </div>
   );
 }

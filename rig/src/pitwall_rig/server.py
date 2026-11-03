@@ -234,6 +234,71 @@ async def cloud_sync_now(request: web.Request) -> web.Response:
     return web.json_response(cloud.status())
 
 
+# -- AI debrief -----------------------------------------------------------------------
+
+
+def _ai(request: web.Request) -> Any:
+    ai = request.app.get(AI_KEY)
+    if ai is None:
+        raise web.HTTPNotFound(text="AI debriefs aren't available here")
+    return ai
+
+
+async def get_ai(request: web.Request) -> web.Response:
+    ai = request.app.get(AI_KEY)
+    return web.json_response(ai.status() if ai else {"configured": False, "available": False})
+
+
+async def post_ai(request: web.Request) -> web.Response:
+    """Save the API key (checked first) and/or the auto setting. The key never comes back out."""
+    from .debrief import DebriefError, check_key
+
+    ai = _ai(request)
+    try:
+        b = await request.json()
+    except json.JSONDecodeError:
+        b = {}
+    if b.get("clear"):
+        ai.settings.api_key = None
+    key = str(b.get("api_key") or "").strip()
+    if key:
+        try:
+            await asyncio.get_running_loop().run_in_executor(None, check_key, key, ai.client_factory)
+        except DebriefError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        ai.settings.api_key = key
+    if "auto" in b:
+        ai.settings.auto = bool(b["auto"])
+    ai.settings.save()
+    return web.json_response(ai.status())
+
+
+async def post_debrief(request: web.Request) -> web.Response:
+    from .debrief import DebriefError
+
+    ai = _ai(request)
+    try:
+        b = await request.json()
+    except json.JSONDecodeError:
+        b = {}
+    args = [str(b.get(k) or "") for k in ("game", "car", "track_key")]
+    if not all(args):
+        return web.json_response({"error": "Which car + track?"}, status=400)
+    try:
+        d = await asyncio.get_running_loop().run_in_executor(None, ai.write_now, *args)
+    except DebriefError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    return web.json_response(d)
+
+
+async def get_debriefs(request: web.Request) -> web.Response:
+    q = request.query
+    rig = request.app[RIG_KEY]
+    if not all(q.get(k) for k in ("game", "car", "track_key")):
+        return web.json_response([])
+    return web.json_response(rig.store.debriefs(q["game"], q["car"], q["track_key"]))
+
+
 async def get_combos(request: web.Request) -> web.Response:
     return web.json_response(request.app[RIG_KEY].combos())
 
@@ -364,6 +429,7 @@ INPUT_KEY: web.AppKey[Any] = web.AppKey("input")
 TASK_KEY: web.AppKey[Any] = web.AppKey("rig_task")
 LOOP_GAPS_KEY: web.AppKey[Any] = web.AppKey("loop_gaps")
 CLOUD_KEY: web.AppKey[Any] = web.AppKey("cloud")
+AI_KEY: web.AppKey[Any] = web.AppKey("ai")
 
 
 # -- app --------------------------------------------------------------------
@@ -466,6 +532,10 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_post("/api/cloud/connect", cloud_connect)
     app.router.add_post("/api/cloud/disconnect", cloud_disconnect)
     app.router.add_post("/api/cloud/sync", cloud_sync_now)
+    app.router.add_get("/api/ai", get_ai)
+    app.router.add_post("/api/ai", post_ai)
+    app.router.add_post("/api/debrief", post_debrief)
+    app.router.add_get("/api/debriefs", get_debriefs)
     app.router.add_post("/api/csp/sync", csp_sync)
     app.router.add_get("/api/csp/track", csp_track)
     app.router.add_post("/api/drill", post_drill)

@@ -2335,3 +2335,58 @@ select {
     display: none;
   }
 }
+
+/* -- AI debrief ---------------------------------------------------------- */
+
+.debrief {
+  background: var(--card-2);
+  border-radius: 12px;
+  padding: 10px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.debrief__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.debrief__head .btn {
+  margin-left: auto;
+}
+
+.debrief__when {
+  font-size: 12px;
+}
+
+.debrief__empty {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.debrief__old {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+.md {
+  font-size: max(13px, calc(var(--u) * 1.9));
+  line-height: 1.5;
+}
+
+.md p {
+  margin: 0 0 6px;
+}
+
+.md ul {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
+
+.md b {
+  color: var(--text);
+}
