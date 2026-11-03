@@ -351,6 +351,11 @@ class Rig:
             self.stop_drill()
         elif name == "open_analysis":
             self.on_open_analysis()
+        elif name == "rewind":
+            from .input import press_key
+
+            ac = self.config["games"]["ac"]
+            press_key(ac["rewind_key"], ac["rewind_hold_ms"] / 1000)
         self.emit({"type": "action", "action": name})
 
     def raw_input(self, ev: InputEvent) -> None:

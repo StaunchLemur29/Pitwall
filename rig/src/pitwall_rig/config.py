@@ -36,6 +36,7 @@ ACTIONS: dict[str, str] = {
     "drill_here": "Start a drill on the next corner",
     "stop_drill": "Stop the drill",
     "open_analysis": "Open analysis on the main screen",
+    "rewind": "Rewind (presses your Time Shift key)",
 }
 
 
@@ -46,7 +47,9 @@ def _w(widget: str, size: int = 1) -> dict[str, Any]:
 DEFAULTS: dict[str, Any] = {
     "game": "ac",
     # Leave install_dir empty to find Assetto Corsa through Steam automatically.
-    "games": {"ac": {"install_dir": ""}},
+    # rewind_key: the key Pitwall presses to trigger CSP's Time Shift rewind
+    # (bind the same key inside Time Shift). rewind_hold_ms: hold it this long.
+    "games": {"ac": {"install_dir": "", "rewind_key": "insert", "rewind_hold_ms": 120}},
     "server": {"host": "127.0.0.1", "port": 8765},
     "rates": {"poll_hz": 60, "broadcast_hz": 30},
     "laps": {"max_tyres_out": 2},

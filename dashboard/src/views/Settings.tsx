@@ -123,6 +123,17 @@ function General({ draft, edit }: EditProps) {
           <option value="demo">Demo (fake car, no game needed)</option>
         </select>
       </Field>
+      <Field
+        label="Assetto Corsa folder"
+        hint="Leave empty to find it through Steam. Otherwise the folder that contains “content\\tracks”."
+      >
+        <input
+          className="textin"
+          placeholder="found automatically"
+          value={draft.games.ac.install_dir}
+          onChange={(e) => edit((c) => (c.games.ac.install_dir = e.target.value.trim()))}
+        />
+      </Field>
       <Field label="Accent colour">
         <input type="color" value={draft.display.accent} onChange={(e) => edit((c) => (c.display.accent = e.target.value))} />
       </Field>
@@ -381,6 +392,27 @@ function Controls({
           {" · "}Keyboard shortcuts: {devices.keyboard ? "on" : "off"}
         </p>
       )}
+      <div className="row">
+        <Field
+          label="Time Shift rewind key"
+          hint="Pitwall presses this key for the “Rewind” action. Bind the same key to Rewind inside CSP's Time Shift app."
+        >
+          <input
+            className="textin"
+            value={draft.games.ac.rewind_key}
+            onChange={(e) => edit((c) => (c.games.ac.rewind_key = e.target.value.trim()))}
+          />
+        </Field>
+        <Field label="Hold for (ms)" hint="Longer = rewinds further, if Time Shift rewinds while held.">
+          <input
+            type="number"
+            min={20}
+            max={5000}
+            value={draft.games.ac.rewind_hold_ms}
+            onChange={(e) => edit((c) => (c.games.ac.rewind_hold_ms = Number(e.target.value)))}
+          />
+        </Field>
+      </div>
       {dirty && <p className="warn">Save your other changes before binding buttons.</p>}
       {Object.entries(actions).map(([action, label]) => {
         const binds = draft.bindings[action] ?? [];

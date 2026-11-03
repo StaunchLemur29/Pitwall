@@ -184,3 +184,29 @@ class InputService:
                         held.discard((e.instance_id, e.axis, 1))
                         held.discard((e.instance_id, e.axis, -1))
             time.sleep(0.005)
+
+
+def press_key(name: str, hold_s: float = 0.1) -> bool:
+    """Press and release a key system-wide (goes to the focused window, i.e. the game).
+
+    ``name`` is a pynput key name ("insert", "f13", "home") or a single character.
+    Runs in a thread so the rig loop never waits for it.
+    """
+    try:
+        from pynput.keyboard import Controller, Key  # type: ignore[import-not-found]
+    except Exception:  # noqa: BLE001
+        log.warning("Can't press keys (install pitwall-rig[input]).")
+        return False
+    key = getattr(Key, name.lower(), None) if len(name) > 1 else name
+    if key is None:
+        log.warning("Unknown key name %r for rewind", name)
+        return False
+
+    def go() -> None:
+        kb = Controller()
+        kb.press(key)
+        time.sleep(max(0.02, hold_s))
+        kb.release(key)
+
+    threading.Thread(target=go, name="pitwall-keypress", daemon=True).start()
+    return True

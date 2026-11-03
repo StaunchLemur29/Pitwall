@@ -646,6 +646,7 @@ select {
 }
 
 .field input[type="number"],
+.field .textin,
 .field select,
 .keyadd input {
   background: var(--card);
