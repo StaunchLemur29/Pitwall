@@ -36,13 +36,18 @@ export function HubApp() {
   return <Hub sb={sb} email={session.user.email ?? ""} />;
 }
 
-function Shell({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
+function Shell({ children, title, right }: { children: React.ReactNode; title?: string; right?: React.ReactNode }) {
+  // Three columns: logo | title centred on the window | account. The outer two
+  // share the leftover space equally, so the title stays dead centre.
   return (
     <div className="apage hub">
-      <header className="apage__top">
-        <span className="brand">PITWALL</span>
-        <span className="dash__session">hub</span>
-        {right}
+      <header className="hub__top">
+        <span className="hub__left">
+          <span className="brand">PITWALL</span>
+          <span className="dash__session">hub</span>
+        </span>
+        <span className="hub__title">{title}</span>
+        <span className="hub__right">{right}</span>
       </header>
       {children}
     </div>
@@ -97,11 +102,9 @@ function Hub({ sb, email }: { sb: SupabaseClient; email: string }) {
   return (
     <SourceContext.Provider value={source}>
       <Shell
+        title={showing ? `${prettyName(showing.car)} · ${prettyName(showing.track_key)}` : ""}
         right={
           <>
-            <span className="dash__session hub__who">
-              {showing ? `${prettyName(showing.car)} · ${prettyName(showing.track_key)}` : ""}
-            </span>
             <span className="muted hub__email">{email}</span>
             <button className="btn btn--sm btn--ghost" onClick={() => sb.auth.signOut()}>Sign out</button>
           </>

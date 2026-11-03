@@ -1550,12 +1550,25 @@ select {
   background: transparent;
 }
 
+/* Wide: the left column scrolls as one page (summary, map, sections in full),
+   rather than squeezing the sections into whatever height is left. */
+.la--wide .la__left {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.la--wide .la__left > * {
+  flex-shrink: 0;
+}
+
 .la--wide .la__left .la__map {
-  flex: 0 0 36%;
+  flex: 0 0 auto;
+  height: max(300px, 46vh);
 }
 
 .la--wide .la__list {
-  height: 100%;
+  flex: none;
+  overflow: visible;
 }
 
 @media (max-width: 900px) {
@@ -2253,8 +2266,32 @@ select {
 
 /* -- hub (laps from the cloud) ------------------------------------------- */
 
-.hub .apage__top {
+.hub__top {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
   gap: 14px;
+  font-size: 16px;
+  color: var(--muted);
+}
+
+.hub__left,
+.hub__right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.hub__right {
+  justify-content: flex-end;
+}
+
+.hub__title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50vw;
 }
 
 .hub__main {
@@ -2294,7 +2331,7 @@ select {
 
 @media (max-width: 700px) {
   .hub__email,
-  .hub__who {
+  .hub__title {
     display: none;
   }
 }
