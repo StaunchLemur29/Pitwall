@@ -104,20 +104,6 @@ export function Settings() {
   );
 }
 
-function CarSystemsHeading() {
-  const systems = useRig((s) => s.carSystems);
-  return (
-    <>
-      <h2>Car systems</h2>
-      <p className="field__hint">
-        Bind these to SF1000 encoders or buttons. Pitwall applies them through the in-game app, so it needs to be running.
-        Each one only does something if the car has that system.
-        {systems.length ? ` This car: ${systems.join(" · ")}.` : ""}
-      </p>
-    </>
-  );
-}
-
 type EditProps = { draft: Config; edit: (fn: (c: Config) => void) => void };
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -484,7 +470,6 @@ function Controls({
         const waiting = bindingAction === action;
         return (
           <Fragment key={action}>
-          {action === "abs_up" && <CarSystemsHeading />}
           <div className="bind">
             <div className="bind__label">{label}</div>
             <ul className="bind__list">

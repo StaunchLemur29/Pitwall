@@ -34,9 +34,8 @@ Feature ideas:
 2. **Energy and DRS in the lap analysis**: battery charge and DRS open/closed
    along the lap; "where you ran out of battery", "DRS available but not
    opened".
-3. **Car systems on wheel buttons**: map deploy / recovery / engine brake /
-   BB to SF1000 encoders through Pitwall (the app applies them), with a
-   per-car "MFD page" on the dashboard; works with the plain rim via keyboard.
+3. ~~Car systems on wheel buttons through Pitwall~~: dropped, AC's own
+   controls already bind these directly.
 4. **Car profile auto-detect**: which systems a car has (from the fields
    above), so lessons and the electronics advisor only talk about what exists.
 5. **Brake migration / engine braking advice** per corner (phase 3+), once

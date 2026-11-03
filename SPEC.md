@@ -229,7 +229,7 @@ Reads AC `cfg/*.ini`; writes only after one-click confirm, with automatic backup
 - **Session timer**: compact — race time/laps remaining when relevant, rig-session timer, optional break reminder.
 - **Discord** (low priority): Rich Presence status ("Nordschleife · 911 GT3 · PB 7:12.4 · learning Fuchsröhre") via local IPC.
 - **Car systems & hardware** (from docs/research/car-and-hardware.md):
-  - done: car systems strip (DRS, battery, deploy, engine brake), battery & DRS along the lap in analysis ("ran out of battery", "DRS available but not opened"), car systems on wheel buttons / encoders via the app, per-car profile of which systems a car has (used by the UI now, by coaching later)
+  - done: car systems strip (DRS, battery, deploy, engine brake), battery & DRS along the lap in analysis ("ran out of battery", "DRS available but not opened"), per-car profile of which systems a car has (used by the UI now, by coaching later)
   - FFB clipping meter from AC's `finalFF` (per lap, per car, with a gain suggestion) for the TS-PC
   - T-LCM pedal check: peak brake per stop vs 100 %, consistency, release smoothness; calibration advice
 - **SF1000 wheel screen** (big feature): Pitwall drives the SF1000's built-in display with its own data, so key info sits on the wheel in your eyeline.
