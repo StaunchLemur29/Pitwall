@@ -1,10 +1,11 @@
-/** The hub's data: your uploaded laps in Supabase, read-only, compared in the browser. */
+/** The hub's data: your uploaded laps in Supabase, compared in the browser. */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Trace } from "../lib/profile";
 import type { Combo } from "../lib/rig";
 import type { AnalysisSource } from "../lib/source";
 import type { CarProfile, CornerReport, Debrief, LapSummary, TrackGeometry } from "../lib/types";
 import { buildReport, type HubLap } from "./report";
+import { debriefLap, MIN_CLEAN_LAPS, sessionSummary } from "./summary";
 
 const key = (c: { game: string; car: string; track_key: string }) => `${c.game}|${c.car}|${c.track_key}`;
 const unix = (iso: string) => Date.parse(iso) / 1000;
@@ -75,6 +76,27 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     return traces.get(id)!;
   };
 
+  const hubLaps = async (c: Combo): Promise<HubLap[]> =>
+    (await comboLaps(c)).map((r) => ({
+      id: r.id, lap_number: r.lap_number, lap_time_ms: r.lap_time_ms, valid: r.valid, out_lap: r.out_lap,
+      started_at: unix(r.started_at), sector_ms: r.sector_ms, corners: r.corners ?? null, systems: r.systems ?? null,
+    }));
+  const report = async (combo: Combo, lapId: number | null, compareId: number | null): Promise<CornerReport> => {
+    const [laps, geo, profile] = await Promise.all([hubLaps(combo), trackGeometry(combo), carProfile(combo)]);
+    const valid = laps.filter((l) => l.valid);
+    const shown = lapId ?? [...valid].sort((a, b) => b.started_at - a.started_at)[0]?.id ?? null;
+    const best = [...valid].sort((a, b) => a.lap_time_ms - b.lap_time_ms || a.id - b.id)[0]?.id ?? null;
+    const tr = new Map<number, Trace>();
+    for (const id of [shown, best]) {
+      if (id === null) continue;
+      const t = await trace(id);
+      if (t) tr.set(id, t);
+    }
+    const empty: TrackGeometry = { track_key: combo.track_key, length_m: 0, source: "laps", has_edges: false, progress: [], center: [], left: [], right: [], corners: [], sections: [], chapters: [], practice: [] };
+    return buildReport({ ...combo, laps, geometry: geo ?? empty, profile, traces: tr }, lapId, compareId);
+  };
+  let canWrite: Promise<boolean> | null = null;
+
   return {
     live: false,
 
@@ -110,22 +132,7 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
         combo = (data as Combo) ?? null;
       }
       if (!combo) throw new Error("No laps yet");
-      const [rows, geo, profile] = await Promise.all([comboLaps(combo), trackGeometry(combo), carProfile(combo)]);
-      const laps: HubLap[] = rows.map((r) => ({
-        id: r.id, lap_number: r.lap_number, lap_time_ms: r.lap_time_ms, valid: r.valid,
-        started_at: unix(r.started_at), sector_ms: r.sector_ms, corners: r.corners ?? null, systems: r.systems ?? null,
-      }));
-      const valid = laps.filter((l) => l.valid);
-      const shown = lapId ?? [...valid].sort((a, b) => b.started_at - a.started_at)[0]?.id ?? null;
-      const best = [...valid].sort((a, b) => a.lap_time_ms - b.lap_time_ms || a.id - b.id)[0]?.id ?? null;
-      const tr = new Map<number, Trace>();
-      for (const id of [shown, best]) {
-        if (id === null) continue;
-        const t = await trace(id);
-        if (t) tr.set(id, t);
-      }
-      const empty: TrackGeometry = { track_key: combo.track_key, length_m: 0, source: "laps", has_edges: false, progress: [], center: [], left: [], right: [], corners: [], sections: [], chapters: [], practice: [] };
-      return buildReport({ ...combo, laps, geometry: geo ?? empty, profile, traces: tr }, lapId, compareId);
+      return report(combo, lapId, compareId);
     },
 
     trace: (id) => trace(id),
@@ -136,6 +143,30 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
         .order("session_start", { ascending: false }).range(0, 49);
       return ((data ?? []) as (Omit<Debrief, "session_start" | "created_at"> & { session_start: string; created_at: string })[])
         .map((d) => ({ ...d, session_start: unix(d.session_start), created_at: unix(d.created_at) }));
+    },
+
+    // Debriefs written in Supabase (functions/debrief) with the key kept there.
+    canWriteDebrief() {
+      canWrite ??= sb.functions.invoke("debrief", { body: { action: "status" } })
+        .then(({ data, error }) => !error && !!data?.configured && !!data?.allowed)
+        .catch(() => false);
+      return canWrite;
+    },
+
+    async writeDebrief(c) {
+      const laps = await hubLaps(c);
+      const best = debriefLap(laps);
+      if (!best) throw new Error(`Drive at least ${MIN_CLEAN_LAPS} clean laps in a session first.`);
+      const [rep, geo] = await Promise.all([report(c, best.id, null), trackGeometry(c)]);
+      const summary = sessionSummary(c.car, c.track_key, laps, rep, geo);
+      const { data, error } = await sb.functions.invoke("debrief", { body: { game: c.game, car: c.car, track_key: c.track_key, summary } });
+      if (error) {
+        let msg = "Couldn't write the debrief.";
+        const res = (error as { context?: Response }).context;
+        if (res && typeof res.json === "function") msg = (await res.json().catch(() => null))?.error ?? msg;
+        throw new Error(msg);
+      }
+      return { ...data, session_start: unix(data.session_start), created_at: unix(data.created_at) } as Debrief;
     },
   };
 }

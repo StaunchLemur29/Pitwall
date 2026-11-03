@@ -19,6 +19,7 @@ class FakeSupabase:
         self.refresh: set[str] = set()
         self.requests = 0
         self.down = False
+        self.functions_url: str | None = None  # where /functions/v1/* goes (a locally run Edge Function)
         fake = self
 
         class H(BaseHTTPRequestHandler):
@@ -34,7 +35,31 @@ class FakeSupabase:
                 self.end_headers()
                 self.wfile.write(raw)
 
+            def _function(self, method):
+                """Pass /functions/v1/<name> on to the locally running function."""
+                import urllib.error
+                import urllib.request
+
+                n = int(self.headers.get("Content-Length", 0))
+                req = urllib.request.Request(
+                    fake.functions_url + self.path[len("/functions/v1"):], data=self.rfile.read(n) if n else None,
+                    method=method, headers={k: v for k, v in self.headers.items() if k.lower() != "host"})
+                try:
+                    with urllib.request.urlopen(req, timeout=60) as r:
+                        code, headers, raw = r.status, r.headers, r.read()
+                except urllib.error.HTTPError as e:
+                    code, headers, raw = e.code, e.headers, e.read()
+                self.send_response(code)
+                for k, v in headers.items():
+                    if k.lower() not in ("content-length", "transfer-encoding", "connection", "date", "server"):
+                        self.send_header(k, v)
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
             def do_OPTIONS(self):  # browser preflight
+                if self.path.startswith("/functions/v1/") and fake.functions_url:
+                    return self._function("OPTIONS")
                 self.send_response(204)
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self.send_header("Access-Control-Allow-Headers", "*")
@@ -46,6 +71,10 @@ class FakeSupabase:
                 fake.requests += 1
                 u = urlparse(self.path)
                 user = fake.tokens.get((self.headers.get("Authorization") or "")[7:])
+                if u.path == "/auth/v1/user":
+                    if not user:
+                        return self._send(401, {"message": "invalid JWT"})
+                    return self._send(200, {"id": user, "aud": "authenticated", "role": "authenticated", "email": fake.email})
                 if not u.path.startswith("/rest/v1/") or not user:
                     return self._send(401, {"message": "JWT expired"})
                 q = parse_qs(u.query)
@@ -70,6 +99,8 @@ class FakeSupabase:
 
             def do_POST(self):
                 fake.requests += 1
+                if self.path.startswith("/functions/v1/") and fake.functions_url:
+                    return self._function("POST")
                 if fake.down:
                     return self._send(503, {"message": "down"})
                 if self.headers.get("apikey") != fake.anon_key:
@@ -98,7 +129,7 @@ class FakeSupabase:
                     table = u.path.rsplit("/", 1)[1]
                     keys = parse_qs(u.query)["on_conflict"][0].split(",")
                     rows = fake.tables.setdefault(table, {})
-                    for r in body:
+                    for r in body if isinstance(body, list) else [body]:
                         if r.get("user_id") not in (None, user):  # row-level security
                             return self._send(403, {"message": "new row violates row-level security policy"})
                         r = {**r, "user_id": user}

@@ -161,3 +161,17 @@ def test_debriefs_reach_the_cloud(demo, clock, config, store, tmp_path):
         assert store.unsynced_debriefs() == []
     finally:
         supa.close()
+
+
+def test_hub_function_uses_the_same_prompt_and_model() -> None:
+    """The hub's debrief function (cloud/supabase/functions/debrief/prompt.ts) mirrors debrief.py."""
+    import re
+    from pathlib import Path
+
+    from pitwall_rig.debrief import MIN_CLEAN_LAPS, MODEL, SYSTEM
+
+    ts = (Path(__file__).resolve().parents[2] / "cloud" / "supabase" / "functions" / "debrief" / "prompt.ts").read_text(encoding="utf-8")
+    assert f'export const MODEL = "{MODEL}";' in ts
+    assert f"export const MIN_CLEAN_LAPS = {MIN_CLEAN_LAPS};" in ts
+    m = re.search(r"export const SYSTEM = `(.*?)`;", ts, re.S)
+    assert m and m.group(1) == SYSTEM

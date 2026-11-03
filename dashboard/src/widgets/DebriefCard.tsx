@@ -67,7 +67,8 @@ export function DebriefCard({ combo, panel = false }: { combo: Combo | null; pan
     setBusy(false);
   };
   const [latest, ...rest] = list;
-  if (!latest && !src.writeDebrief) return null; // hub, nothing yet
+  // Hub without debriefs set up (README, AI debrief) and nothing written yet: nothing to show.
+  if (!latest && !(src.writeDebrief && (canWrite || src.live))) return null;
   const head = (
     <>
       {latest && <span className="muted debrief__when">session {when(latest.session_start)}</span>}
@@ -91,7 +92,9 @@ export function DebriefCard({ combo, panel = false }: { combo: Combo | null; pan
       ) : (
         <p className="muted debrief__empty">
           {canWrite
-            ? "No debrief for this car + track yet. One is written automatically when a session ends (3+ clean laps), or press Write debrief."
+            ? src.live
+              ? "No debrief for this car + track yet. One is written automatically when a session ends (3+ clean laps), or press Write debrief."
+              : "No debrief for this car + track yet. Press Write debrief for your latest session (3+ clean laps)."
             : "Add your Anthropic API key in Settings → AI to get a race-engineer debrief after each session."}
         </p>
       )}
