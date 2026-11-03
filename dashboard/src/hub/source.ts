@@ -129,5 +129,7 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     },
 
     trace: (id) => trace(id),
+    // Worked out on the rig PC; the hub gets its per-corner numbers with each lap.
+    optimal: async () => null,
   };
 }

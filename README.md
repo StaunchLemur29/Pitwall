@@ -45,6 +45,10 @@ preferred, Edge as a fallback). If it picks the wrong screen, choose one under
   Each corner's close-up shows an **optimal racing line** (dotted), worked
   out from the track's edges; **+ Optimal line** adds it to the lap map. The
   track-width tips say how far you were from it at turn-in, apex and exit.
+  Once you have a few clean laps, the **optimal run** (that line driven at
+  your car's grip, learnt from your fastest laps) adds optimal speed, brake and
+  throttle to the corner charts, an Optimal run column, notes on where you
+  differ, and an estimated lap time.
 - The **–** button minimises the dashboard; **⏻** stops Pitwall.
 - Press **L** on the dashboard for the lag meter and **Record performance**
   (saves a report to `%APPDATA%\Pitwall\perf`).

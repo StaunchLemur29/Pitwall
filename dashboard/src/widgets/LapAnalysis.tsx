@@ -64,6 +64,7 @@ export function LapAnalysis({
   const [focus, setFocus] = useState<number | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [showOpt, setShowOpt] = useState(false);
+  const [optTrace, setOptTrace] = useState<Trace | null>(null);
 
   const requested = lapId ?? (active ? null : latest?.lap_id ?? null);
   useEffect(() => {
@@ -84,6 +85,16 @@ export function LapAnalysis({
     };
   }, [shownId]);
   const theo = active ? report?.theoretical_best_ms ?? null : liveTheo;
+  // The optimal run: fetched again whenever it's been worked out afresh.
+  const optLap = report?.optimal?.lap_s ?? null;
+  useEffect(() => {
+    if (optLap === null) return setOptTrace(null);
+    let live = true;
+    src.optimal(active).then((o) => live && setOptTrace(o?.trace ?? null));
+    return () => {
+      live = false;
+    };
+  }, [optLap, activeKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     onShowing?.(report?.car && report.track_key ? { car: report.car, track_key: report.track_key } : null);
   }, [report?.car, report?.track_key]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -168,6 +179,12 @@ export function LapAnalysis({
         <div className="lsum__stat">
           <div className="lsum__big lsum__theo">{lapTime(theo)}</div>
           <div className="muted">best sectors combined</div>
+        </div>
+      ) : null}
+      {optLap !== null ? (
+        <div className="lsum__stat" title={optTitle(report?.optimal)}>
+          <div className="lsum__big lsum__opt">{lapTime(Math.round(optLap * 1000))}</div>
+          <div className="muted">optimal run (estimate)</div>
         </div>
       ) : null}
       <div className="lsum__where">
@@ -369,6 +386,7 @@ export function LapAnalysis({
                 otherLabel={label}
                 myTrace={trace}
                 otherTrace={otherTrace}
+                optTrace={optTrace}
                 mastery={report?.mastery.find((x) => x.corner === corner.number)}
                 section={canDrill ? section : undefined}
                 onStep={step}
@@ -384,7 +402,8 @@ export function LapAnalysis({
             <span className="nsum__t">{lapTime(shown?.lap_time_ms)}</span>
             {lapDelta !== null && <span className={lapDelta <= 0 ? "good" : "bad"}>{delta(lapDelta, 3)}</span>}
             {lapDelta !== null && <span className="muted">vs {label}</span>}
-            {theo ? <span className="nsum__theo" title="best sectors combined">optimal {lapTime(theo)}</span> : null}
+            {theo ? <span className="nsum__theo" title="best sectors combined">best sectors {lapTime(theo)}</span> : null}
+            {optLap !== null ? <span className="nsum__theo" title={optTitle(report?.optimal)}>optimal run {lapTime(Math.round(optLap * 1000))}</span> : null}
           </div>
           {modes}
           <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} />
@@ -393,6 +412,17 @@ export function LapAnalysis({
         </div>
       )}
     </Card>
+  );
+}
+
+function optTitle(o: { laps_used: number; grip: Record<string, number> } | null | undefined): string {
+  if (!o) return "";
+  const g = o.grip;
+  return (
+    "The optimal line driven at this car's grip, learnt from your " +
+    `${o.laps_used} fastest lap${o.laps_used === 1 ? "" : "s"} here ` +
+    `(cornering ${g.lat_g_100} g at 100 km/h, ${g.lat_g_200} g at 200; braking ${g.brake_g_100} g). ` +
+    "An estimate: only as good as the laps it learnt from."
   );
 }
 

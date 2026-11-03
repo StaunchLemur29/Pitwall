@@ -174,7 +174,17 @@ async def get_track(request: web.Request) -> web.Response:
             None, rig.track_geometry, q.get("game"), q.get("car"), q.get("track_key")
         )
         return web.json_response(geo)
-    return web.json_response(rig.track.model.geometry() if rig.track else None)
+    # The live track: never wait for the optimal line here (it's sent when ready).
+    return web.json_response(rig.track.model.geometry(compute_optimal=False) if rig.track else None)
+
+
+async def get_optimal(request: web.Request) -> web.Response:
+    rig = request.app[RIG_KEY]
+    q = request.query
+    out = await asyncio.get_running_loop().run_in_executor(
+        None, rig.optimal_trace, q.get("game"), q.get("car"), q.get("track_key")
+    )
+    return web.json_response(out)
 
 
 async def csp_sync(request: web.Request) -> web.Response:
@@ -461,6 +471,7 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_post("/api/perf-report", post_perf_report)
     app.router.add_get("/api/track", get_track)
     app.router.add_get("/api/corners", get_corners)
+    app.router.add_get("/api/optimal", get_optimal)
     app.router.add_get("/api/combos", get_combos)
     app.router.add_get("/api/cloud", get_cloud)
     app.router.add_post("/api/cloud/connect", cloud_connect)

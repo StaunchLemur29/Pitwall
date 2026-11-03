@@ -5,7 +5,7 @@
  */
 import { createContext, useContext } from "react";
 import type { Trace } from "./profile";
-import { fetchCombos, fetchCorners, fetchGeometry, fetchLaps, fetchTrace, type Combo } from "./rig";
+import { fetchCombos, fetchCorners, fetchGeometry, fetchLaps, fetchOptimal, fetchTrace, type Combo } from "./rig";
 import type { CornerReport, LapSummary, TrackGeometry } from "./types";
 
 export interface AnalysisSource {
@@ -17,6 +17,8 @@ export interface AnalysisSource {
   /** One lap broken down, compared with another (null: the lap's best / next best). */
   corners(lapId: number | null, compareId: number | null, combo: Combo | null): Promise<CornerReport>;
   trace(lapId: number, hz: number): Promise<Trace | null>;
+  /** The optimal run (optimal line at this car's grip) as a trace; null where there isn't one. */
+  optimal(combo: Combo | null): Promise<{ lap_s: number; trace: Trace } | null>;
 }
 
 export const rigSource: AnalysisSource = {
@@ -26,6 +28,7 @@ export const rigSource: AnalysisSource = {
   laps: fetchLaps,
   corners: fetchCorners,
   trace: fetchTrace,
+  optimal: fetchOptimal,
 };
 
 export const SourceContext = createContext<AnalysisSource>(rigSource);
