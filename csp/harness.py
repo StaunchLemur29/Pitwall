@@ -106,6 +106,10 @@ def main() -> int:
     ui.dwriteTextAligned = lambda text, size, h, v, box, wrap, colour: state["texts"].append(text)
     ui.measureDWriteText = lambda text, size: lua.eval("function(n) return { x = n, y = 20 } end")(len(text) * size * 0.55)
     ui.setCursor = lambda *a: None
+    ui.pathLineTo = lambda *a: None
+    ui.pathArcTo = lambda *a: None
+    ui.pathStroke = lambda *a: state["texts"].append("<arrow>")
+    ui.drawTriangleFilled = lambda *a: None
     ui.textWrapped = lambda *a: None
     g.ui = ui
     lua.execute("ui.Alignment = { Start = 0, Center = 1, End = 2 }")
@@ -144,7 +148,7 @@ def main() -> int:
         state["texts"].clear()
         script.windowMain(1 / 60)
         texts = list(state["texts"])
-        seen_corner |= any(t in ("L1", "L2", "L3", "L4", "L5", "L6", "R1", "R2", "R3", "R4", "R5", "R6") for t in texts)
+        seen_corner |= "<arrow>" in texts
         seen_brake |= any(t.isdigit() for t in texts)
         seen_cue |= "BRAKE" in texts
         quiet_frames += not texts
@@ -167,8 +171,8 @@ def main() -> int:
         return out
 
     texts = lap_texts()
-    check("turn shows the gear rally-style", any(t.endswith(("1st", "2nd", "3rd", "4th", "5th", "6th")) for t in texts),
-          str(sorted(texts))[:200])
+    gears = {str(c["gear"]) for c in track["corners"] if c.get("gear")}
+    check("turn arrow comes with the gear to be in", "<arrow>" in texts and gears & texts, str(sorted(texts))[:200])
     # Turn the turn off in Pitwall's settings: the overlay follows.
     _, cfg = http("GET", RIG + "/api/config")
     cfg = json.loads(cfg)
@@ -176,8 +180,8 @@ def main() -> int:
     http("PUT", RIG + "/api/config", json.dumps(cfg))
     tick(2)
     texts = lap_texts()
-    check("'show the turn' off in Pitwall hides it in game", not any(t[:1] in "LR" and t[1:].isdigit() for t in texts)
-          and "BRAKE" in texts, str(sorted(texts))[:200])
+    check("'show the turn' off in Pitwall hides it in game", "<arrow>" not in texts and "BRAKE" in texts,
+          str(sorted(texts))[:200])
     cfg["overlay"]["show_turn"] = True
     http("PUT", RIG + "/api/config", json.dumps(cfg))
     tick(2)

@@ -218,6 +218,33 @@ local function ordinal(n)
   return n .. suffix
 end
 
+-- The turn as a picture: a bent arrow, tighter for sharper corners (same as the
+-- dashboard's). Drawn in a size x size box with its top-left at (x, y).
+local BENDS = { [1] = 170, [2] = 135, [3] = 105, [4] = 75, [5] = 50, [6] = 30 }
+local function drawTurn(x, y, size, dir, grade, colour)
+  local k = size / 100
+  local function P(px, py) return vec2(x + px * k, y + py * k) end
+  local bend = math.rad(BENDS[grade] or 60)
+  local s = dir == 'R' and 1 or -1
+  local r = grade <= 2 and 16 or 24
+  local cy = 58
+  local cx = 50 + s * r
+  local ex, ey = cx - s * r * math.cos(bend), cy - r * math.sin(bend)
+  -- stem, then the arc round the corner
+  ui.pathLineTo(P(50, 96))
+  ui.pathLineTo(P(50, cy))
+  if s > 0 then
+    ui.pathArcTo(P(cx, cy), r * k, math.pi, math.pi + bend, 24)
+  else
+    ui.pathArcTo(P(cx, cy), r * k, 0, -bend, 24)
+  end
+  ui.pathStroke(colour, false, 9 * k)
+  -- arrow head
+  local tx, ty = s * math.sin(bend), -math.cos(bend)
+  local nx, ny = -ty, tx
+  ui.drawTriangleFilled(P(ex + tx * 17, ey + ty * 17), P(ex + nx * 12, ey + ny * 12), P(ex - nx * 12, ey - ny * 12), colour)
+end
+
 function script.windowMain(dt)
   local W = ui.windowWidth()
   local now = os.preciseClock()
@@ -240,57 +267,47 @@ function script.windowMain(dt)
   if alpha <= 0 or not held.c or not (settings.showBrake or settings.showTurn) then return end
   c, b = held.c, held.b
 
-  local PW = math.min(W - 8, 300)
+  local PW = 200
   local x0 = (W - PW) / 2
-  local rows = (settings.showTurn and 30 or 0) + (settings.showBrake and 26 or 0)
-  ui.drawRectFilled(vec2(x0, 4), vec2(x0 + PW, 4 + rows + 12), fade(PANEL, alpha), 6)
-  local y = 10
+  local ICON = 76
+  local turnH = settings.showTurn and (ICON + 36 + (settings.showTurnName and 18 or 0)) or 0
+  local brakeH = settings.showBrake and 28 or 0
+  ui.drawRectFilled(vec2(x0, 2), vec2(x0 + PW, 2 + turnH + brakeH + 12), fade(PANEL, alpha), 8)
+  local y = 8
 
   if settings.showTurn then
-    -- Rally style, centred as one group: [R2]  2nd  Chicane 1
-    local tag = c.dir .. c.grade
-    local gear = c.gear and ordinal(c.gear) or nil
-    local name = settings.showTurnName and c.label or nil
-    ui.pushDWriteFont('@System;Weight=Bold')
-    local tw = ui.measureDWriteText(tag, 15).x + 10
-    local gw = gear and ui.measureDWriteText(gear, 17).x or 0
-    ui.popDWriteFont()
-    local nw = name and ui.measureDWriteText(name, 17).x or 0
-    local total = tw + (gear and 10 + gw or 0) + (name and 10 + nw or 0)
-    local gx = (W - total) / 2
-    ui.drawRectFilled(vec2(gx, y + 3), vec2(gx + tw, y + 23), fade(WHITE, alpha), 3)
-    ui.setCursor(vec2(gx, y + 3))
-    ui.pushDWriteFont('@System;Weight=Bold')
-    ui.dwriteTextAligned(tag, 15, ui.Alignment.Center, ui.Alignment.Center, vec2(tw, 20), false, rgbm(0, 0, 0, alpha))
-    local x = gx + tw + 10
-    if gear then
-      ui.setCursor(vec2(x, y + 1))
-      ui.dwriteText(gear, 17, fade(WHITE, alpha))
-      x = x + gw + 10
+    drawTurn((W - ICON) / 2, y, ICON, c.dir, c.grade, fade(WHITE, alpha))
+    y = y + ICON + 2
+    if c.gear then
+      ui.setCursor(vec2(x0, y))
+      ui.pushDWriteFont('@System;Weight=Bold')
+      ui.dwriteTextAligned(tostring(c.gear), 32, ui.Alignment.Center, ui.Alignment.Center, vec2(PW, 34), false,
+        fade(WHITE, alpha))
+      ui.popDWriteFont()
     end
-    ui.popDWriteFont()
-    if name then
-      ui.setCursor(vec2(x, y + 1))
-      ui.dwriteText(name, 17, fade(DIM, alpha))
+    y = y + 34
+    if settings.showTurnName then
+      ui.setCursor(vec2(x0, y - 2))
+      ui.dwriteTextAligned(c.label, 13, ui.Alignment.Center, ui.Alignment.Center, vec2(PW, 18), false, fade(DIM, alpha))
+      y = y + 18
     end
-    y = y + 30
   end
 
   if settings.showBrake and b then
     if now < cueUntil or b <= 0 then
-      ui.setCursor(vec2(x0, y - 4))
+      ui.setCursor(vec2(x0, y))
       ui.pushDWriteFont('@System;Weight=Bold')
       ui.dwriteTextAligned('BRAKE', 22, ui.Alignment.Center, ui.Alignment.Center, vec2(PW, 26), false, fade(RED, alpha))
       ui.popDWriteFont()
     else
       local close = b < 100
       local frac = math.max(0, math.min(1, 1 - b / settings.showFromM))
-      local bx0, bx1 = x0 + 14, x0 + PW - 56
-      ui.drawRectFilled(vec2(bx0, y + 8), vec2(bx1, y + 13), fade(rgbm(1, 1, 1, 0.14), alpha), 3)
-      ui.drawRectFilled(vec2(bx0, y + 8), vec2(bx0 + (bx1 - bx0) * frac, y + 13), fade(close and RED or WHITE, alpha), 3)
-      ui.setCursor(vec2(bx1 + 6, y))
-      ui.dwriteTextAligned(string.format('%d', math.floor(b + 0.5)), 15, ui.Alignment.End, ui.Alignment.Center,
-        vec2(PW - (bx1 - x0) - 20, 22), false, fade(close and RED or DIM, alpha))
+      local bx0, bx1 = x0 + 16, x0 + PW - 52
+      ui.drawRectFilled(vec2(bx0, y + 11), vec2(bx1, y + 16), fade(rgbm(1, 1, 1, 0.14), alpha), 3)
+      ui.drawRectFilled(vec2(bx0, y + 11), vec2(bx0 + (bx1 - bx0) * frac, y + 16), fade(close and RED or WHITE, alpha), 3)
+      ui.setCursor(vec2(bx1 + 4, y + 2))
+      ui.dwriteTextAligned(string.format('%d', math.floor(b + 0.5)), 14, ui.Alignment.End, ui.Alignment.Center,
+        vec2(PW - (bx1 - x0) - 16, 22), false, fade(close and RED or DIM, alpha))
     end
   end
 end

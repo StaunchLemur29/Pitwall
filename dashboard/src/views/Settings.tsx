@@ -170,10 +170,10 @@ function General({ draft, edit }: EditProps) {
         Pitwall's app inside Assetto Corsa: open it from the app bar and leave it open. It stays invisible until a
         braking point is coming up. Changes apply in the game straight away.
       </p>
-      <Field label="Show the turn" hint="Rally style: which way and how sharp (R3 = right, severity 3; 1 is tightest) and the gear to be in.">
+      <Field label="Show the turn" hint="An arrow bent the way the corner goes (tighter for sharper corners), with the gear to be in underneath.">
         <input type="checkbox" checked={draft.overlay.show_turn} onChange={(e) => edit((c) => (c.overlay.show_turn = e.target.checked))} />
       </Field>
-      <Field label="Show the corner's name" hint="Next to the turn, e.g. “R3 · 2nd · Pouhon”.">
+      <Field label="Show the corner's name" hint="In small text under the gear.">
         <input
           type="checkbox"
           checked={draft.overlay.show_turn_name}
