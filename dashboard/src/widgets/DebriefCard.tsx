@@ -3,6 +3,7 @@ import { Fragment, useEffect, useState, type ReactNode } from "react";
 import type { Combo } from "../lib/rig";
 import { useSource } from "../lib/source";
 import type { Debrief } from "../lib/types";
+import { Panel } from "./Panel";
 
 const when = (t: number) =>
   new Date(t * 1000).toLocaleString("en-NZ", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
@@ -32,7 +33,7 @@ export function Markdown({ text }: { text: string }) {
   return <div className="md">{blocks}</div>;
 }
 
-export function DebriefCard({ combo }: { combo: Combo | null }) {
+export function DebriefCard({ combo, panel = false }: { combo: Combo | null; panel?: boolean }) {
   const src = useSource();
   const [list, setList] = useState<Debrief[] | null>(null);
   const [canWrite, setCanWrite] = useState(false);
@@ -67,17 +68,24 @@ export function DebriefCard({ combo }: { combo: Combo | null }) {
   };
   const [latest, ...rest] = list;
   if (!latest && !src.writeDebrief) return null; // hub, nothing yet
-  return (
+  const head = (
+    <>
+      {latest && <span className="muted debrief__when">session {when(latest.session_start)}</span>}
+      {src.writeDebrief && canWrite && (
+        <button className="btn btn--sm btn--ghost" disabled={busy} onClick={write}>
+          {busy ? "Writing…" : latest ? "Rewrite" : "Write debrief"}
+        </button>
+      )}
+    </>
+  );
+  const body = (
     <div className="debrief">
-      <div className="debrief__head">
-        <span className="chapters__title">Debrief</span>
-        {latest && <span className="muted debrief__when">session {when(latest.session_start)}</span>}
-        {src.writeDebrief && canWrite && (
-          <button className="btn btn--sm btn--ghost" disabled={busy} onClick={write}>
-            {busy ? "Writing…" : latest ? "Rewrite" : "Write debrief"}
-          </button>
-        )}
-      </div>
+      {!panel && (
+        <div className="debrief__head">
+          <span className="chapters__title">Debrief</span>
+          {head}
+        </div>
+      )}
       {latest ? (
         <Markdown text={latest.body} />
       ) : (
@@ -102,4 +110,5 @@ export function DebriefCard({ combo }: { combo: Combo | null }) {
         ))}
     </div>
   );
+  return panel ? <Panel id="debrief" title="Debrief" right={head}>{body}</Panel> : body;
 }
