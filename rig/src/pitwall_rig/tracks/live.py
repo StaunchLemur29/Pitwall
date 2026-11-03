@@ -75,6 +75,7 @@ class TrackState:
         self._hint: int | None = None
         self._prev_p: float | None = None
         self._prev_t: float | None = None
+        self._prev_lap: tuple[int, int] | None = None  # (lap, lap_time_ms)
         self.on_attempt = lambda attempt: None  # set by the rig to persist attempts
 
     # -- references -----------------------------------------------------------
@@ -148,9 +149,10 @@ class TrackState:
         if f.status != GameStatus.LIVE or f.world is None:
             self._prev_p = None
             self._prev_t = None
+            self._prev_lap = None
             return None
         p = f.lap_progress % 1.0
-        dt = 0.0 if self._prev_t is None else max(0.0, f.t - self._prev_t)
+        dt = self._game_dt(f)
         m = self.model
         hint = self._hint if self._hint is not None else m.index_at(p)
         self._hint, off, frac = m.locate(f.world[0], f.world[2], hint)
@@ -187,7 +189,20 @@ class TrackState:
         if attempt is not None:
             out["attempt"] = attempt
         self._prev_p, self._prev_t = p, f.t
+        self._prev_lap = (f.lap, f.lap_time_ms)
         return out
+
+    def _game_dt(self, f: Frame) -> float:
+        """Time since the last frame by the game's own lap clock (so pauses and
+        replay speed don't distort drill times); wall clock as a fallback."""
+        prev = self._prev_lap
+        if prev is not None and f.lap_time_ms > 0:
+            lap, ms = prev
+            if f.lap == lap and f.lap_time_ms >= ms:
+                return (f.lap_time_ms - ms) / 1000.0
+            if f.lap == lap + 1 and f.lap_time_ms < 2000:
+                return f.lap_time_ms / 1000.0  # crossed the line; tail of the old lap is unknown but tiny
+        return 0.0 if self._prev_t is None else min(0.5, max(0.0, f.t - self._prev_t))
 
     def _heading(self, i: int) -> float:
         """Direction of travel in degrees in the (x, z) plane, for heading-up maps."""

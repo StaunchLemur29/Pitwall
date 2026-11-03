@@ -2,8 +2,11 @@
 
 import { useSyncExternalStore } from "react";
 import type {
+  Attempt,
   Capabilities,
   Config,
+  CornerReport,
+  TrackGeometry,
   LapSummary,
   Live,
   Marker,
@@ -27,6 +30,10 @@ export interface RigState {
   markers: Marker[];
   lastLap: { lap: LapSummary; newBest: boolean; at: number } | null;
   bindingAction: string | null;
+  track: TrackGeometry | null;
+  corners: CornerReport | null;
+  refTrace: Record<string, number[]> | null;
+  lastAttempt: (Attempt & { at: number }) | null;
 }
 
 const initial: RigState = {
@@ -38,12 +45,16 @@ const initial: RigState = {
   session: null,
   mode: "idle",
   startedAt: Date.now() / 1000,
-  live: { frame: null, delta_s: null, ref_lap_ms: null, theoretical_best_ms: null, driving_s: 0 },
+  live: { frame: null, delta_s: null, ref_lap_ms: null, theoretical_best_ms: null, driving_s: 0, track: null },
   laps: [],
   outline: [],
   markers: [],
   lastLap: null,
   bindingAction: null,
+  track: null,
+  corners: null,
+  refTrace: null,
+  lastAttempt: null,
 };
 
 type Listener = () => void;
@@ -102,7 +113,22 @@ class RigStore {
           mode: e.mode,
           startedAt: e.started_at,
           laps: e.recent_laps,
+          track: e.track,
         });
+        if (e.corners) this.setCorners(e.corners);
+        break;
+      case "track":
+        this.set({ track: e.track });
+        break;
+      case "corners": {
+        const { type: _t, ...report } = e;
+        this.setCorners(report);
+        break;
+      }
+      case "attempt":
+        this.set({ lastAttempt: { ...e.attempt, at: Date.now() } });
+        break;
+      case "drill":
         break;
       case "session":
         this.set({ session: e.session, laps: [], outline: [], markers: [] });
@@ -137,6 +163,21 @@ class RigStore {
       case "action":
         this.actionListeners.forEach((fn) => fn(e.action));
         break;
+    }
+  }
+
+  private refId: number | null = null;
+
+  private setCorners(report: CornerReport): void {
+    this.set({ corners: report });
+    const id = report.reference_lap_id;
+    if (id !== this.refId) {
+      this.refId = id;
+      if (id === null) this.set({ refTrace: null });
+      else
+        fetch(`/api/laps/${id}/trace?hz=10`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((tr) => this.set({ refTrace: tr }));
     }
   }
 
@@ -195,6 +236,29 @@ export async function startBinding(action: string): Promise<void> {
 
 export async function cancelBinding(): Promise<void> {
   await fetch("/api/bind", { method: "DELETE" });
+}
+
+export async function startDrill(body: { corner: number } | { start_p: number; end_p: number; name: string }): Promise<string[]> {
+  const r = await fetch("/api/drill", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (r.ok) return [];
+  return (await r.json().catch(() => ({ errors: [`HTTP ${r.status}`] }))).errors;
+}
+
+export async function stopDrill(): Promise<void> {
+  await fetch("/api/drill", { method: "DELETE" });
+}
+
+export async function fetchCorners(lapId: number | null): Promise<CornerReport> {
+  return (await fetch(`/api/corners${lapId ? `?lap_id=${lapId}` : ""}`)).json();
+}
+
+export async function fetchTrace(lapId: number, hz = 10): Promise<Record<string, number[]> | null> {
+  const r = await fetch(`/api/laps/${lapId}/trace?hz=${hz}`);
+  return r.ok ? r.json() : null;
 }
 
 export async function inputDevices(): Promise<{

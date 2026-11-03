@@ -155,8 +155,8 @@ def width_advice(corner: Any, data: dict[str, Any], next_entry_gap_m: float | No
     right edge. Exit advice is skipped when another corner follows immediately
     (chicanes, esses), where the exit is really the next entry.
     """
-    if "apex_frac" not in data:
-        return []
+    if "apex_frac" not in data or getattr(corner, "grade", 1) >= 5:
+        return []  # flat-out kinks: the "classic line" advice doesn't apply
     right = corner.direction == "R"
     outside = (lambda f: f) if right else (lambda f: 1 - f)  # 0 = at the outside edge
     inside = (lambda f: 1 - f) if right else (lambda f: f)  # 0 = at the inside edge

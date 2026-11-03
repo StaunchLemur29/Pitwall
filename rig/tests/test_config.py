@@ -55,3 +55,13 @@ def test_picks_vertical_secondary_monitor():
     assert pick_dashboard_monitor([main]) is None
     other = Monitor(2560, 0, 1920, 1080, False)
     assert pick_dashboard_monitor([main, other]) == other
+
+
+def test_old_default_layouts_are_upgraded(tmp_path):
+    from pitwall_rig.config import _OLD_DEFAULT_LAYOUTS
+
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"layouts": _OLD_DEFAULT_LAYOUTS[0], "display": {"accent": "#111111"}}))
+    cfg = Config(path)
+    assert "turn_by_turn" in json.dumps(cfg["layouts"])
+    assert cfg["display"]["accent"] == "#111111"

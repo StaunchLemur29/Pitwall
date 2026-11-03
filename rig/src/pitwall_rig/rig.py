@@ -217,7 +217,8 @@ class Rig:
         lap = self.store.lap_corners(lap_id, self._model_sig()) if lap_id is not None else None
         if lap:
             m = self.track.model
-            ref = self.track.ref_corners
+            if not self.track.mastery:
+                self.track.mastery = self._mastery()
             for i, data in enumerate(lap):
                 c = m.corners[i] if i < len(m.corners) else None
                 if c is None:
@@ -225,8 +226,9 @@ class Rig:
                 nxt = m.corners[(i + 1) % len(m.corners)]
                 gap = ((nxt.entry - c.exit) % 1.0) * m.length_m
                 data["advice"] = width_advice(c, data, gap)
-                r = ref.get(c.number)
-                data["loss_s"] = round(data["time_s"] - r["time_s"], 3) if r else None
+                # Time lost against your best ever through this corner (any lap).
+                best = self.track.mastery.get(c.number, {}).get("best_s")
+                data["loss_s"] = round(data["time_s"] - best, 3) if best is not None else None
         return {
             "mastery": list(self.track.mastery.values()),
             "lap_id": lap_id,

@@ -80,8 +80,109 @@ export interface Marker {
   note: string;
 }
 
+export interface Corner {
+  number: number;
+  name: string;
+  label: string;
+  direction: "L" | "R";
+  grade: number;
+  entry: number;
+  apex: number;
+  exit: number;
+  apex_radius_m: number;
+  apex_index: number;
+}
+
+export interface TrackGeometry {
+  track_key: string;
+  length_m: number;
+  source: "game" | "laps";
+  has_edges: boolean;
+  progress: number[];
+  center: [number, number][];
+  left: [number, number][];
+  right: [number, number][];
+  corners: Corner[];
+  sections: { name: string; start: number; end: number }[];
+}
+
+export interface CornerLive extends Corner {
+  distance_m: number;
+  brake_in_m: number | null;
+  gear: number | null;
+  apex_kmh: number | null;
+  grade_mastery: Mastery["grade"] | null;
+}
+
+export interface Drill {
+  name: string;
+  start_p: number;
+  end_p: number;
+  corner: number | null;
+  pass_within_s: number;
+  pass_streak: number;
+  best_ms: number | null;
+  attempts: number;
+  streak: number;
+  passed: boolean;
+  running: boolean;
+  elapsed_s: number;
+  last: Attempt | null;
+  recent: Attempt[];
+}
+
+export interface Attempt {
+  time_ms: number;
+  clean: boolean;
+  delta_s: number | null;
+  counted: boolean;
+}
+
+export interface TrackLive {
+  p: number;
+  off_m: number | null;
+  frac: number | null;
+  heading: number;
+  corner?: CornerLive;
+  drill?: Drill;
+}
+
+export interface Mastery {
+  corner: number;
+  best_s: number;
+  median_s: number;
+  spread_s: number | null;
+  laps: number;
+  grade: "new" | "green" | "amber" | "red";
+}
+
+export interface CornerLap {
+  corner: number;
+  time_s: number;
+  min_speed_kmh: number;
+  min_speed_p: number;
+  apex_gear: number;
+  brake_p: number | null;
+  coast_s: number;
+  entry_frac?: number;
+  apex_frac?: number;
+  exit_frac?: number;
+  advice?: string[];
+  loss_s?: number | null;
+}
+
+export interface CornerReport {
+  mastery: Mastery[];
+  lap_id: number | null;
+  lap: CornerLap[] | null;
+  reference: CornerLap[];
+  reference_lap_id: number | null;
+}
+
 export type WidgetId =
   | "next_corner"
+  | "turn_by_turn"
+  | "lap_analysis"
   | "track_map"
   | "drill"
   | "coach_tip"
@@ -132,6 +233,7 @@ export interface Live {
   ref_lap_ms: number | null;
   theoretical_best_ms: number | null;
   driving_s: number;
+  track: TrackLive | null;
 }
 
 export type ServerEvent =
@@ -146,6 +248,9 @@ export type ServerEvent =
       mode: Mode;
       started_at: number;
       recent_laps: LapSummary[];
+      track: TrackGeometry | null;
+      corners: CornerReport | null;
+      drill: Drill | null;
     }
   | { type: "session"; session: SessionInfo | null }
   | { type: "mode"; mode: Mode }
@@ -155,4 +260,8 @@ export type ServerEvent =
   | { type: "action"; action: string }
   | { type: "config"; config: Config }
   | { type: "binding"; action: string }
-  | { type: "bound"; action: string; binding: Binding };
+  | { type: "bound"; action: string; binding: Binding }
+  | { type: "track"; track: TrackGeometry | null }
+  | ({ type: "corners" } & CornerReport)
+  | { type: "drill"; drill: Drill | null }
+  | { type: "attempt"; attempt: Attempt & { start_p: number; end_p: number } };

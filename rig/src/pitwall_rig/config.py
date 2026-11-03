@@ -16,6 +16,8 @@ from typing import Any
 #: Widgets the dashboard knows. ``phase`` marks ones that are placeholders until then.
 WIDGETS: dict[str, dict[str, Any]] = {
     "next_corner": {"label": "Next corner", "phase": 1},
+    "turn_by_turn": {"label": "Road ahead (turn-by-turn)", "phase": 1},
+    "lap_analysis": {"label": "Lap analysis", "phase": 1},
     "track_map": {"label": "Track map", "phase": 0},
     "drill": {"label": "Drill / focus", "phase": 1},
     "coach_tip": {"label": "Coach tip", "phase": 3},
@@ -63,7 +65,7 @@ DEFAULTS: dict[str, Any] = {
         "driving": [
             [
                 _w("next_corner", 3),
-                _w("track_map", 4),
+                _w("turn_by_turn", 6),
                 _w("drill", 2),
                 _w("coach_tip", 1),
                 _w("electronics", 2),
@@ -72,7 +74,8 @@ DEFAULTS: dict[str, Any] = {
             [_w("lap_times", 3), _w("track_map", 5), _w("tyres", 2), _w("session_bar", 1)],
         ],
         "analysis": [
-            [_w("lap_times", 3), _w("recent_laps", 6), _w("track_map", 4), _w("session_bar", 1)],
+            [_w("lap_times", 2), _w("lap_analysis", 10), _w("session_bar", 1)],
+            [_w("recent_laps", 6), _w("track_map", 4), _w("session_bar", 1)],
         ],
     },
     # action -> list of bindings. Joystick: {"type": "button", "device": guid, "device_name": str,
@@ -84,6 +87,26 @@ DEFAULTS: dict[str, Any] = {
         "mark_corner": [{"type": "key", "combo": "<ctrl>+<alt>+m"}],
     },
 }
+
+
+# Layouts shipped before phase 1. A saved config still holding exactly these
+# gets the new defaults instead (so new widgets show up without a reset).
+_OLD_DEFAULT_LAYOUTS = [
+    {
+        "driving": [
+            [_w("next_corner", 3), _w("track_map", 4), _w("drill", 2), _w("coach_tip", 1),
+             _w("electronics", 2), _w("session_bar", 1)],
+            [_w("lap_times", 3), _w("track_map", 5), _w("tyres", 2), _w("session_bar", 1)],
+        ],
+        "analysis": [[_w("lap_times", 3), _w("recent_laps", 6), _w("track_map", 4), _w("session_bar", 1)]],
+    },
+]
+
+
+def migrate(user: dict[str, Any]) -> dict[str, Any]:
+    if user.get("layouts") in _OLD_DEFAULT_LAYOUTS:
+        user = {k: v for k, v in user.items() if k != "layouts"}
+    return user
 
 
 def default_data_dir() -> Path:
@@ -168,7 +191,7 @@ class Config:
                 user = json.loads(path.read_text(encoding="utf-8"))
             except json.JSONDecodeError as e:
                 raise ConfigError(f"{path} is not valid JSON: {e}") from e
-            self.data = deep_merge(DEFAULTS, user)
+            self.data = deep_merge(DEFAULTS, migrate(user))
         errs = validate(self.data)
         if errs:
             raise ConfigError(f"Problems in {path}:\n  - " + "\n  - ".join(errs))
