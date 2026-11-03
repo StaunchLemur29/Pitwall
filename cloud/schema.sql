@@ -27,6 +27,9 @@ create table if not exists public.laps (
   uploaded_at timestamptz not null default now(),
   unique (user_id, rig_id, local_id)
 );
+-- Added after the first version: safe to run on an existing project.
+alter table public.laps add column if not exists systems jsonb;  -- battery & DRS on the lap
+
 create index if not exists laps_combo on public.laps (user_id, game, track_key, car, lap_time_ms);
 create index if not exists laps_recent on public.laps (user_id, started_at desc);
 

@@ -355,6 +355,16 @@ class Rig:
             self._ctx_cache[key] = ctx
             return ctx
 
+    def cloud_extras(self, lap_id: int) -> dict[str, Any] | None:
+        """What the hub can't work out by itself: each corner with its track-width
+        advice, and battery & DRS on the lap. (Comparisons with other laps the hub
+        does itself, against whichever lap you pick.)"""
+        rep = self.corner_report(lap_id)
+        if not rep.get("lap"):
+            return None
+        corners = [{k: v for k, v in c.items() if k not in ("vs_s", "notes")} for c in rep["lap"]]
+        return {"corners": corners, "systems": rep.get("systems")}
+
     def combos(self) -> list[dict[str, Any]]:
         """Every car + track you've driven, most recent first."""
         out = self.store.combos()

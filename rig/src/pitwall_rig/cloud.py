@@ -116,11 +116,13 @@ class CloudSync:
         store: Store,
         data_dir: Path,
         geometry_for: Callable[[str, str, str], dict[str, Any] | None] = lambda g, c, t: None,
+        extras_for: Callable[[int], dict[str, Any] | None] = lambda lap_id: None,
         every_s: float = 20.0,
     ) -> None:
         self.store = store
         self.path = data_dir / "cloud.json"
         self.geometry_for = geometry_for
+        self.extras_for = extras_for  # the PC's full analysis of a lap (advice, battery & DRS)
         self.every_s = every_s
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -224,7 +226,10 @@ class CloudSync:
                     self._save()
             self.state, self.error, self.last_sync = "idle", None, time.time()
         except CloudError as e:
-            self.state, self.error = "error", str(e)
+            msg = str(e)
+            if "column" in msg and "schema cache" in msg:
+                msg = "Your Supabase tables are out of date: run cloud/schema.sql again in the SQL Editor."
+            self.state, self.error = "error", msg
             log.warning("Cloud sync: %s", e)
         return sent
 
@@ -233,6 +238,11 @@ class CloudSync:
         if info is None:
             return None
         trace = self.store.trace(lap_id)
+        try:
+            extras = self.extras_for(lap_id) or {}
+        except Exception:  # noqa: BLE001 - upload the plain lap rather than nothing
+            log.exception("Couldn't analyse lap %s for upload", lap_id)
+            extras = {}
         return {
             "user_id": self.client.user_id if self.client else None,
             "rig_id": rig_id,
@@ -246,7 +256,8 @@ class CloudSync:
             "out_lap": info["out_lap"],
             "started_at": _iso(info["started_at"]),
             "sector_ms": info["sector_ms"],
-            "corners": self.store.latest_lap_corners(lap_id),
+            "corners": extras.get("corners") or self.store.latest_lap_corners(lap_id),
+            "systems": extras.get("systems"),
             "trace": downsample(trace, TRACE_HZ) if trace else None,
         }
 

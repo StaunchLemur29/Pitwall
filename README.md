@@ -102,6 +102,24 @@ Laps driven offline upload when you're back online. Your password isn't
 stored; Pitwall keeps a sign-in token in `%APPDATA%\Pitwall\cloud.json`.
 Demo and replay laps stay on the PC.
 
+**The hub website** (your laps on the MacBook or phone) is hosted free on
+Vercel. One-time setup:
+
+1. Sign in at [vercel.com](https://vercel.com) with GitHub, then **Add New →
+   Project** and import the Pitwall repository.
+2. **Root Directory**: `dashboard`. Leave the framework as **Other**: the
+   build settings come from `dashboard/vercel.json`.
+3. **Environment Variables**: `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`,
+   the same Project URL and anon key you gave Pitwall.
+4. **Deploy**, open the address it gives you, and sign in with the same email
+   and password.
+
+It redeploys by itself whenever `main` changes on GitHub. Run it locally with
+`npm run dev:hub` (in `dashboard`, with the two variables set).
+
+If Pitwall's Settings → Cloud ever says the tables are out of date, run
+`cloud/schema.sql` again in the SQL Editor (safe to repeat).
+
 ### Recording a session (helps development)
 
 ```bat

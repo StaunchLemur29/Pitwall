@@ -107,7 +107,11 @@ def cmd_run(args: argparse.Namespace) -> None:
     from .cloud import CloudSync
     from .server import CLOUD_KEY
 
-    cloud = CloudSync(store, data_dir, geometry_for=rig.track_geometry) if game not in ("demo", "replay") else None
+    cloud = (
+        CloudSync(store, data_dir, geometry_for=rig.track_geometry, extras_for=rig.cloud_extras)
+        if game not in ("demo", "replay")
+        else None
+    )
     if cloud is not None:
         app[CLOUD_KEY] = cloud
         rig.on_lap_saved = cloud.sync_soon
