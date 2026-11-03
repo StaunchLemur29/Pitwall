@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { prettyName } from "../lib/format";
 import { SourceContext } from "../lib/source";
 import { LapAnalysis } from "../widgets/LapAnalysis";
+import { Progress } from "./Progress";
 import { hubSource } from "./source";
 
 const URL_ = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -36,7 +37,7 @@ export function HubApp() {
   return <Hub sb={sb} email={session.user.email ?? ""} />;
 }
 
-function Shell({ children, title, right }: { children: React.ReactNode; title?: string; right?: React.ReactNode }) {
+function Shell({ children, title, left, right }: { children: React.ReactNode; title?: string; left?: React.ReactNode; right?: React.ReactNode }) {
   // Three columns: logo | title centred on the window | account. The outer two
   // share the leftover space equally, so the title stays dead centre.
   return (
@@ -45,6 +46,7 @@ function Shell({ children, title, right }: { children: React.ReactNode; title?: 
         <span className="hub__left">
           <span className="brand">PITWALL</span>
           <span className="dash__session">hub</span>
+          {left}
         </span>
         <span className="hub__title">{title}</span>
         <span className="hub__right">{right}</span>
@@ -90,6 +92,11 @@ function Login({ sb }: { sb: SupabaseClient }) {
 function Hub({ sb, email }: { sb: SupabaseClient; email: string }) {
   const source = useMemo(() => hubSource(sb), [sb]);
   const [showing, setShowing] = useState<{ car: string; track_key: string } | null>(null);
+  const [view, setView] = useState<"analysis" | "progress">(() => (location.hash === "#progress" ? "progress" : "analysis"));
+  const go = (v: "analysis" | "progress") => {
+    setView(v);
+    history.replaceState(null, "", v === "progress" ? "#progress" : "#");
+  };
   const [wide, setWide] = useState(() => window.innerWidth >= 1100);
   useEffect(() => {
     const on = () => setWide(window.innerWidth >= 1100);
@@ -102,7 +109,16 @@ function Hub({ sb, email }: { sb: SupabaseClient; email: string }) {
   return (
     <SourceContext.Provider value={source}>
       <Shell
-        title={showing ? `${prettyName(showing.car)} · ${prettyName(showing.track_key)}` : ""}
+        title={view === "analysis" && showing ? `${prettyName(showing.car)} · ${prettyName(showing.track_key)}` : ""}
+        left={
+          <nav className="hub__tabs">
+            {(["analysis", "progress"] as const).map((v) => (
+              <button key={v} className={`chipbtn ${view === v ? "chipbtn--on" : ""}`} onClick={() => go(v)}>
+                {v === "analysis" ? "Analysis" : "Progress"}
+              </button>
+            ))}
+          </nav>
+        }
         right={
           <>
             <span className="muted hub__email">{email}</span>
@@ -111,7 +127,7 @@ function Hub({ sb, email }: { sb: SupabaseClient; email: string }) {
         }
       >
         <div className={`hub__main ${wide ? "" : "hub__main--narrow"}`}>
-          <LapAnalysis wide={wide} onShowing={setShowing} />
+          {view === "analysis" ? <LapAnalysis wide={wide} onShowing={setShowing} /> : <Progress />}
         </div>
       </Shell>
     </SourceContext.Provider>
