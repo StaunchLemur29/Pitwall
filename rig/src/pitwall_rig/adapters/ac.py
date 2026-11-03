@@ -195,6 +195,8 @@ class AssettoCorsaAdapter(GameAdapter):
             sector=int(gfx.currentSectorIndex),
             in_pit_box=bool(gfx.isInPit),
             in_pit_lane=bool(gfx.isInPitLane),
+            velocity=(float(phys.velocity[0]), float(phys.velocity[1]), float(phys.velocity[2])),
+            yaw=float(phys.heading),
             world=(
                 float(gfx.carCoordinates[0]),
                 float(gfx.carCoordinates[1]),

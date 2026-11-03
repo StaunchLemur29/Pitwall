@@ -117,3 +117,18 @@ def test_pack_chapters_resolve_from_section_names():
     assert all(a.end == b.start for a, b in zip(ch, ch[1:]))
     assert ch[-1].end == 0.99999  # first chapter starts at the line
     assert find_pack("spa") is None
+
+
+def test_yaw_calibrator_learns_the_mapping():
+    import math
+
+    from pitwall_rig.tracks.live import YawCalibrator
+
+    cal = YawCalibrator()
+    # Pretend the game's yaw is "0 = +z, clockwise positive": travel = 90 - yaw
+    for k in range(200):
+        travel = (k * 7) % 360 - 180
+        yaw = math.radians(90 - travel)
+        cal.observe(yaw, travel)
+    assert cal.best == (-1, 90.0)
+    assert abs(cal.heading(math.radians(90 - 30)) - 30) < 1e-6

@@ -119,6 +119,8 @@ class Frame:
     in_pit_box: bool = False
     in_pit_lane: bool = False
     world: tuple[float, float, float] | None = None  # x, y(up), z in metres
+    velocity: tuple[float, float, float] | None = None  # world-space m/s, same axes as world
+    yaw: float | None = None  # the game's raw heading angle (radians); calibrated downstream
     session_time_left_s: float | None = None
     position: int = 0
 

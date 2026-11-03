@@ -54,6 +54,11 @@ def _launch(url: str, display: dict[str, Any], x: int, y: int, w: int, h: int, p
             f"--window-size={w},{h}",
             f"--user-data-dir={default_data_dir() / profile}",
             "--no-first-run",
+            # The game has focus, so Chrome would otherwise treat our window as
+            # "in the background" and slow it to a crawl.
+            "--disable-background-timer-throttling",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
             *extra,
         ]
     )

@@ -32,6 +32,8 @@ export interface Frame {
   in_pit_box: boolean;
   in_pit_lane: boolean;
   world: [number, number, number] | null;
+  velocity: [number, number, number] | null;
+  yaw: number | null;
   session_time_left_s: number | null;
   position: number;
 }
@@ -154,6 +156,7 @@ export interface TrackLive {
   off_m: number | null;
   frac: number | null;
   heading: number;
+  car_heading: number | null;
   corner?: CornerLive;
   drill?: Drill;
 }

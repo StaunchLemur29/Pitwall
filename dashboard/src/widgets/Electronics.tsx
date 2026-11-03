@@ -26,11 +26,11 @@ export function Electronics() {
   );
 }
 
-// AC reports the raw ABS/TC slip setting, not the dial position; 0 means off.
+// AC only reports a raw slip setting, not the level on your dial, so we show
+// on/off here. Real levels come with the in-game CSP companion app.
 function level(v: number | null | undefined): string {
   if (v === null || v === undefined) return "–";
-  if (v <= 0) return "OFF";
-  return v.toFixed(2);
+  return v <= 0 ? "OFF" : "ON";
 }
 
 function Item({ label, value, unit, active }: { label: string; value: string; unit?: string; active?: boolean }) {

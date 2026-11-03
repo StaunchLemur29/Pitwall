@@ -233,6 +233,7 @@ class DemoAdapter(GameAdapter):
             sector=sector,
             in_pit_box=self._pit_left > 0,
             world=(x, 0.0, z),
+            velocity=self._velocity(idx),
             position=1,
         )
 
@@ -253,6 +254,12 @@ class DemoAdapter(GameAdapter):
         )
         sections = [Section("Hairpin", 0.30, 0.40), Section("The Esses", 0.55, 0.70)]
         return TrackModel(session.track_key, self.track.length, line, detect_corners(line, sections), sections)
+
+    def _velocity(self, idx: int) -> tuple[float, float, float]:
+        a = self.track.points[idx]
+        b = self.track.points[(idx + 1) % self.track.n]
+        d = math.dist(a, b) or 1.0
+        return ((b[0] - a[0]) / d * self._v, 0.0, (b[1] - a[1]) / d * self._v)
 
     def session(self) -> SessionInfo:
         return SessionInfo(

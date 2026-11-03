@@ -93,8 +93,9 @@ def _frame_from(d: dict[str, Any], t: float) -> Frame:
     d = dict(d)
     d["t"] = t
     d["status"] = GameStatus(d["status"])
-    if d.get("world") is not None:
-        d["world"] = tuple(d["world"])
+    for k in ("world", "velocity"):
+        if d.get(k) is not None:
+            d[k] = tuple(d[k])
     known = Frame.__dataclass_fields__
     return Frame(**{k: v for k, v in d.items() if k in known})
 

@@ -3,6 +3,7 @@ and timing for a practice section (drill)."""
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -57,6 +58,43 @@ class DrillState:
         return d
 
 
+def _angdiff(a: float, b: float) -> float:
+    return (a - b + 180.0) % 360.0 - 180.0
+
+
+class YawCalibrator:
+    """Works out how the game's heading angle maps onto map directions.
+
+    Games differ in where zero points and which way angles turn. While you drive
+    straight-ish at speed, the car points where it's going, so we compare the
+    raw heading with the direction of travel and keep the mapping that fits.
+    """
+
+    CANDIDATES = [(s, o) for s in (1, -1) for o in (0.0, 90.0, 180.0, -90.0)]
+
+    def __init__(self) -> None:
+        self.err = [0.0] * len(self.CANDIDATES)
+        self.samples = 0
+        self.best: tuple[int, float] | None = None
+
+    def observe(self, yaw_rad: float, travel_deg: float) -> None:
+        y = math.degrees(yaw_rad)
+        for i, (sgn, off) in enumerate(self.CANDIDATES):
+            e = abs(_angdiff(sgn * y + off, travel_deg))
+            self.err[i] = self.err[i] * 0.98 + e * 0.02 if self.samples else e
+        self.samples += 1
+        if self.samples >= 60:
+            i = min(range(len(self.err)), key=self.err.__getitem__)
+            if self.err[i] < 20:
+                self.best = self.CANDIDATES[i]
+
+    def heading(self, yaw_rad: float) -> float | None:
+        if self.best is None:
+            return None
+        sgn, off = self.best
+        return (sgn * math.degrees(yaw_rad) + off + 180.0) % 360.0 - 180.0
+
+
 def _crossed(prev: float, now: float, mark: float) -> bool:
     """Did progress move forward past ``mark`` (handles the lap wrap)?"""
     if prev <= now:
@@ -76,6 +114,7 @@ class TrackState:
         self._prev_p: float | None = None
         self._prev_t: float | None = None
         self._prev_lap: tuple[int, int] | None = None  # (lap, lap_time_ms)
+        self.yaw = YawCalibrator()
         self.on_attempt = lambda attempt: None  # set by the rig to persist attempts
 
     # -- references -----------------------------------------------------------
@@ -164,6 +203,7 @@ class TrackState:
             "off_m": round(off, 2) if m.has_edges else None,
             "frac": round(frac, 3) if m.has_edges else None,
             "heading": self._heading(self._hint),
+            "car_heading": self._car_heading(f),
         }
         nxt = m.next_corner(p)
         if nxt is not None:
@@ -203,6 +243,19 @@ class TrackState:
             if f.lap == lap + 1 and f.lap_time_ms < 2000:
                 return f.lap_time_ms / 1000.0  # crossed the line; tail of the old lap is unknown but tiny
         return 0.0 if self._prev_t is None else min(0.5, max(0.0, f.t - self._prev_t))
+
+    def _car_heading(self, f: Frame) -> float | None:
+        """Where the car's nose points, in map degrees (None until known)."""
+        travel = None
+        if f.velocity is not None and f.speed_kmh > 10:
+            travel = math.degrees(math.atan2(f.velocity[2], f.velocity[0]))
+        if f.yaw is not None:
+            if travel is not None and f.speed_kmh > 60 and abs(f.steer) < 0.15:
+                self.yaw.observe(f.yaw, travel)
+            h = self.yaw.heading(f.yaw)
+            if h is not None:
+                return round(h, 1)
+        return round(travel, 1) if travel is not None else None
 
     def _heading(self, i: int) -> float:
         """Direction of travel in degrees in the (x, z) plane, for heading-up maps."""
