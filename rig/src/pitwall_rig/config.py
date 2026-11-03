@@ -58,7 +58,10 @@ DEFAULTS: dict[str, Any] = {
     "laps": {"max_tyres_out": 2},
     # lead_in_s: a drill retry rewinds to this many seconds of driving before
     # the section starts, so you have a moment to settle before it begins.
-    "drills": {"lead_in_s": 4},
+    # teleport: until the in-game app has saved the car at the run-up point,
+    # a retry teleports you there instead (at your reference lap's speed and
+    # gear when there is one), rather than rewinding with Time Shift.
+    "drills": {"lead_in_s": 4, "teleport": True},
     # The in-game overlay (CSP app): what it shows as a braking point approaches.
     "overlay": {
         "show_turn": True,  # rally-style: direction + how sharp (R3) and the gear
@@ -181,6 +184,8 @@ def validate(cfg: dict[str, Any]) -> list[str]:
     lead = cfg.get("drills", {}).get("lead_in_s")
     if not isinstance(lead, (int, float)) or not 0 <= lead <= 15:
         errs.append("drills.lead_in_s must be between 0 and 15 seconds")
+    if not isinstance(cfg.get("drills", {}).get("teleport"), bool):
+        errs.append("drills.teleport must be true or false")
     port = cfg.get("server", {}).get("port")
     if not isinstance(port, int) or not 1024 <= port <= 65535:
         errs.append("server.port must be a number between 1024 and 65535")

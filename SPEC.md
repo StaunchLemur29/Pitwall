@@ -268,7 +268,7 @@ Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
 
 ## 15b. Notes for later
 
-- **In-game CSP Lua app** (v0.1 built: `csp/Pitwall`, installed by start.bat; next corner + brake countdown overlay, instant drill retry via saved car state, real ABS/TC/BB. Still to do: in-game drill timer, coaching tips in game). Original plan: zero-latency overlays (brake countdown, next corner, drill), real ABS/TC levels (`car.absMode`, `car.tractionControlMode`), its own rewind using `ac.saveCarStateAsync` / `ac.loadCarState` (same approach as Time Shift), talking to the rig over `web.get/post`.
+- **In-game CSP Lua app** (v0.1 built: `csp/Pitwall`, installed by start.bat; next corner + brake countdown overlay, instant drill retry via saved car state, drill teleport to the run-up (`physics.setCarPosition` + reference speed and gear) until a state is saved, real ABS/TC/BB. Still to do: in-game drill timer, coaching tips in game). Original plan: zero-latency overlays (brake countdown, next corner, drill), real ABS/TC levels (`car.absMode`, `car.tractionControlMode`), its own rewind using `ac.saveCarStateAsync` / `ac.loadCarState` (same approach as Time Shift), talking to the rig over `web.get/post`.
 - A deeper AC/CSP **mod** is also an option if an app can't do something.
 - Second-screen smoothness depends on GPU headroom: capping AC's frame rate leaves room for Chrome.
 

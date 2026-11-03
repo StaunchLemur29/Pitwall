@@ -291,7 +291,7 @@ export type Binding =
 export interface Config {
   game: "ac" | "demo" | "replay";
   games: { ac: { install_dir: string; rewind_key: string } };
-  drills: { lead_in_s: number };
+  drills: { lead_in_s: number; teleport: boolean };
   overlay: { show_turn: boolean; show_turn_name: boolean; show_brake: boolean; show_from_m: number };
   server: { host: string; port: number };
   rates: { poll_hz: number; broadcast_hz: number };
@@ -376,5 +376,5 @@ export type ServerEvent =
   | ({ type: "corners" } & CornerReport)
   | { type: "drill"; drill: Drill | null }
   | { type: "shutdown" }
-  | { type: "retry"; state: "rewinding" | "ready" | "no_rewind" | "timeout" | "stopped" }
+  | { type: "retry"; state: "rewinding" | "ready" | "teleported" | "no_rewind" | "timeout" | "stopped" }
   | { type: "attempt"; attempt: Attempt & { start_p: number; end_p: number } };

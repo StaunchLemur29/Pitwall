@@ -462,6 +462,16 @@ function Controls({
             onChange={(e) => edit((c) => (c.drills.lead_in_s = Number(e.target.value)))}
           />
         </Field>
+        <Field
+          label="Teleport to the run-up"
+          hint="Until the in-game app has saved your car at the run-up (it does as you drive past), a retry teleports you there at your reference lap's speed and gear instead of rewinding with Time Shift. Offline practice only."
+        >
+          <input
+            type="checkbox"
+            checked={draft.drills.teleport}
+            onChange={(e) => edit((c) => (c.drills.teleport = e.target.checked))}
+          />
+        </Field>
 
       </div>
       {dirty && <p className="warn">Save your other changes before binding buttons.</p>}

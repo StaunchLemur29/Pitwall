@@ -76,6 +76,11 @@ bar (the Pitwall icon). It adds:
   the car exactly as it is; Rewind during the drill puts you straight back
   there at full speed (offline practice only, like Time Shift; Time Shift is
   the fallback).
+- **Drill teleport.** Before the app has saved the run-up (say you start a
+  drill on the other side of the track), Rewind teleports you to the run-up
+  point on the racing line, moving at your reference lap's speed in its gear
+  (from a standstill if you haven't set a lap yet). Turn it off under
+  **Settings → Controls → Teleport to the run-up** to use Time Shift instead.
 - **Real ABS / TC levels and brake bias** on the dashboard instead of ON/OFF.
 
 The app needs the Pitwall service running. If it says "Pitwall isn't

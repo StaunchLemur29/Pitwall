@@ -3,7 +3,8 @@
 A development check: it fakes just enough of CSP (car state, web requests,
 UI text, saving/loading car state) to drive a pretend car round the track and
 confirm the app connects, loads the track, shows the next corner and brake
-countdown, saves the drill run-up and performs a retry.
+countdown, teleports to a drill's run-up, saves the run-up state and performs
+a retry from it.
 
     uv run --with lupa python csp/harness.py      # with `pitwall-rig run --game demo` running
 """
@@ -63,8 +64,32 @@ def main() -> int:
         getCar = function () return car end,
         isCarResetAllowed = function () return true end,
         onCarJumped = function (i, fn) jumped[#jumped + 1] = fn end,
+        trackProgressToWorldCoordinate = function (p) return vec3(p * 1000, 0, 0) end,
       }
       vec2 = function (x, y) return { x = x, y = y } end
+      local V = {}
+      V.__index = V
+      vec3 = function (x, y, z) return setmetatable({ x = x, y = y, z = z }, V) end
+      V.__sub = function (a, b) return vec3(a.x - b.x, a.y - b.y, a.z - b.z) end
+      V.__unm = function (a) return vec3(-a.x, -a.y, -a.z) end
+      V.__mul = function (a, k) return vec3(a.x * k, a.y * k, a.z * k) end
+      function V:length() return math.sqrt(self.x ^ 2 + self.y ^ 2 + self.z ^ 2) end
+      function V:normalize() local l = self:length(); return vec3(self.x / l, self.y / l, self.z / l) end
+      function V:dot(b) return self.x * b.x + self.y * b.y + self.z * b.z end
+      -- a pretend track: progress p is x = p * 1000 m along a straight line
+      teleports, gears = {}, {}
+      car.look = vec3(1, 0, 0)
+      car.velocity = vec3(0, 0, 0)
+      physics = {
+        setCarPosition = function (i, pos, dir)
+          teleports[#teleports + 1] = { pos = pos, dir = dir }
+          car.splinePosition = pos.x / 1000
+          car.look = -dir -- as if the game's "dir" meant the opposite way round
+          for _, fn in ipairs(jumped) do fn(0) end
+        end,
+        setCarVelocity = function (i, v) car.velocity = v end,
+        engageGear = function (i, g) gears[#gears + 1] = g end,
+      }
       rgbm = function (r, g, b, a) return { r = r, g = g, b = b, mult = a } end
       ac.storage = function (defaults) return defaults end
       script = {}
@@ -206,6 +231,28 @@ def main() -> int:
     drill = json.loads(body)["drill"]
     check("app receives the drill with a run-up point", drill and "run_up_p" in drill, body[:200])
     run_up = drill["run_up_p"]
+    check("drill comes with teleport speed and gear", drill.get("teleport") and drill.get("run_up_kmh"), body[:300])
+
+    # No saved state yet: a retry teleports the car to the run-up point.
+    g.car.splinePosition = (run_up + 0.3) % 1.0
+    tick(2)  # the app checks in again (the bare sync above didn't say resets are allowed)
+    http("POST", RIG + "/api/action/rewind")
+    tick(3)
+    for _ in range(5):
+        script.update(1 / 60)
+    tp = to_py(g.teleports)
+    check("retry without a saved state teleports", len(tp) >= 1 and state["loaded"] == 0, str(tp)[:200])
+    check("teleported to the run-up point", abs(g.car.splinePosition - run_up) < 0.002,
+          f"{g.car.splinePosition} vs {run_up}")
+    check("turned round when it came out backwards",
+          len(tp) == 2 and tp[0]["dir"]["x"] > 0 > tp[1]["dir"]["x"] and g.car.look.x > 0, str(tp)[:200])
+    speed = (g.car.velocity.x ** 2 + g.car.velocity.y ** 2 + g.car.velocity.z ** 2) ** 0.5 * 3.6
+    check("moving at the reference speed", abs(speed - drill["run_up_kmh"]) < 1, f"{speed} vs {drill['run_up_kmh']}")
+    check("in the reference gear", drill.get("run_up_gear") is None or list(to_py(g.gears)) == [drill["run_up_gear"]],
+          str(to_py(g.gears)))
+    check("teleport isn't saved as the run-up state", state["saved"] == 0)
+    g.car.look = g.vec3(1, 0, 0)
+
     p = (run_up - 0.01) % 1.0
     for _ in range(60):
         g.car.splinePosition = p

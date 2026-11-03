@@ -554,9 +554,10 @@ class Rig:
     def start_retry(self) -> bool:
         if self.track is None or self.track.drill is None or self.frame is None:
             return False
-        if self.csp.can_reset and self.csp.state.get("has_launch"):
-            # The in-game app saved the car at the run-up point: it puts you
-            # straight back there, at speed.
+        if self.csp.can_reset and (self.csp.state.get("has_launch") or self.config["drills"]["teleport"]):
+            # The in-game app puts you straight back at the run-up point: with
+            # the car state it saved there, or (until it has one) by teleporting
+            # you there at your reference lap's speed and gear.
             self.csp.send({"cmd": "retry", "key": self._drill_key()})
             self._retry = {"t0": self._clock(), "csp": True}
             self.emit({"type": "retry", "state": "rewinding"})
@@ -614,12 +615,20 @@ class Rig:
             return None
         d = self.track.drill.drill
         lead = self.track.lead_in_m(d, float(self.config["drills"]["lead_in_s"]))
+        run_up = (d.start_p - lead / self.track.model.length_m) % 1.0
+        # For a teleport: how fast and in which gear your reference lap passed
+        # the run-up point (standing start if there's no reference yet).
+        v = self.track.ref_view
+        i = v.at(run_up) if v else None
         return {
             "key": self._drill_key(),
             "name": d.name,
             "start_p": d.start_p,
             "end_p": d.end_p,
-            "run_up_p": (d.start_p - lead / self.track.model.length_m) % 1.0,
+            "run_up_p": run_up,
+            "teleport": bool(self.config["drills"]["teleport"]),
+            "run_up_kmh": round(v.trace["speed"][i], 1) if v and i is not None else None,
+            "run_up_gear": int(v.trace["gear"][i]) if v and i is not None else None,
         }
 
     # -- car profile ----------------------------------------------------------
@@ -647,7 +656,7 @@ class Rig:
             if e.get("type") == "retry" and self._retry is not None and self._retry.get("csp"):
                 self._retry = None
                 if e.get("ok"):
-                    self.emit({"type": "retry", "state": "ready"})
+                    self.emit({"type": "retry", "state": "teleported" if e.get("method") == "teleport" else "ready"})
                 else:
                     self._retry_with_time_shift()  # e.g. no saved state yet
         if not was:

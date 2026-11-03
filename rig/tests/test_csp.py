@@ -77,3 +77,45 @@ def test_app_installs_and_updates(tmp_path):
     (dest / "Pitwall.lua").write_text("-- old version")
     assert install_app(root) == "updated"
 
+
+def test_retry_teleports_until_the_app_has_a_saved_state(demo, clock, config, store):
+    events = []
+    rig = Rig(demo, store, config, emit=events.append, clock=clock)
+    drive(rig, clock)
+    assert rig.drill_corner(1)
+    drill = rig.csp_sync({"reset_allowed": True})["drill"]
+    # Teleport details: on by default, with the reference lap's speed and gear at the run-up point.
+    assert drill["teleport"] is True
+    assert drill["run_up_kmh"] > 20 and drill["run_up_gear"] >= 1
+
+    # No saved state yet: the app is still asked, and teleports.
+    assert rig.start_retry() and rig._retry.get("csp")
+    cmds = rig.csp_sync({"reset_allowed": True, "has_launch": False})["commands"]
+    assert cmds == [{"cmd": "retry", "key": drill["key"]}]
+    rig.csp_sync({"reset_allowed": True, "events": [{"type": "retry", "ok": True, "method": "teleport"}]})
+    assert [e["state"] for e in events if e["type"] == "retry"] == ["rewinding", "teleported"]
+    assert rig._retry is None
+
+
+def test_teleport_off_uses_time_shift_until_there_is_a_saved_state(demo, clock, config, store):
+    config.data["drills"]["teleport"] = False
+    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
+    drive(rig, clock)
+    assert rig.drill_corner(1)
+    assert rig.csp_sync({"reset_allowed": True})["drill"]["teleport"] is False
+    held = []
+    rig.keys.down = lambda key: held.append(key) or True
+    assert rig.start_retry() and not rig._retry.get("csp")
+    assert held == ["insert"] and rig.csp_sync({"reset_allowed": True})["commands"] == []
+
+
+def test_failed_teleport_falls_back_to_time_shift(demo, clock, config, store):
+    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
+    drive(rig, clock)
+    assert rig.drill_corner(1)
+    rig.csp_sync({"reset_allowed": True})
+    held = []
+    rig.keys.down = lambda key: held.append(key) or True
+    assert rig.start_retry()
+    rig.csp_sync({"reset_allowed": True, "events": [{"type": "retry", "ok": False, "reason": "unsupported"}]})
+    assert held == ["insert"] and rig._retry is not None and not rig._retry.get("csp")
