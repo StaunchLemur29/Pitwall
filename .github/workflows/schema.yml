@@ -1,0 +1,33 @@
+# Applies cloud/schema.sql to your Supabase database whenever it changes on
+# main, so nobody has to paste it into the SQL Editor. The file is written to
+# be safe to run again and again ("if not exists" everywhere).
+#
+# One-time setup: add a repository secret SUPABASE_DB_URL (see README, "Cloud
+# hub"). Run it by hand any time from the Actions tab ("Run workflow").
+name: Apply database schema
+
+on:
+  push:
+    branches: [main]
+    paths: [cloud/schema.sql]
+  workflow_dispatch:
+
+concurrency: schema
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply cloud/schema.sql to Supabase
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PGOPTIONS: --client-min-messages=warning  # skip the "already exists" chatter
+        run: |
+          if [ -z "$DB_URL" ]; then
+            echo "::error::Add the SUPABASE_DB_URL repository secret first (README, Cloud hub)."
+            exit 1
+          fi
+          command -v psql >/dev/null || sudo apt-get install -y postgresql-client
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f cloud/schema.sql
+          echo "Schema applied."
