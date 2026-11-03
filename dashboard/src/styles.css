@@ -1578,6 +1578,8 @@ select {
 }
 
 .dash__close {
+  display: inline-flex;
+  align-items: center;
   background: none;
   border: 0;
   color: var(--muted);

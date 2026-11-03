@@ -469,8 +469,11 @@ function Controls({
 }
 
 const RECOMMENDED: { action: string; title: string; why: string }[] = [
-  { action: "rewind", title: "Rewind (hold)", why: "Hold to rewind with Time Shift, let go to drive on. The most useful one — a thumb button." },
-  { action: "retry_drill", title: "Retry the drill", why: "One press: rewinds you to just before the section you're practising." },
+  {
+    action: "rewind",
+    title: "Rewind",
+    why: "Hold to rewind with Time Shift, let go to drive on. During a drill, one press takes you back to just before the section. A thumb button.",
+  },
   { action: "drill_here", title: "Drill the next corner", why: "Start practising the corner you're approaching, without touching the mouse." },
   { action: "stop_drill", title: "Stop the drill", why: "Back to normal laps." },
   { action: "next_page", title: "Next dashboard page", why: "Flip between the driving pages. An encoder click or a spare button." },

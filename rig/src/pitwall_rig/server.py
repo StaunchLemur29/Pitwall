@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 import json
 import logging
 from pathlib import Path
@@ -283,40 +285,48 @@ LOOP_GAPS_KEY: web.AppKey[Any] = web.AppKey("loop_gaps")
 # -- app --------------------------------------------------------------------
 
 
-async def _rig_loop(app: web.Application) -> None:
+def _rig_thread(app: web.Application, loop: asyncio.AbstractEventLoop, stop: threading.Event) -> None:
+    """Reads the game and sends updates on a dedicated thread with a precise
+    clock. (asyncio's clock on Windows only ticks every ~16 ms, which made
+    updates arrive in uneven bursts.)"""
     rig, hub = app[RIG_KEY], app[HUB_KEY]
-    loop = asyncio.get_running_loop()
-    next_poll = next_send = loop.time()
     gaps = app[LOOP_GAPS_KEY]
-    last = loop.time()
-    while True:
-        t = loop.time()
-        gaps.append((t - last) * 1000)
-        last = t
-        poll_dt = 1.0 / rig.config["rates"]["poll_hz"]
-        send_dt = 1.0 / rig.config["rates"]["broadcast_hz"]
-        now = loop.time()
+    clock = time.perf_counter
+    next_poll = next_send = last = clock()
+    while not stop.is_set():
+        now = clock()
         if now >= next_poll:
+            gaps.append((now - last) * 1000)
+            last = now
             try:
-                rig.tick()
+                with rig.lock:
+                    rig.tick()
             except Exception:  # noqa: BLE001 - never let one bad frame kill the loop
                 log.exception("Error while reading telemetry")
-            next_poll = max(next_poll + poll_dt, now)
+            next_poll = max(next_poll + 1.0 / rig.config["rates"]["poll_hz"], now)
         if now >= next_send:
-            await hub.broadcast(rig.live())
-            next_send = max(next_send + send_dt, now)
-        await asyncio.sleep(max(0.0, min(next_poll, next_send) - loop.time()))
+            with rig.lock:
+                payload = rig.live()
+            asyncio.run_coroutine_threadsafe(hub.broadcast(payload), loop)
+            next_send = max(next_send + 1.0 / rig.config["rates"]["broadcast_hz"], now)
+        wait = min(next_poll, next_send) - clock()
+        if wait > 0:
+            time.sleep(wait)
 
 
 async def _start_background(app: web.Application) -> None:
-    app[HUB_KEY].bind_loop(asyncio.get_running_loop())
-    app[TASK_KEY] = asyncio.create_task(_rig_loop(app))
+    loop = asyncio.get_running_loop()
+    app[HUB_KEY].bind_loop(loop)
+    stop = threading.Event()
+    t = threading.Thread(target=_rig_thread, args=(app, loop, stop), name="pitwall-rig", daemon=True)
+    t.start()
+    app[TASK_KEY] = stop
 
 
 async def _stop_background(app: web.Application) -> None:
-    task = app.get(TASK_KEY)
-    if task:
-        task.cancel()
+    stop = app.get(TASK_KEY)
+    if stop:
+        stop.set()
     for ws in list(app[HUB_KEY].clients):
         await ws.close()
 

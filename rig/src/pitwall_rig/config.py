@@ -36,7 +36,7 @@ ACTIONS: dict[str, str] = {
     "drill_here": "Start a drill on the section ahead",
     "stop_drill": "Stop the drill",
     "open_analysis": "Open analysis on the main screen",
-    "rewind": "Rewind (hold — holds your Time Shift key)",
+    "rewind": "Rewind (hold) — during a drill: back to the section start",
     "retry_drill": "Retry the drill (rewinds to just before the section)",
 }
 

@@ -25,6 +25,18 @@ log = logging.getLogger(__name__)
 Event = dict[str, Any]
 
 
+def _locked(fn):  # type: ignore[no-untyped-def]
+    """Rig state is touched by the telemetry thread and the web server: one at a time."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(self, *a, **kw):  # type: ignore[no-untyped-def]
+        with self.lock:
+            return fn(self, *a, **kw)
+
+    return wrapper
+
+
 class Rig:
     def __init__(
         self,
@@ -35,6 +47,9 @@ class Rig:
         recorder: Recorder | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        import threading
+
+        self.lock = threading.RLock()
         self.adapter = adapter
         self.store = store
         self.config = config
@@ -242,6 +257,7 @@ class Rig:
                 history.append(data)
         return corner_mastery(history)
 
+    @_locked
     def corner_report(self, lap_id: int | None = None) -> Event:
         """Mastery per corner plus one lap's corner-by-corner numbers."""
         if self.track is None:
@@ -326,12 +342,14 @@ class Rig:
             out.append(d)
         return out
 
+    @_locked
     def drill_section(self, number: int) -> bool:
         if self.track is None:
             return False
         ps = next((p for p in self.track.model.practice if p.number == number), None)
         return ps is not None and self.start_drill(ps.start, ps.end, ps.name)
 
+    @_locked
     def drill_chapter(self, number: int) -> bool:
         if self.track is None:
             return False
@@ -345,6 +363,7 @@ class Rig:
 
     # -- drills -----------------------------------------------------------------
 
+    @_locked
     def start_drill(self, start_p: float, end_p: float, name: str, corner: int | None = None) -> bool:
         s = self.session
         if self.track is None or s is None:
@@ -355,6 +374,7 @@ class Rig:
         self.emit({"type": "drill", "drill": self.track.drill.to_wire() if self.track.drill else None})
         return True
 
+    @_locked
     def drill_corner(self, number: int) -> bool:
         if self.track is None:
             return False
@@ -369,6 +389,7 @@ class Rig:
 
     RETRY_BEHIND_M = (40.0, 600.0)  # stop rewinding once this far before the start
 
+    @_locked
     def start_retry(self) -> bool:
         if self.track is None or self.track.drill is None or self.frame is None:
             return False
@@ -402,6 +423,7 @@ class Rig:
             self._retry = None
             self.emit({"type": "retry", "state": done})
 
+    @_locked
     def stop_drill(self) -> None:
         if self.track is not None:
             self.track.stop_drill()
@@ -431,6 +453,7 @@ class Rig:
             "track": self.track_live,
         }
 
+    @_locked
     def hello(self) -> Event:
         s = self.session
         return {
@@ -454,6 +477,7 @@ class Rig:
             return []
         return self.store.laps(s.game, s.track_key, s.car, limit=limit)
 
+    @_locked
     def outline(self, max_points: int = 1000) -> Event:
         s = self.session
         if s is None:
@@ -473,14 +497,21 @@ class Rig:
 
     # -- actions & bindings -------------------------------------------------
 
+    @_locked
     def action(self, name: str, pressed: bool = True) -> None:
         if name not in ACTIONS:
             return
         if name == "rewind":
-            # Time Shift rewinds for as long as its key is held: mirror the wheel button.
+            # During a drill, one press rewinds to just before the section.
+            if self.track is not None and self.track.drill is not None:
+                if pressed and self._retry is None:
+                    self.start_retry()
+                return
+            # Otherwise Time Shift rewinds for as long as its key is held:
+            # mirror the wheel button.
             if pressed:
                 self.keys.down(self.config["games"]["ac"]["rewind_key"])
-            else:
+            elif self._retry is None:
                 self.keys.up()
             return
         if not pressed:
@@ -508,6 +539,7 @@ class Rig:
             self.start_retry()
         self.emit({"type": "action", "action": name})
 
+    @_locked
     def raw_input(self, ev: InputEvent) -> None:
         """Called for every wheel press; completes a pending "press to bind"."""
         if self.pending_bind is None:
