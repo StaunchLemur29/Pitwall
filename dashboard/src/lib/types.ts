@@ -239,6 +239,7 @@ export type Binding =
 export interface Config {
   game: "ac" | "demo" | "replay";
   games: { ac: { install_dir: string; rewind_key: string } };
+  drills: { lead_in_s: number };
   server: { host: string; port: number };
   rates: { poll_hz: number; broadcast_hz: number };
   laps: { max_tyres_out: number };

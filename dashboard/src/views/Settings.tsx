@@ -416,6 +416,20 @@ function Controls({
             onChange={(e) => edit((c) => (c.games.ac.rewind_key = e.target.value.trim()))}
           />
         </Field>
+        <Field
+          label="Drill run-up (seconds)"
+          hint="A drill retry rewinds to this much driving before the section starts, so you've got a moment to settle in."
+        >
+          <input
+            className="textin"
+            type="number"
+            min={0}
+            max={15}
+            step={0.5}
+            value={draft.drills.lead_in_s}
+            onChange={(e) => edit((c) => (c.drills.lead_in_s = Number(e.target.value)))}
+          />
+        </Field>
 
       </div>
       {dirty && <p className="warn">Save your other changes before binding buttons.</p>}

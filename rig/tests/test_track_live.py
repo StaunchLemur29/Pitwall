@@ -152,3 +152,20 @@ def test_practice_sections_group_corner_families():
     assert [p.name for p in ps] == ["La Source", "Les Combes", "Turn 5"]
     assert ps[1].corners == [2, 3, 4]
     assert ps[1].start < 0.34 and ps[1].end > 0.41
+
+
+def test_retry_run_up_follows_the_reference_lap(demo):
+    m = demo_model(demo)
+    ts = TrackState(m)
+    d = Drill(name="x", start_p=0.5, end_p=0.6)
+    assert ts.lead_in_m(d, 4) == 160  # no reference yet: a typical speed
+    # Reference lap at a steady 50 m/s: 4 s of driving is 200 m.
+    n = 2000
+    lap_s = m.length_m / 50
+    trace = {k: [0.0] * n for k in ("speed", "brake", "gas", "steer", "gear")}
+    trace["p"] = [i / n for i in range(n)]
+    trace["t"] = [i / n * lap_s for i in range(n)]
+    trace["x"] = [m.line.x[m.index_at(q)] for q in trace["p"]]
+    trace["z"] = [m.line.z[m.index_at(q)] for q in trace["p"]]
+    ts.set_reference(trace)
+    assert abs(ts.lead_in_m(d, 4) - 200) < 3

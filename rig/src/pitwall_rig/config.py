@@ -54,6 +54,9 @@ DEFAULTS: dict[str, Any] = {
     "server": {"host": "127.0.0.1", "port": 8765},
     "rates": {"poll_hz": 60, "broadcast_hz": 60},
     "laps": {"max_tyres_out": 2},
+    # lead_in_s: a drill retry rewinds to this many seconds of driving before
+    # the section starts, so you have a moment to settle before it begins.
+    "drills": {"lead_in_s": 4},
     "units": {"speed": "kmh", "pressure": "psi", "temperature": "c"},
     "display": {
         "accent": "#ff5a36",
@@ -157,6 +160,9 @@ def validate(cfg: dict[str, Any]) -> list[str]:
         errs.append("game must be one of: ac, demo, replay")
     if cfg.get("display", {}).get("monitor") not in ("auto", "manual"):
         errs.append("display.monitor must be auto or manual")
+    lead = cfg.get("drills", {}).get("lead_in_s")
+    if not isinstance(lead, (int, float)) or not 0 <= lead <= 15:
+        errs.append("drills.lead_in_s must be between 0 and 15 seconds")
     port = cfg.get("server", {}).get("port")
     if not isinstance(port, int) or not 1024 <= port <= 65535:
         errs.append("server.port must be a number between 1024 and 65535")

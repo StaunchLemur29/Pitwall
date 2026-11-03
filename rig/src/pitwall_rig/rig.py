@@ -387,7 +387,7 @@ class Rig:
 
     # -- automatic retry (hold Time Shift until we're back before the section) --
 
-    RETRY_BEHIND_M = (40.0, 600.0)  # stop rewinding once this far before the start
+    RETRY_EXTRA_M = 600.0  # don't stop if somehow way further back than the target
 
     @_locked
     def start_retry(self) -> bool:
@@ -395,7 +395,9 @@ class Rig:
             return False
         if not self.keys.down(self.config["games"]["ac"]["rewind_key"]):
             return False
-        self._retry = {"t0": self._clock(), "p0": self.frame.lap_progress, "moved": 0.0}
+        lead_s = float(self.config["drills"]["lead_in_s"])
+        target = self.track.lead_in_m(self.track.drill.drill, lead_s)
+        self._retry = {"t0": self._clock(), "p0": self.frame.lap_progress, "moved": 0.0, "target_m": target}
         self.emit({"type": "retry", "state": "rewinding"})
         return True
 
@@ -412,7 +414,7 @@ class Rig:
             back_m = ((r["p0"] - f.lap_progress) % 1.0) * length
             if back_m < length / 2:
                 r["moved"] = max(r["moved"], back_m)
-            if self.RETRY_BEHIND_M[0] <= behind_m <= self.RETRY_BEHIND_M[1] and r["moved"] > 1:
+            if r["target_m"] <= behind_m <= r["target_m"] + self.RETRY_EXTRA_M and r["moved"] > 1:
                 done = "ready"
             elif now - r["t0"] > 1.5 and r["moved"] < 1:
                 done = "no_rewind"  # Time Shift didn't react: key not bound?

@@ -50,6 +50,17 @@ class LapView:
         t0, t1 = self.trace["t"][self.idx[j - 1]], self.trace["t"][self.idx[j]]
         return t0 + (t1 - t0) * (progress - p0) / (p1 - p0)
 
+    def progress_at(self, t: float) -> float:
+        """Track progress at lap time ``t`` (clamped to the lap)."""
+        ts = [self.trace["t"][i] for i in self.idx]
+        j = bisect_left(ts, t)
+        if j <= 0:
+            return self.p[0]
+        if j >= len(ts):
+            return self.p[-1]
+        t0, t1 = ts[j - 1], ts[j]
+        return self.p[j - 1] + (self.p[j] - self.p[j - 1]) * ((t - t0) / (t1 - t0) if t1 > t0 else 0.0)
+
     def range(self, start: float, end: float) -> list[int]:
         a, b = bisect_left(self.p, start), bisect_left(self.p, end)
         return self.idx[a:b]

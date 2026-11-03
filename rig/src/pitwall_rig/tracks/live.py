@@ -132,6 +132,18 @@ class TrackState:
             return None
         return int((v.time_at(d.end_p) - v.time_at(d.start_p)) * 1000)
 
+    def lead_in_m(self, d: Drill, seconds: float, fallback_mps: float = 40.0) -> float:
+        """How far before the section start is ``seconds`` of driving, going by
+        your reference lap (or a typical speed if there isn't one yet)."""
+        length = self.model.length_m or 1.0
+        v = self.ref_view
+        if v:
+            t_start = v.time_at(d.start_p)
+            if t_start - seconds > v.trace["t"][v.idx[0]] + 0.5:
+                p = v.progress_at(t_start - seconds)
+                return max(30.0, ((d.start_p - p) % 1.0) * length)
+        return seconds * fallback_mps
+
     # -- drills ---------------------------------------------------------------
 
     def start_drill(self, drill: Drill, best_ms: int | None) -> None:
