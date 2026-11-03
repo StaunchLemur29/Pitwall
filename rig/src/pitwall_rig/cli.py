@@ -13,7 +13,7 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .browser import close_window, open_analysis, open_dashboard
+from .browser import close_all, close_window, minimize_window, open_analysis, open_dashboard
 from .config import Config, ConfigError, default_data_dir
 from .input import InputService
 from .rig import Rig
@@ -118,6 +118,20 @@ def cmd_run(args: argparse.Namespace) -> None:
     log.info("Laps are saved to %s", store_path)
     rig.on_open_analysis = lambda: open_analysis(url, config["display"])
     rig.on_close_window = close_window
+    rig.on_minimize_window = minimize_window
+
+    def shutdown() -> None:
+        """The dashboard's Stop button: close windows, save everything, exit."""
+        log.info("Stopping Pitwall (from the dashboard)")
+        close_all()
+        inp.stop()
+        if recorder:
+            recorder.close()
+        adapter.close()
+        store.close()
+        os._exit(0)
+
+    rig.on_shutdown = shutdown
     if args.open or config["display"]["open_browser"]:
 
         async def open_when_ready(_app: web.Application) -> None:

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { lag } from "../lib/rig";
+import { lag, perf } from "../lib/rig";
 
 /**
  * Press L to toggle. Shows where delay comes from:
@@ -14,7 +14,7 @@ export function LagMeter() {
     }
   });
   const [, force] = useState(0);
-  const fps = useRef({ n: 0, t0: performance.now(), value: 0, worst: 0, last: performance.now() });
+  const fps = useRef({ n: 0, t0: performance.now(), value: 0, worst: 0, worstShown: 0, last: performance.now(), renders: 0, updates: 0 });
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -42,11 +42,17 @@ export function LagMeter() {
       f.last = now;
       f.n++;
       if (now - f.t0 >= 1000) {
-        f.value = (f.n * 1000) / (now - f.t0);
+        const span = (now - f.t0) / 1000;
+        f.value = f.n / span;
+        f.renders = perf.renders / span;
+        f.updates = perf.storeUpdates / span;
+        perf.renders = 0;
+        perf.storeUpdates = 0;
+        f.worstShown = f.worst;
         f.n = 0;
         f.t0 = now;
-        force((x) => x + 1);
         f.worst = 0;
+        force((x) => x + 1);
       }
       raf = requestAnimationFrame(loop);
     };
@@ -67,6 +73,12 @@ export function LagMeter() {
       <Row label="Data age (avg / worst)" value={`${s.ageAvg.toFixed(0)} / ${s.ageMax.toFixed(0)} ms`} tone={bad(s.ageAvg, 40, 80)} />
       <Row label="Longest gap" value={`${s.gapMax.toFixed(0)} ms`} tone={bad(s.gapMax, 60, 120)} />
       <Row label="Screen fps" value={`${fps.current.value.toFixed(0)}`} tone={low(fps.current.value, 50, 30)} />
+      <Row label="Slowest frame" value={`${fps.current.worstShown.toFixed(0)} ms`} tone={bad(fps.current.worstShown, 25, 50)} />
+      <Row label="Dashboard updates/s" value={`${fps.current.updates.toFixed(0)}`} tone={bad(fps.current.updates, 25, 45)} />
+      <div className="lagm__hint">
+        If fps is low but redraws are low too, check Chrome's graphics acceleration: open a normal Chrome tab at
+        chrome://gpu — “Canvas” and “Compositing” should say “Hardware accelerated”.
+      </div>
     </div>
   );
 }

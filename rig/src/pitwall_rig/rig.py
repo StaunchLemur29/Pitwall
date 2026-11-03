@@ -53,6 +53,8 @@ class Rig:
         self.pending_bind: str | None = None
         self.on_open_analysis: Callable[[], object] = lambda: None
         self.on_close_window: Callable[[str], object] = lambda which: None
+        self.on_minimize_window: Callable[[str], object] = lambda which: None
+        self.on_shutdown: Callable[[], object] = lambda: None
         # rates for the lag meter: rig ticks/s and new game packets/s
         self._rate_t0 = time.monotonic()
         self._ticks = 0

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { prettyName } from "../lib/format";
-import { closeWindow, rig, useRig } from "../lib/rig";
+import { minimizeWindow, perf, rig, stopPitwall, useRig } from "../lib/rig";
 import { LagMeter } from "../widgets/LagMeter";
 import type { Mode } from "../lib/types";
 import { WIDGETS } from "../widgets";
@@ -8,12 +8,14 @@ import { WIDGETS } from "../widgets";
 const GAME_NAMES: Record<string, string> = { ac: "Assetto Corsa", demo: "Demo", replay: "Replay" };
 
 export function Dashboard() {
+  perf.renders++;
   const connected = useRig((s) => s.connected);
   const config = useRig((s) => s.config);
   const mode = useRig((s) => s.mode);
   const game = useRig((s) => s.game);
   const session = useRig((s) => s.session);
   const status = useRig((s) => s.live.frame?.status ?? "off");
+  const stopped = useRig((s) => s.stopped);
   const layoutMode: Exclude<Mode, "idle"> = mode === "driving" ? "driving" : "analysis";
   const pages = config?.layouts[layoutMode] ?? [];
   const [pageByMode, setPageByMode] = useState<Record<string, number>>({});
@@ -41,7 +43,9 @@ export function Dashboard() {
   }, [layoutMode, pages.length]);
 
   const slots = pages[page] ?? [];
-  const banner = !connected
+  const banner = stopped
+    ? "Pitwall has stopped. You can close this window."
+    : !connected
     ? "Waiting for the Pitwall rig service…"
     : status === "off"
       ? `Waiting for ${GAME_NAMES[game] ?? game} — start a session`
@@ -69,8 +73,18 @@ export function Dashboard() {
         <a className="dash__gear" href="#/settings" title="Settings" aria-label="Settings">
           ⚙
         </a>
-        <button className="dash__close" onClick={() => closeWindow("dashboard")} title="Close this window" aria-label="Close">
-          ✕
+        <button className="dash__close" onClick={() => minimizeWindow("dashboard")} title="Minimise" aria-label="Minimise">
+          –
+        </button>
+        <button
+          className="dash__close dash__stop"
+          onClick={() => {
+            if (confirm("Stop Pitwall? Your laps are already saved.")) void stopPitwall();
+          }}
+          title="Stop Pitwall"
+          aria-label="Stop Pitwall"
+        >
+          ⏻
         </button>
       </header>
       <LagMeter />

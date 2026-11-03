@@ -1620,3 +1620,29 @@ select {
   gap: 16px;
   padding: 2px 0;
 }
+
+.lagm__hint {
+  margin-top: 8px;
+  color: var(--faint);
+  font-size: 12px;
+  max-width: 300px;
+  line-height: 1.4;
+}
+
+.tbt__legend {
+  font-size: calc(var(--u) * 1.8);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: calc(var(--u) * 0.6);
+}
+
+.tbt__legend i {
+  width: 28px;
+  border-top: 3px dashed var(--best);
+}
+
+.dash__stop:hover {
+  color: var(--bad);
+}

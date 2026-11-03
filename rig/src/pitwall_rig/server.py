@@ -194,11 +194,19 @@ async def delete_drill(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
-async def close_window(request: web.Request) -> web.Response:
-    which = request.match_info["which"]
-    if which not in ("dashboard", "analysis"):
+async def window_op(request: web.Request) -> web.Response:
+    which, op = request.match_info["which"], request.match_info["op"]
+    if which not in ("dashboard", "analysis") or op not in ("close", "minimize"):
         raise web.HTTPNotFound()
-    request.app[RIG_KEY].on_close_window(which)
+    rig = request.app[RIG_KEY]
+    (rig.on_close_window if op == "close" else rig.on_minimize_window)(which)
+    return web.json_response({"ok": True})
+
+
+async def shutdown(request: web.Request) -> web.Response:
+    rig, hub = request.app[RIG_KEY], request.app[HUB_KEY]
+    await hub.broadcast({"type": "shutdown"})
+    asyncio.get_running_loop().call_later(0.2, rig.on_shutdown)
     return web.json_response({"ok": True})
 
 
@@ -280,7 +288,8 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_delete("/api/bind", cancel_bind)
     app.router.add_get("/api/input/devices", get_devices)
     app.router.add_get("/api/monitors", get_monitors)
-    app.router.add_post("/api/window/{which}/close", close_window)
+    app.router.add_post("/api/window/{which}/{op}", window_op)
+    app.router.add_post("/api/shutdown", shutdown)
     app.router.add_get("/api/track", get_track)
     app.router.add_get("/api/corners", get_corners)
     app.router.add_post("/api/drill", post_drill)

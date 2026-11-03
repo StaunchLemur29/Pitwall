@@ -103,3 +103,35 @@ def close_window(kind: str) -> bool:
         return False
     proc.terminate()
     return True
+
+
+def minimize_window(kind: str) -> bool:
+    """Minimise a window Pitwall opened (Windows only)."""
+    import sys
+
+    proc = _windows.get(kind)
+    if proc is None or proc.poll() is not None or sys.platform != "win32":
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    found: list[int] = []
+    proc_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def cb(hwnd, _lp):
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value == proc.pid and user32.IsWindowVisible(hwnd):
+            found.append(hwnd)
+        return True
+
+    user32.EnumWindows(proc_type(cb), 0)
+    for hwnd in found:
+        user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
+    return bool(found)
+
+
+def close_all() -> None:
+    for kind in list(_windows):
+        close_window(kind)

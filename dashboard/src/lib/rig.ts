@@ -34,6 +34,7 @@ export interface RigState {
   corners: CornerReport | null;
   refTrace: Record<string, number[]> | null;
   lastAttempt: (Attempt & { at: number }) | null;
+  stopped: boolean;
 }
 
 const initial: RigState = {
@@ -55,13 +56,27 @@ const initial: RigState = {
   corners: null,
   refTrace: null,
   lastAttempt: null,
+  stopped: false,
 };
 
 type Listener = () => void;
 type ActionListener = (action: string) => void;
 
+/** How often the general dashboard redraws with live data (the road view runs at full rate). */
+const LIVE_UI_HZ = 15;
+
 class RigStore {
   state: RigState = initial;
+  latest: Live | null = null;
+  private lastLiveSet = 0;
+  private liveTimer = 0;
+  private frameListeners = new Set<(l: Live) => void>();
+
+  /** Every telemetry frame, without causing React redraws. */
+  onFrame(fn: (l: Live) => void): () => void {
+    this.frameListeners.add(fn);
+    return () => this.frameListeners.delete(fn);
+  }
   private listeners = new Set<Listener>();
   private actionListeners = new Set<ActionListener>();
   private ws: WebSocket | null = null;
@@ -101,7 +116,21 @@ class RigStore {
       case "frame": {
         const { type: _t, ts, tick_hz, game_hz, ...live } = e;
         lag.record(Date.now() - ts * 1000, tick_hz, game_hz);
-        this.set({ live });
+        // Full-rate consumers (road view, gauge) get every frame directly…
+        this.latest = live;
+        this.frameListeners.forEach((fn) => fn(live));
+        // …the rest of the dashboard redraws at most LIVE_UI_HZ times a second.
+        const now = performance.now();
+        if (now - this.lastLiveSet >= 1000 / LIVE_UI_HZ) {
+          this.lastLiveSet = now;
+          this.set({ live });
+        } else if (!this.liveTimer) {
+          this.liveTimer = window.setTimeout(() => {
+            this.liveTimer = 0;
+            this.lastLiveSet = performance.now();
+            this.set({ live: this.latest! });
+          }, 1000 / LIVE_UI_HZ - (now - this.lastLiveSet));
+        }
         break;
       }
       case "hello":
@@ -130,6 +159,9 @@ class RigStore {
         this.set({ lastAttempt: { ...e.attempt, at: Date.now() } });
         break;
       case "drill":
+        break;
+      case "shutdown":
+        this.set({ stopped: true });
         break;
       case "session":
         this.set({ session: e.session, laps: [], outline: [], markers: [] });
@@ -196,6 +228,7 @@ class RigStore {
   }
 
   private set(patch: Partial<RigState>): void {
+    perf.storeUpdates++;
     this.state = { ...this.state, ...patch };
     this.listeners.forEach((fn) => fn());
   }
@@ -243,7 +276,18 @@ class LagStats {
 
 export const lag = new LagStats();
 
+/** Counters for the performance part of the lag meter. */
+export const perf = { storeUpdates: 0, renders: 0 };
+
 export const rig = new RigStore();
+
+export async function minimizeWindow(which: "dashboard" | "analysis"): Promise<void> {
+  await fetch(`/api/window/${which}/minimize`, { method: "POST" }).catch(() => undefined);
+}
+
+export async function stopPitwall(): Promise<void> {
+  await fetch("/api/shutdown", { method: "POST" }).catch(() => undefined);
+}
 
 export async function closeWindow(which: "dashboard" | "analysis"): Promise<void> {
   try {

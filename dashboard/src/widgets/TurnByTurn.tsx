@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useRig } from "../lib/rig";
+import { rig, useRig } from "../lib/rig";
 import { indexAt, pathOf, type P } from "../lib/track";
-import type { TrackGeometry } from "../lib/types";
+import type { Live, TrackGeometry } from "../lib/types";
 import { Card, useSize } from "./common";
 
 // The view zooms so the next corner (plus a bit of its exit) is always on
@@ -34,11 +34,22 @@ export function TurnByTurn() {
     if (!ref?.x || !g) return "";
     const lo = p - BEHIND_M / g.length_m;
     const hi = p + (MAX_AHEAD + 150) / g.length_m;
-    const pts: P[] = [];
+    // Your best lap's line near the car. Skip the few samples logged just
+    // before the start line, and never join points that are far apart.
+    let d = "";
+    let prev: P | null = null;
     ref.p.forEach((q, i) => {
-      if (inRange(q, lo, hi)) pts.push([ref.x[i], ref.z[i]]);
+      if (ref.t[i] < 5 && q > 0.9) return;
+      if (!inRange(q, lo, hi)) {
+        prev = null;
+        return;
+      }
+      const pt: P = [ref.x[i], ref.z[i]];
+      const jump = prev ? (pt[0] - prev[0]) ** 2 + (pt[1] - prev[1]) ** 2 > 25 * 25 : true;
+      d += `${jump ? "M" : "L"}${pt[0].toFixed(1)},${pt[1].toFixed(1)}`;
+      prev = pt;
     });
-    return pathOf(pts);
+    return d;
   }, [ref, g, bucket]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Animation state lives in refs: the rAF loop writes straight to the SVG.
@@ -55,31 +66,37 @@ export function TurnByTurn() {
   const geo = useRef(g);
   geo.current = g;
 
-  // Feed each telemetry sample into the animator.
+  // Feed every telemetry sample into the animator (full rate, no React redraw).
   useEffect(() => {
-    if (!live || !f?.world || !tl || !g) return;
-    const a = anim.current;
-    a.x = f.world[0];
-    a.z = f.world[2];
-    a.vx = f.velocity ? f.velocity[0] : 0;
-    a.vz = f.velocity ? f.velocity[2] : 0;
-    const now = performance.now();
-    a.at = now;
-    // (Re)find ourselves on the outline at start, after a rewind or a new track.
-    const c0 = a.idx >= 0 && a.idx < g.center.length ? g.center[a.idx] : null;
-    if (!c0 || (c0[0] - a.x) ** 2 + (c0[1] - a.z) ** 2 > 40 * 40) a.idx = indexAt(g, tl.p);
-    const car = tl.car_heading ?? null;
-    if (car !== null && a.car !== null && now > a.carAt) {
-      // turning rate, so the arrow can keep rotating smoothly between updates
-      a.carRate = angDiff(car, a.car) / ((now - a.carAt) / 1000);
-    }
-    a.car = car;
-    a.carAt = now;
-    const c = tl.corner;
-    const toExit = c ? ((((c.exit - tl.p) % 1) + 1) % 1) * g.length_m : 0;
-    const span = c ? (c.distance_m > 0 ? c.distance_m + 90 : toExit + 60) : 150;
-    a.aheadTarget = Math.min(MAX_AHEAD, Math.max(MIN_AHEAD, span));
-  }, [f, tl, live, g]);
+    const feed = (lv: Live) => {
+      const gg = geo.current;
+      const f = lv.frame;
+      const tl = lv.track;
+      if (!gg || !f?.world || !tl || f.status !== "live") return;
+      const a = anim.current;
+      a.x = f.world[0];
+      a.z = f.world[2];
+      a.vx = f.velocity ? f.velocity[0] : 0;
+      a.vz = f.velocity ? f.velocity[2] : 0;
+      const now = performance.now();
+      a.at = now;
+      // (Re)find ourselves on the outline at start, after a rewind or a new track.
+      const c0 = a.idx >= 0 && a.idx < gg.center.length ? gg.center[a.idx] : null;
+      if (!c0 || (c0[0] - a.x) ** 2 + (c0[1] - a.z) ** 2 > 40 * 40) a.idx = indexAt(gg, tl.p);
+      const car = tl.car_heading ?? null;
+      if (car !== null && a.car !== null && now > a.carAt) {
+        a.carRate = angDiff(car, a.car) / ((now - a.carAt) / 1000);
+      }
+      a.car = car;
+      a.carAt = now;
+      const c = tl.corner;
+      const toExit = c ? ((((c.exit - tl.p) % 1) + 1) % 1) * gg.length_m : 0;
+      const span = c ? (c.distance_m > 0 ? c.distance_m + 90 : toExit + 60) : 150;
+      a.aheadTarget = Math.min(MAX_AHEAD, Math.max(MIN_AHEAD, span));
+    };
+    if (rig.latest) feed(rig.latest);
+    return rig.onFrame(feed);
+  }, []);
 
   useEffect(() => {
     let raf = 0;
@@ -182,6 +199,7 @@ export function TurnByTurn() {
           </svg>
         )}
       </div>
+      {refPath && <div className="tbt__legend"><i /> your best lap's line</div>}
       {live && tl?.frac != null && <WidthGauge frac={tl.frac} carRef={gaugeCar} />}
     </Card>
   );

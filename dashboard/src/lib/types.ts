@@ -280,4 +280,5 @@ export type ServerEvent =
   | { type: "track"; track: TrackGeometry | null }
   | ({ type: "corners" } & CornerReport)
   | { type: "drill"; drill: Drill | null }
+  | { type: "shutdown" }
   | { type: "attempt"; attempt: Attempt & { start_p: number; end_p: number } };
