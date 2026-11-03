@@ -274,6 +274,8 @@ Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
 
 ## 16. Open items
 
+- **NEXT UP (owner request, 2026-11-03): drill teleport.** Pick a section and get put at its run-up straight away, over and over, without driving round first. Today the in-game app's retry only works after you've driven through the run-up once (it saves the car state there). Plan: `physics.setCarPosition` to the run-up point (offline only, like Time Shift), and use CSP's car-state helpers ("alter car position and velocity in a blob from `ac.saveCarStateAsync()`", lua-shared/sim/cars.lua) to arrive at the reference lap's speed there, not from a standstill. Bind it to the drill / retry buttons; "teleport to section N" from the dashboard's practice list.
+
 - **Rewind mod**: name and whether it can be triggered from a CSP Lua app / externally. Affects only phase 1 retry implementation; teleport is the fallback.
 - **AC EVO fields**: confirm BB/ABS/TC levels and tyre pressures exist before building EVO electronics features.
 - **TTS voice**: audition 2–3 voices.
