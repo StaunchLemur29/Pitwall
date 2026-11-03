@@ -47,6 +47,43 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
   }
   const valid = laps.filter((l) => l.valid);
   const rows = report?.lap ?? [];
+  const renderCorner = (c: TrackGeometry["corners"][number], i: number) => {
+            const r = rows[i];
+            if (!r) return null;
+            const m = report?.mastery.find((x) => x.corner === c.number);
+            return (
+              <div
+                key={c.number}
+                className={`crow ${focus === c.number ? "crow--focus" : ""}`}
+                onMouseEnter={() => setFocus(c.number)}
+                onMouseLeave={() => setFocus(null)}
+              >
+                <div className="crow__head">
+                  <span className="mdot" style={{ background: GRADE_COLORS[m?.grade ?? "new"] }} />
+                  <span className="crow__name">
+                    {c.number}. {c.label}
+                  </span>
+                  <span className="crow__time">{r.time_s.toFixed(2)}s</span>
+                  <span className={`crow__loss ${lossClass(r.loss_s)}`}>{r.loss_s != null ? delta(r.loss_s) : ""}</span>
+                </div>
+                <div className="crow__stats">
+                  <span>min {Math.round(r.min_speed_kmh)} km/h</span>
+                  <span>gear {r.apex_gear}</span>
+                  {r.coast_s > 0.2 && <span className="warn">coast {r.coast_s.toFixed(1)}s</span>}
+                  {m && m.spread_s !== null && <span>± {m.spread_s.toFixed(2)}s over {Math.min(m.laps, 10)} laps</span>}
+                </div>
+                {r.entry_frac !== undefined && <WidthUse c={c.direction} r={r} />}
+                {r.advice && r.advice.length > 0 && (
+                  <ul className="crow__advice">
+                    {r.advice.map((a) => (
+                      <li key={a}>{a}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          
+  };
   return (
     <Card
       title="Lap analysis"
@@ -94,45 +131,28 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
                   </div>
                 );
               })}
-              <div className="chapters__title">Corners</div>
+              <div className="chapters__title">Sections</div>
             </div>
           )}
-          {g.corners.map((c, i) => {
-            const r = rows[i];
-            if (!r) return null;
-            const m = report?.mastery.find((x) => x.corner === c.number);
+          {(report?.practice?.length ? report.practice : g.practice).map((ps) => {
+            const d = ps.time_s != null && ps.ref_s != null ? ps.time_s - ps.ref_s : null;
             return (
-              <div
-                key={c.number}
-                className={`crow ${focus === c.number ? "crow--focus" : ""}`}
-                onMouseEnter={() => setFocus(c.number)}
-                onMouseLeave={() => setFocus(null)}
-              >
-                <div className="crow__head">
-                  <span className="mdot" style={{ background: GRADE_COLORS[m?.grade ?? "new"] }} />
-                  <span className="crow__name">
-                    {c.number}. {c.label}
+              <div key={`s${ps.number}`} className="psec">
+                <div className="psec__head">
+                  <span className="psec__name">{ps.name}</span>
+                  <span className="crow__time">{ps.time_s != null ? `${ps.time_s.toFixed(2)}s` : ""}</span>
+                  <span className={`crow__loss ${lossClass(d)}`} title="vs your best lap">
+                    {d !== null ? delta(d) : ""}
                   </span>
-                  <span className="crow__time">{r.time_s.toFixed(2)}s</span>
-                  <span className={`crow__loss ${lossClass(r.loss_s)}`}>{r.loss_s != null ? delta(r.loss_s) : ""}</span>
-                  <button className="btn btn--sm btn--ghost" onClick={() => startDrill({ corner: c.number })}>
+                  <button className="btn btn--sm" onClick={() => startDrill({ section: ps.number })}>
                     Practise
                   </button>
                 </div>
-                <div className="crow__stats">
-                  <span>min {Math.round(r.min_speed_kmh)} km/h</span>
-                  <span>gear {r.apex_gear}</span>
-                  {r.coast_s > 0.2 && <span className="warn">coast {r.coast_s.toFixed(1)}s</span>}
-                  {m && m.spread_s !== null && <span>± {m.spread_s.toFixed(2)}s over {Math.min(m.laps, 10)} laps</span>}
-                </div>
-                {r.entry_frac !== undefined && <WidthUse c={c.direction} r={r} />}
-                {r.advice && r.advice.length > 0 && (
-                  <ul className="crow__advice">
-                    {r.advice.map((a) => (
-                      <li key={a}>{a}</li>
-                    ))}
-                  </ul>
-                )}
+                {ps.drill_best_s ? <div className="psec__sub">best drill run {ps.drill_best_s.toFixed(2)}s</div> : null}
+                {ps.corners.map((num) => {
+                  const i = g.corners.findIndex((k) => k.number === num);
+                  return i >= 0 ? renderCorner(g.corners[i], i) : null;
+                })}
               </div>
             );
           })}

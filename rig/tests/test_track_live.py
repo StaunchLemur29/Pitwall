@@ -132,3 +132,23 @@ def test_yaw_calibrator_learns_the_mapping():
         cal.observe(yaw, travel)
     assert cal.best == (-1, 90.0)
     assert abs(cal.heading(math.radians(90 - 30)) - 30) < 1e-6
+
+
+def test_practice_sections_group_corner_families():
+    from pitwall_rig.tracks.model import Corner, practice_sections
+
+    def c(n, name, entry, exit_):
+        return Corner(n, name, "R", 3, entry, (entry + exit_) / 2, exit_, 50.0)
+
+    L = 7000.0
+    corners = [
+        c(1, "La Source", 0.05, 0.06),
+        c(2, "Les Combes 1", 0.34, 0.35),
+        c(3, "Les Combes 2", 0.36, 0.37),  # 70 m gap and same family → joined
+        c(4, "Les Combes 3", 0.40, 0.41),  # 210 m gap but same family → joined
+        c(5, "", 0.60, 0.61),
+    ]
+    ps = practice_sections(corners, L)
+    assert [p.name for p in ps] == ["La Source", "Les Combes", "Turn 5"]
+    assert ps[1].corners == [2, 3, 4]
+    assert ps[1].start < 0.34 and ps[1].end > 0.41

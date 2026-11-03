@@ -408,7 +408,7 @@ function Controls({
       <div className="row">
         <Field
           label="Time Shift rewind key"
-          hint="Pitwall presses this key for the “Rewind” action. Bind the same key to Rewind inside CSP's Time Shift app."
+          hint="Pitwall holds this key while you hold your Rewind button (Time Shift rewinds while it's held). Bind the same key inside CSP's Time Shift app."
         >
           <input
             className="textin"
@@ -416,15 +416,7 @@ function Controls({
             onChange={(e) => edit((c) => (c.games.ac.rewind_key = e.target.value.trim()))}
           />
         </Field>
-        <Field label="Hold for (ms)" hint="Longer = rewinds further, if Time Shift rewinds while held.">
-          <input
-            type="number"
-            min={20}
-            max={5000}
-            value={draft.games.ac.rewind_hold_ms}
-            onChange={(e) => edit((c) => (c.games.ac.rewind_hold_ms = Number(e.target.value)))}
-          />
-        </Field>
+
       </div>
       {dirty && <p className="warn">Save your other changes before binding buttons.</p>}
       {Object.entries(actions).map(([action, label]) => {
@@ -477,7 +469,8 @@ function Controls({
 }
 
 const RECOMMENDED: { action: string; title: string; why: string }[] = [
-  { action: "rewind", title: "Rewind", why: "Undo a mistake with Time Shift and try the corner again. The most useful one — a thumb button." },
+  { action: "rewind", title: "Rewind (hold)", why: "Hold to rewind with Time Shift, let go to drive on. The most useful one — a thumb button." },
+  { action: "retry_drill", title: "Retry the drill", why: "One press: rewinds you to just before the section you're practising." },
   { action: "drill_here", title: "Drill the next corner", why: "Start practising the corner you're approaching, without touching the mouse." },
   { action: "stop_drill", title: "Stop the drill", why: "Back to normal laps." },
   { action: "next_page", title: "Next dashboard page", why: "Flip between the driving pages. An encoder click or a spare button." },

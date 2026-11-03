@@ -1646,3 +1646,36 @@ select {
 .dash__stop:hover {
   color: var(--bad);
 }
+
+.drill__retry {
+  color: var(--warn);
+  font-weight: 700;
+}
+
+.psec {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.psec__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px;
+  font-size: max(14px, calc(var(--u) * 2.1));
+}
+
+.psec__name {
+  flex: 1;
+  font-weight: 800;
+}
+
+.psec__sub {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 0 4px;
+}

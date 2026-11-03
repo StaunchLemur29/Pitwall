@@ -107,6 +107,18 @@ export interface TrackGeometry {
   corners: Corner[];
   sections: { name: string; start: number; end: number }[];
   chapters: Chapter[];
+  practice: PracticeSection[];
+}
+
+export interface PracticeSection {
+  number: number;
+  name: string;
+  corners: number[];
+  start: number;
+  end: number;
+  time_s?: number | null;
+  ref_s?: number | null;
+  drill_best_s?: number | null;
 }
 
 export interface Chapter {
@@ -187,6 +199,7 @@ export interface CornerLap {
 
 export interface CornerReport {
   chapters: Chapter[];
+  practice: PracticeSection[];
   mastery: Mastery[];
   lap_id: number | null;
   lap: CornerLap[] | null;
@@ -225,7 +238,7 @@ export type Binding =
 
 export interface Config {
   game: "ac" | "demo" | "replay";
-  games: { ac: { install_dir: string; rewind_key: string; rewind_hold_ms: number } };
+  games: { ac: { install_dir: string; rewind_key: string } };
   server: { host: string; port: number };
   rates: { poll_hz: number; broadcast_hz: number };
   laps: { max_tyres_out: number };
@@ -281,4 +294,5 @@ export type ServerEvent =
   | ({ type: "corners" } & CornerReport)
   | { type: "drill"; drill: Drill | null }
   | { type: "shutdown" }
+  | { type: "retry"; state: "rewinding" | "ready" | "no_rewind" | "timeout" | "stopped" }
   | { type: "attempt"; attempt: Attempt & { start_p: number; end_p: number } };

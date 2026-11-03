@@ -55,6 +55,10 @@ class Rig:
         self.on_close_window: Callable[[str], object] = lambda which: None
         self.on_minimize_window: Callable[[str], object] = lambda which: None
         self.on_shutdown: Callable[[], object] = lambda: None
+        from .input import KeyHolder
+
+        self.keys = KeyHolder()
+        self._retry: dict[str, float] | None = None
         # rates for the lag meter: rig ticks/s and new game packets/s
         self._rate_t0 = time.monotonic()
         self._ticks = 0
@@ -113,6 +117,8 @@ class Rig:
             if self.reference and frame.status == GameStatus.LIVE and not frame.in_pit_box
             else None
         )
+        if self._retry is not None:
+            self._retry_step(frame, now)
         if self.track is not None:
             self.track.max_tyres_out = self.config["laps"]["max_tyres_out"]
             self.track_live = self.track.update(frame)
@@ -229,7 +235,7 @@ class Rig:
     def corner_report(self, lap_id: int | None = None) -> Event:
         """Mastery per corner plus one lap's corner-by-corner numbers."""
         if self.track is None:
-            return {"mastery": [], "lap": None, "lap_id": None, "reference": [], "chapters": []}
+            return {"mastery": [], "lap": None, "lap_id": None, "reference": [], "chapters": [], "practice": []}
         s = self.session
         if lap_id is None and s is not None:
             ids = self.store.valid_lap_ids(s.game, s.track_key, s.car, limit=1)
@@ -250,8 +256,10 @@ class Rig:
                 best = self.track.mastery.get(c.number, {}).get("best_s")
                 data["loss_s"] = round(data["time_s"] - best, 3) if best is not None else None
         chapters = self._chapter_times(lap_id)
+        practice = self._practice_times(lap_id)
         return {
             "chapters": chapters,
+            "practice": practice,
             "mastery": list(self.track.mastery.values()),
             "lap_id": lap_id,
             "lap": lap,
@@ -282,6 +290,37 @@ class Rig:
             d["ref_s"] = span(ref, ch.start, ch.end)
             out.append(d)
         return out
+
+    def _practice_times(self, lap_id: int | None) -> list[dict[str, Any]]:
+        """Each practice section with this lap's time, your best lap's, and your
+        best clean drill attempt."""
+        if self.track is None:
+            return []
+        from .analysis import LapView
+
+        s = self.session
+        lap_trace = self.store.trace(lap_id) if lap_id is not None else None
+        view = LapView(lap_trace) if lap_trace else None
+        ref = self.track.ref_view
+
+        def span(v: LapView | None, a: float, b: float) -> float | None:
+            return round(v.time_at(b) - v.time_at(a), 3) if v and b > a else None
+
+        out = []
+        for ps in self.track.model.practice:
+            d = ps.to_dict()
+            d["time_s"] = span(view, ps.start, ps.end)
+            d["ref_s"] = span(ref, ps.start, ps.end)
+            best = self.store.best_section_ms(s.game, s.car, s.track_key, ps.start, ps.end) if s else None
+            d["drill_best_s"] = best / 1000 if best else None
+            out.append(d)
+        return out
+
+    def drill_section(self, number: int) -> bool:
+        if self.track is None:
+            return False
+        ps = next((p for p in self.track.model.practice if p.number == number), None)
+        return ps is not None and self.start_drill(ps.start, ps.end, ps.name)
 
     def drill_chapter(self, number: int) -> bool:
         if self.track is None:
@@ -315,6 +354,43 @@ class Rig:
             return False
         before, after = 150.0 / m.length_m, 60.0 / m.length_m
         return self.start_drill(c.entry - before, c.exit + after, c.label, c.number)
+
+    # -- automatic retry (hold Time Shift until we're back before the section) --
+
+    RETRY_BEHIND_M = (40.0, 600.0)  # stop rewinding once this far before the start
+
+    def start_retry(self) -> bool:
+        if self.track is None or self.track.drill is None or self.frame is None:
+            return False
+        if not self.keys.down(self.config["games"]["ac"]["rewind_key"]):
+            return False
+        self._retry = {"t0": self._clock(), "p0": self.frame.lap_progress, "moved": 0.0}
+        self.emit({"type": "retry", "state": "rewinding"})
+        return True
+
+    def _retry_step(self, f: Frame, now: float) -> None:
+        r = self._retry
+        assert r is not None and self.track is not None
+        drill = self.track.drill
+        length = self.track.model.length_m
+        done = None
+        if drill is None:
+            done = "stopped"
+        else:
+            behind_m = ((drill.drill.start_p - f.lap_progress) % 1.0) * length
+            back_m = ((r["p0"] - f.lap_progress) % 1.0) * length
+            if back_m < length / 2:
+                r["moved"] = max(r["moved"], back_m)
+            if self.RETRY_BEHIND_M[0] <= behind_m <= self.RETRY_BEHIND_M[1] and r["moved"] > 1:
+                done = "ready"
+            elif now - r["t0"] > 1.5 and r["moved"] < 1:
+                done = "no_rewind"  # Time Shift didn't react: key not bound?
+            elif now - r["t0"] > 20:
+                done = "timeout"
+        if done:
+            self.keys.up()
+            self._retry = None
+            self.emit({"type": "retry", "state": done})
 
     def stop_drill(self) -> None:
         if self.track is not None:
@@ -387,8 +463,17 @@ class Rig:
 
     # -- actions & bindings -------------------------------------------------
 
-    def action(self, name: str) -> None:
+    def action(self, name: str, pressed: bool = True) -> None:
         if name not in ACTIONS:
+            return
+        if name == "rewind":
+            # Time Shift rewinds for as long as its key is held: mirror the wheel button.
+            if pressed:
+                self.keys.down(self.config["games"]["ac"]["rewind_key"])
+            else:
+                self.keys.up()
+            return
+        if not pressed:
             return
         if name == "mark_corner":
             s, f = self.session, self.frame
@@ -399,17 +484,18 @@ class Rig:
             self.emit({"type": "markers", "markers": self.store.markers(s.game, s.track_key)})
         elif name == "drill_here":
             corner = (self.track_live or {}).get("corner")
-            if corner:
-                self.drill_corner(corner["number"])
+            if corner and self.track is not None:
+                ps = next((p for p in self.track.model.practice if corner["number"] in p.corners), None)
+                if ps is not None:
+                    self.drill_section(ps.number)
+                else:
+                    self.drill_corner(corner["number"])
         elif name == "stop_drill":
             self.stop_drill()
         elif name == "open_analysis":
             self.on_open_analysis()
-        elif name == "rewind":
-            from .input import press_key
-
-            ac = self.config["games"]["ac"]
-            press_key(ac["rewind_key"], ac["rewind_hold_ms"] / 1000)
+        elif name == "retry_drill":
+            self.start_retry()
         self.emit({"type": "action", "action": name})
 
     def raw_input(self, ev: InputEvent) -> None:

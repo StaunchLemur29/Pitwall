@@ -85,10 +85,10 @@ def cmd_run(args: argparse.Namespace) -> None:
     static = Path(args.static) if args.static else REPO_DASHBOARD
     app = make_app(rig, hub, static_dir=static)
 
-    def on_action(a: str) -> None:
+    def on_action(a: str, pressed: bool = True) -> None:
         loop = hub._loop
         if loop is not None:
-            loop.call_soon_threadsafe(rig.action, a)
+            loop.call_soon_threadsafe(rig.action, a, pressed)
 
     def on_raw(ev) -> None:
         loop = hub._loop
@@ -124,6 +124,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         """The dashboard's Stop button: close windows, save everything, exit."""
         log.info("Stopping Pitwall (from the dashboard)")
         close_all()
+        rig.keys.up()
         inp.stop()
         if recorder:
             recorder.close()

@@ -41,6 +41,11 @@ class TrackModel:
     source: str = "game"  # "game" (AC's files) or "laps" (learnt from driving)
     has_edges: bool = True
     chapters: list[Any] = field(default_factory=list)  # from a track pack
+    practice: list[Any] = field(default_factory=list)  # PracticeSection, filled in __post_init__
+
+    def __post_init__(self) -> None:
+        if not self.practice:
+            self.practice = practice_sections(self.corners, self.length_m)
 
     def progress_of(self, i: int) -> float:
         return self.line.dist[i] / self.length_m if self.length_m else 0.0
@@ -91,6 +96,7 @@ class TrackModel:
             "corners": [c.to_dict() for c in self.corners],
             "sections": [asdict(s) for s in self.sections],
             "chapters": [c.to_dict() for c in self.chapters],
+            "practice": [p.to_dict() for p in self.practice],
         }
 
 
@@ -213,3 +219,99 @@ def _name_for(c: Corner, sections: list[Section]) -> str:
         if s.start <= c.exit and c.entry <= s.end:
             return s.name
     return ""
+
+
+# -- practice sections -------------------------------------------------------------
+
+
+@dataclass
+class PracticeSection:
+    """A stretch worth practising as one piece: a corner, or a complex of
+    corners that are driven together (Les Combes 1-2-3, a chicane, an S-bend)."""
+
+    number: int
+    name: str
+    corners: list[int]  # corner numbers
+    start: float  # lap progress, a little before the first braking zone
+    end: float  # a little after the last exit
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _base_name(name: str) -> str:
+    """'Les Combes 2' → 'Les Combes', 'Pflanzgarten 1b' → 'Pflanzgarten 1'."""
+    import re
+
+    if not name:
+        return ""
+    m = re.match(r"^(.*?\d)[a-h]$", name)
+    if m:
+        return m.group(1)
+    m = re.match(r"^(.*\D)\s+\d+$", name)
+    return m.group(1).strip() if m else name
+
+
+def practice_sections(
+    corners: list[Corner],
+    length_m: float,
+    join_gap_m: float = 120.0,
+    lead_m: float = 150.0,
+    tail_m: float = 60.0,
+    max_len_m: float = 800.0,
+) -> list[PracticeSection]:
+    """Group corners into sections: same name family, or so close together
+    that the exit of one is the entry of the next."""
+    if not corners or length_m <= 0:
+        return []
+    groups: list[list[Corner]] = [[corners[0]]]
+    for c in corners[1:]:
+        prev = groups[-1][-1]
+        gap = ((c.entry - prev.exit) % 1.0) * length_m
+        same_family = bool(c.name) and _base_name(c.name) == _base_name(prev.name)
+        if gap <= join_gap_m or same_family:
+            groups[-1].append(c)
+        else:
+            groups.append([c])
+    # A complex that runs over the start line wraps into the first group.
+    if len(groups) > 1:
+        first, last = groups[0][0], groups[-1][-1]
+        gap = ((first.entry - last.exit) % 1.0) * length_m
+        if gap <= join_gap_m:
+            groups[0] = groups.pop() + groups[0]
+
+    # Long runs of linked corners (the Nordschleife has plenty) are split at
+    # their biggest straight until each piece is a practicable length.
+    def span(g: list[Corner]) -> float:
+        return ((g[-1].exit - g[0].entry) % 1.0) * length_m
+
+    def split(g: list[Corner]) -> list[list[Corner]]:
+        if len(g) < 2 or span(g) <= max_len_m:
+            return [g]
+        gaps = [((g[k + 1].entry - g[k].exit) % 1.0) * length_m for k in range(len(g) - 1)]
+        k = max(range(len(gaps)), key=gaps.__getitem__)
+        return split(g[: k + 1]) + split(g[k + 1 :])
+
+    groups = [piece for g in groups for piece in split(g)]
+
+    out = []
+    for i, g in enumerate(groups, 1):
+        names = []
+        for c in g:
+            b = _base_name(c.name) or f"Turn {c.number}"
+            if b not in names:
+                names.append(b)
+        if len(names) == 1:
+            name = names[0] if g[0].name else (f"Turn {g[0].number}" if len(g) == 1 else f"Turns {g[0].number}–{g[-1].number}")
+        else:
+            name = f"{names[0]} to {names[-1]}"
+        out.append(
+            PracticeSection(
+                number=i,
+                name=name,
+                corners=[c.number for c in g],
+                start=(g[0].entry - lead_m / length_m) % 1.0,
+                end=(g[-1].exit + tail_m / length_m) % 1.0,
+            )
+        )
+    return out

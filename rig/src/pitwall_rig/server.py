@@ -178,6 +178,8 @@ async def post_drill(request: web.Request) -> web.Response:
         body = {}
     if "corner" in body:
         ok = rig.drill_corner(int(body["corner"]))
+    elif "section" in body:
+        ok = rig.drill_section(int(body["section"]))
     elif "chapter" in body:
         ok = rig.drill_chapter(int(body["chapter"]))
     elif "start_p" in body and "end_p" in body:

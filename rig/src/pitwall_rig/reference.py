@@ -44,7 +44,12 @@ class ReferenceLap:
         ref = self.time_at(progress)
         if ref is None:
             return None
-        return round(lap_time_ms / 1000.0 - ref, 3)
+        d = lap_time_ms / 1000.0 - ref
+        # Huge gaps mean the lap clock and track position disagree (hotlap
+        # run-up, rewinds, joining mid-lap): show nothing rather than nonsense.
+        if abs(d) > max(20.0, 0.15 * self.lap_time_ms / 1000.0):
+            return None
+        return round(d, 3)
 
 
 def downsample(trace: dict[str, list[float]], hz: float) -> dict[str, list[float]]:

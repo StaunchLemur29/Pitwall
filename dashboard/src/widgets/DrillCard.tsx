@@ -9,6 +9,7 @@ export function DrillCard() {
   const d = useRig((s) => s.live.track?.drill ?? null);
   const hasTrack = useRig((s) => !!s.track);
   const bound = useRig((s) => (s.config?.bindings.drill_here?.length ?? 0) > 0);
+  const retry = useRig((s) => s.retry);
 
   if (!d) {
     return (
@@ -24,6 +25,16 @@ export function DrillCard() {
     );
   }
   const last = d.last;
+  const retryMsg =
+    retry && Date.now() - retry.at < 5000
+      ? {
+          rewinding: "Rewinding to the start…",
+          ready: "Ready — go!",
+          no_rewind: "Time Shift didn't rewind — check its key matches Settings → Controls",
+          timeout: "Rewind took too long — stopped",
+          stopped: "",
+        }[retry.state] ?? ""
+      : "";
   return (
     <Card title={`Drill · ${d.name}`} right={<button className="linkbtn" onClick={() => stopDrill()}>stop</button>}>
       <div className="drill">
@@ -44,6 +55,7 @@ export function DrillCard() {
               <span key={i} className={`sdot ${i < d.streak ? "sdot--on" : ""}`} />
             ))}
           </div>
+          {retryMsg && <div className="drill__retry">{retryMsg}</div>}
           <div className="drill__goal">
             {d.passed ? "Passed ✓" : `${d.pass_streak} clean within ${d.pass_within_s}s of best`}
           </div>

@@ -35,6 +35,7 @@ export interface RigState {
   refTrace: Record<string, number[]> | null;
   lastAttempt: (Attempt & { at: number }) | null;
   stopped: boolean;
+  retry: { state: string; at: number } | null;
 }
 
 const initial: RigState = {
@@ -57,6 +58,7 @@ const initial: RigState = {
   refTrace: null,
   lastAttempt: null,
   stopped: false,
+  retry: null,
 };
 
 type Listener = () => void;
@@ -159,6 +161,9 @@ class RigStore {
         this.set({ lastAttempt: { ...e.attempt, at: Date.now() } });
         break;
       case "drill":
+        break;
+      case "retry":
+        this.set({ retry: { state: e.state, at: Date.now() } });
         break;
       case "shutdown":
         this.set({ stopped: true });
@@ -328,7 +333,7 @@ export async function cancelBinding(): Promise<void> {
 }
 
 export async function startDrill(
-  body: { corner: number } | { chapter: number } | { start_p: number; end_p: number; name: string },
+  body: { corner: number } | { section: number } | { chapter: number } | { start_p: number; end_p: number; name: string },
 ): Promise<string[]> {
   const r = await fetch("/api/drill", {
     method: "POST",
