@@ -164,6 +164,36 @@ function General({ draft, edit }: EditProps) {
           <option value="chrome">Chrome</option>
         </select>
       </Field>
+
+      <h2>In-game overlay</h2>
+      <p className="field__hint">
+        Pitwall's app inside Assetto Corsa: open it from the app bar and leave it open. It stays invisible until a
+        braking point is coming up. Changes apply in the game straight away.
+      </p>
+      <Field label="Show the turn" hint="Rally style: which way and how sharp (R3 = right, severity 3; 1 is tightest) and the gear to be in.">
+        <input type="checkbox" checked={draft.overlay.show_turn} onChange={(e) => edit((c) => (c.overlay.show_turn = e.target.checked))} />
+      </Field>
+      <Field label="Show the corner's name" hint="Next to the turn, e.g. “R3 · 2nd · Pouhon”.">
+        <input
+          type="checkbox"
+          checked={draft.overlay.show_turn_name}
+          disabled={!draft.overlay.show_turn}
+          onChange={(e) => edit((c) => (c.overlay.show_turn_name = e.target.checked))}
+        />
+      </Field>
+      <Field label="Show the braking point" hint="A countdown bar that turns into BRAKE at the point. Adjusts to how fast you're arriving.">
+        <input type="checkbox" checked={draft.overlay.show_brake} onChange={(e) => edit((c) => (c.overlay.show_brake = e.target.checked))} />
+      </Field>
+      <Field label="Appear this far before braking (m)">
+        <input
+          type="number"
+          min={100}
+          max={600}
+          step={10}
+          value={draft.overlay.show_from_m}
+          onChange={(e) => edit((c) => (c.overlay.show_from_m = Number(e.target.value)))}
+        />
+      </Field>
     </div>
   );
 }

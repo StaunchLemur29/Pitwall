@@ -155,6 +155,33 @@ def main() -> int:
     check("overlay shows the brake countdown near braking points", seen_brake)
     check("overlay says BRAKE at the braking point", seen_cue)
     check("overlay stays empty away from braking points", quiet_frames > 10, str(quiet_frames))
+    def lap_texts():
+        out, q = set(), 0.0
+        while q < 1.0:
+            g.car.splinePosition = q
+            script.update(1 / 60)
+            state["texts"].clear()
+            script.windowMain(1 / 60)
+            out.update(state["texts"])
+            q += 8 / track["length_m"]
+        return out
+
+    texts = lap_texts()
+    check("turn shows the gear rally-style", any(t.endswith(("1st", "2nd", "3rd", "4th", "5th", "6th")) for t in texts),
+          str(sorted(texts))[:200])
+    # Turn the turn off in Pitwall's settings: the overlay follows.
+    _, cfg = http("GET", RIG + "/api/config")
+    cfg = json.loads(cfg)
+    cfg["overlay"]["show_turn"] = False
+    http("PUT", RIG + "/api/config", json.dumps(cfg))
+    tick(2)
+    texts = lap_texts()
+    check("'show the turn' off in Pitwall hides it in game", not any(t[:1] in "LR" and t[1:].isdigit() for t in texts)
+          and "BRAKE" in texts, str(sorted(texts))[:200])
+    cfg["overlay"]["show_turn"] = True
+    http("PUT", RIG + "/api/config", json.dumps(cfg))
+    tick(2)
+
     state["texts"].clear()
     script.windowSettings(1 / 60)
     check("settings window says it's connected", "Connected to Pitwall" in state["texts"], str(state["texts"]))

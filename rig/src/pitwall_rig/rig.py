@@ -628,6 +628,7 @@ class Rig:
         return {
             "track_version": self.csp.version if self.track is not None else -1,
             "drill": self._csp_drill(),
+            "overlay": self.config["overlay"],  # set in Pitwall's Settings
             "commands": self.csp.take_commands(),
         }
 

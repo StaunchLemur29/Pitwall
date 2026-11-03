@@ -58,6 +58,13 @@ DEFAULTS: dict[str, Any] = {
     # lead_in_s: a drill retry rewinds to this many seconds of driving before
     # the section starts, so you have a moment to settle before it begins.
     "drills": {"lead_in_s": 4},
+    # The in-game overlay (CSP app): what it shows as a braking point approaches.
+    "overlay": {
+        "show_turn": True,  # rally-style: direction + how sharp (R3) and the gear
+        "show_turn_name": True,  # the corner's name next to it
+        "show_brake": True,  # countdown bar and BRAKE at the braking point
+        "show_from_m": 250,  # how far before the braking point it appears
+    },
     "units": {"speed": "kmh", "pressure": "psi", "temperature": "c"},
     "display": {
         "accent": "#ff5a36",
@@ -167,6 +174,9 @@ def validate(cfg: dict[str, Any]) -> list[str]:
         errs.append("game must be one of: ac, demo, replay")
     if cfg.get("display", {}).get("monitor") not in ("auto", "manual"):
         errs.append("display.monitor must be auto or manual")
+    from_m = cfg.get("overlay", {}).get("show_from_m")
+    if not isinstance(from_m, (int, float)) or not 100 <= from_m <= 600:
+        errs.append("overlay.show_from_m must be between 100 and 600 metres")
     lead = cfg.get("drills", {}).get("lead_in_s")
     if not isinstance(lead, (int, float)) or not 0 <= lead <= 15:
         errs.append("drills.lead_in_s must be between 0 and 15 seconds")

@@ -26,6 +26,7 @@ local events = {}
 local lastSpline = nil
 local shift = { corner = nil, m = 0 } -- braking point shift for approach speed
 local flash = { text = nil, untilT = 0 }
+settings = nil -- overlay settings from Pitwall (see the window section)
 
 web.timeouts(500, 500, 1000, 1000)
 
@@ -97,6 +98,13 @@ local function sync()
     local d = JSON.parse(res.body)
     if type(d) ~= 'table' then return end
     drill = type(d.drill) == 'table' and d.drill or nil
+    local o = d.overlay
+    if type(o) == 'table' then
+      settings = {
+        showTurn = o.show_turn ~= false, showTurnName = o.show_turn_name ~= false,
+        showBrake = o.show_brake ~= false, showFromM = tonumber(o.show_from_m) or 250,
+      }
+    end
     if launch and (not drill or launch.key ~= drill.key) then launch = nil end
     if d.track_version == -1 then
       track = nil
@@ -190,11 +198,9 @@ end
 -- fades in with the turn ahead and a countdown bar; at the braking point it
 -- flashes BRAKE; once you're past, it fades away. Nothing else.
 
-local settings = ac.storage({
-  showBrake = true, -- countdown bar + BRAKE cue
-  showCorner = true, -- the upcoming turn
-  showFromM = 250, -- how far before the braking point it appears
-})
+-- What to show is set in Pitwall's Settings (General > In-game overlay) and
+-- arrives with each sync; these are the defaults until then.
+settings = settings or { showTurn = true, showTurnName = true, showBrake = true, showFromM = 250 }
 local preview = false -- settings: sample content, to position the window
 
 local WHITE = rgbm(0.96, 0.97, 0.98, 1)
@@ -207,12 +213,17 @@ local cueUntil = 0 -- BRAKE flash
 
 local function fade(c, a) return rgbm(c.r, c.g, c.b, c.mult * a) end
 
+local function ordinal(n)
+  local suffix = ({ 'st', 'nd', 'rd' })[n] or 'th'
+  return n .. suffix
+end
+
 function script.windowMain(dt)
   local W = ui.windowWidth()
   local now = os.preciseClock()
   local show, c, b = false, nil, nil
   if preview then
-    show, c, b = true, { dir = 'R', grade = 2, label = 'Chicane 1' }, 112
+    show, c, b = true, { dir = 'R', grade = 2, label = 'Chicane 1', gear = 2 }, 112
   elseif connected and track then
     local p = car.splinePosition
     local cc, dist = nextCorner(p)
@@ -226,30 +237,42 @@ function script.windowMain(dt)
   end
   if show then held.c, held.b = c, b end
   alpha = math.max(0, math.min(1, alpha + (show and 8 or -4) * dt))
-  if alpha <= 0 or not held.c or not (settings.showBrake or settings.showCorner) then return end
+  if alpha <= 0 or not held.c or not (settings.showBrake or settings.showTurn) then return end
   c, b = held.c, held.b
 
   local PW = math.min(W - 8, 300)
   local x0 = (W - PW) / 2
-  local rows = (settings.showCorner and 30 or 0) + (settings.showBrake and 26 or 0)
+  local rows = (settings.showTurn and 30 or 0) + (settings.showBrake and 26 or 0)
   ui.drawRectFilled(vec2(x0, 4), vec2(x0 + PW, 4 + rows + 12), fade(PANEL, alpha), 6)
   local y = 10
 
-  if settings.showCorner then
-    -- [R2] Chicane 1, centred as one group
+  if settings.showTurn then
+    -- Rally style, centred as one group: [R2]  2nd  Chicane 1
     local tag = c.dir .. c.grade
+    local gear = c.gear and ordinal(c.gear) or nil
+    local name = settings.showTurnName and c.label or nil
     ui.pushDWriteFont('@System;Weight=Bold')
     local tw = ui.measureDWriteText(tag, 15).x + 10
+    local gw = gear and ui.measureDWriteText(gear, 17).x or 0
     ui.popDWriteFont()
-    local nw = ui.measureDWriteText(c.label, 17).x
-    local gx = (W - (tw + 8 + nw)) / 2
+    local nw = name and ui.measureDWriteText(name, 17).x or 0
+    local total = tw + (gear and 10 + gw or 0) + (name and 10 + nw or 0)
+    local gx = (W - total) / 2
     ui.drawRectFilled(vec2(gx, y + 3), vec2(gx + tw, y + 23), fade(WHITE, alpha), 3)
     ui.setCursor(vec2(gx, y + 3))
     ui.pushDWriteFont('@System;Weight=Bold')
     ui.dwriteTextAligned(tag, 15, ui.Alignment.Center, ui.Alignment.Center, vec2(tw, 20), false, rgbm(0, 0, 0, alpha))
+    local x = gx + tw + 10
+    if gear then
+      ui.setCursor(vec2(x, y + 1))
+      ui.dwriteText(gear, 17, fade(WHITE, alpha))
+      x = x + gw + 10
+    end
     ui.popDWriteFont()
-    ui.setCursor(vec2(gx + tw + 8, y + 1))
-    ui.dwriteText(c.label, 17, fade(WHITE, alpha))
+    if name then
+      ui.setCursor(vec2(x, y + 1))
+      ui.dwriteText(name, 17, fade(DIM, alpha))
+    end
     y = y + 30
   end
 
@@ -280,10 +303,8 @@ function script.windowSettings(dt)
   end
   if track == nil and connected then ui.text('Waiting for the track layout...') end
   ui.separator()
-  if ui.checkbox('Brake countdown and BRAKE cue', settings.showBrake) then settings.showBrake = not settings.showBrake end
-  if ui.checkbox('Upcoming turn', settings.showCorner) then settings.showCorner = not settings.showCorner end
-  settings.showFromM = ui.slider('##from', settings.showFromM, 100, 500, 'Appear %.0f m before braking', 1)
+  ui.textWrapped('Choose what the overlay shows in Pitwall: Settings > General > In-game overlay.')
+  ui.textWrapped('Keep this window open: it stays invisible until a braking point is coming up.')
   ui.separator()
   if ui.checkbox('Preview (to position the window)', preview) then preview = not preview end
-  ui.textWrapped('Tip: place the window centred, just above your car.')
 end
