@@ -9,6 +9,7 @@ import { GRADE_COLORS, indexAt, pathOf, type P } from "../lib/track";
 import type { CornerLap, CornerReport, LapSummary, TrackGeometry } from "../lib/types";
 import { CornerDetail } from "./CornerDetail";
 import { DebriefCard } from "./DebriefCard";
+import { Panel, useSplit } from "./Panel";
 import { Card, useSize } from "./common";
 
 type Mode = "phase" | "speed" | "delta" | "grade" | "systems";
@@ -131,6 +132,8 @@ export function LapAnalysis({
     [rows, g],
   );
 
+  const [split, startSplit, resetSplit] = useSplit("split", 46);
+
   if (!g) {
     return (
       <Card title="Lap analysis" dim right={comboPicker}>
@@ -241,7 +244,7 @@ export function LapAnalysis({
   const systemsBlock =
     report && (systemNotes.length > 0 || report.car_systems?.length) ? (
       <div className="sysnotes">
-        <div className="chapters__title">Car systems</div>
+        {!wide && <div className="chapters__title">Car systems</div>}
         {report.car_systems?.length ? <div className="sysnotes__car">{report.car_systems.join(" · ")}</div> : null}
         {systemNotes.map((n) => (
           <div key={n} className="sysnotes__note">{n}</div>
@@ -282,7 +285,7 @@ export function LapAnalysis({
         </>
       )}
       {!wide && systemsBlock}
-      <div className="chapters__title">Sections{wide ? " · click a corner for the detail" : ""}</div>
+      {!wide && <div className="chapters__title">Sections</div>}
       {(report?.practice?.length ? report.practice : g.practice).map((ps) => {
         const d = ps.time_s != null && ps.ref_s != null ? ps.time_s - ps.ref_s : null;
         return (
@@ -340,16 +343,19 @@ export function LapAnalysis({
     <Card title="Lap analysis" right={wide ? pickers : lapPicker}>
       {!wide && comboPicker && <div className="la__combo">{comboPicker}</div>}
       {wide ? (
-        <div className="la la--wide">
+        <div className="la la--wide" style={{ gridTemplateColumns: `minmax(0, ${split}%) 12px minmax(340px, 1fr)` }}>
           <div className="la__left">
-            {summary}
-            <DebriefCard combo={report?.game && report.car && report.track_key ? { game: report.game, car: report.car, track_key: report.track_key } : null} />
-            {systemsBlock}
-            {modes}
-            <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />
-            <Legend mode={mode} label={label} />
-            {list}
+            <Panel id="summary" title="Lap summary">{summary}</Panel>
+            <DebriefCard panel combo={report?.game && report.car && report.track_key ? { game: report.game, car: report.car, track_key: report.track_key } : null} />
+            {systemsBlock && <Panel id="systems" title="Car systems">{systemsBlock}</Panel>}
+            <Panel id="map" title="Map" height={420} minHeight={220}>
+              {modes}
+              <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />
+              <Legend mode={mode} label={label} />
+            </Panel>
+            <Panel id="sections" title="Sections" right={<span className="muted pnl__hint">click a corner for the detail</span>}>{list}</Panel>
           </div>
+          <div className="la__split" role="separator" aria-label="Resize columns" title="Drag to resize · double-click to reset" onPointerDown={startSplit} onDoubleClick={resetSplit} />
           <div className="la__right">
             {corner && mine ? (
               <CornerDetail

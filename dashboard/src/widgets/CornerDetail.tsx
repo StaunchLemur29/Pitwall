@@ -6,6 +6,7 @@ import { startDrill } from "../lib/rig";
 import { GRADE_COLORS, type P } from "../lib/track";
 import type { CornerLap, Mastery, PracticeSection, TrackGeometry } from "../lib/types";
 import { useSize } from "./common";
+import { Panel } from "./Panel";
 
 // Validated as a pair against the card colour (colour-blind safe, enough contrast).
 export const YOU = "#f2522e";
@@ -86,6 +87,7 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
       </div>
 
       {(mine.notes?.length || mine.advice?.length) ? (
+        <Panel id="cd-notes" title="Notes">
         <div className="cd__notes">
           {mine.notes && mine.notes.length > 0 && (
             <>
@@ -108,8 +110,10 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
             </>
           )}
         </div>
+        </Panel>
       ) : null}
 
+      <Panel id="cd-closeup" title="Close-up" height={300} minHeight={160}>
       <div className="cd__legend">
         <span><Key c={YOU} />You (this lap)</span>
         {them && <span><Key c={OTHER} dash />{cap(label)}</span>}
@@ -117,7 +121,9 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
       </div>
 
       <CloseUp g={g} corner={c} me={me} them={them} mine={mine} other={other} hover={hover} from={from} to={to} />
+      </Panel>
 
+      <Panel id="cd-charts" title="Speed, pedals and time">
       <Readout me={me} them={them} dt={dt} hover={hover} label={label} />
       <div className="cd__charts" onMouseLeave={() => setHover(null)}>
         <Strip title="Speed (km/h)" x={me?.x ?? []} series={[me && { v: me.speed, c: YOU }, them && { v: them.speed, c: OTHER, dash: true }]} hover={hover} setHover={setHover} height={120} />
@@ -128,8 +134,11 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
         )}
         {!dt && <AxisNote x={me?.x ?? []} />}
       </div>
+      </Panel>
 
+      <Panel id="cd-numbers" title="Side by side">
       <Table mine={mine} other={other} label={label} />
+      </Panel>
     </div>
   );
 }
