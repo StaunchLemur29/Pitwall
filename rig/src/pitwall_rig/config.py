@@ -31,6 +31,8 @@ ACTIONS: dict[str, str] = {
     "next_page": "Next dashboard page",
     "prev_page": "Previous dashboard page",
     "mark_corner": "Mark this spot on the track",
+    "drill_here": "Start a drill on the next corner",
+    "stop_drill": "Stop the drill",
 }
 
 
@@ -40,6 +42,8 @@ def _w(widget: str, size: int = 1) -> dict[str, Any]:
 
 DEFAULTS: dict[str, Any] = {
     "game": "ac",
+    # Leave install_dir empty to find Assetto Corsa through Steam automatically.
+    "games": {"ac": {"install_dir": ""}},
     "server": {"host": "127.0.0.1", "port": 8765},
     "rates": {"poll_hz": 60, "broadcast_hz": 30},
     "laps": {"max_tyres_out": 2},

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from typing import TYPE_CHECKING
+
 from ..models import Capabilities, Frame, SessionInfo
+
+if TYPE_CHECKING:
+    from ..tracks.model import TrackModel
 
 
 class GameAdapter(ABC):
@@ -25,6 +30,10 @@ class GameAdapter(ABC):
     @abstractmethod
     def session(self) -> SessionInfo | None:
         """Return info about the current session, or None if unavailable."""
+
+    def track_model(self, session: SessionInfo) -> TrackModel | None:
+        """The track's layout from the game's own data, if the game provides it."""
+        return None
 
     def close(self) -> None:  # noqa: B027 - optional hook
         """Release resources."""

@@ -236,6 +236,24 @@ class DemoAdapter(GameAdapter):
             position=1,
         )
 
+    def track_model(self, session: SessionInfo):
+        from ..tracks.ac_files import Section, TrackLine
+        from ..tracks.model import TrackModel, detect_corners
+
+        pts = self.track.points
+        n = len(pts)
+        line = TrackLine(
+            x=[p[0] for p in pts],
+            y=[0.0] * n,
+            z=[p[1] for p in pts],
+            dist=[i * self.track.step for i in range(n)],
+            side_left=[6.0] * n,
+            side_right=[6.0] * n,
+            speed=list(self.track.v_limit),
+        )
+        sections = [Section("Hairpin", 0.30, 0.40), Section("The Esses", 0.55, 0.70)]
+        return TrackModel(session.track_key, self.track.length, line, detect_corners(line, sections), sections)
+
     def session(self) -> SessionInfo:
         return SessionInfo(
             game=self.game_id,

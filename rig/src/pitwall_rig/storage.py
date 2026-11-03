@@ -40,6 +40,24 @@ CREATE TABLE IF NOT EXISTS markers (
     created_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS lap_corners (
+    lap_id INTEGER PRIMARY KEY REFERENCES laps(id) ON DELETE CASCADE,
+    model_sig TEXT NOT NULL,
+    data TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS section_attempts (
+    id INTEGER PRIMARY KEY,
+    game TEXT NOT NULL,
+    car TEXT NOT NULL,
+    track_key TEXT NOT NULL,
+    start_p REAL NOT NULL,
+    end_p REAL NOT NULL,
+    time_ms INTEGER NOT NULL,
+    clean INTEGER NOT NULL,
+    created_at REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
@@ -144,6 +162,49 @@ class Store:
             (game, track_key),
         ).fetchone()
         return int(row["id"]) if row else None
+
+    # -- per-corner analysis ---------------------------------------------------
+
+    def set_lap_corners(self, lap_id: int, model_sig: str, data: list[dict[str, Any]]) -> None:
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO lap_corners (lap_id, model_sig, data) VALUES (?,?,?)",
+                (lap_id, model_sig, json.dumps(data, separators=(",", ":"))),
+            )
+
+    def lap_corners(self, lap_id: int, model_sig: str) -> list[dict[str, Any]] | None:
+        row = self._db.execute(
+            "SELECT data FROM lap_corners WHERE lap_id=? AND model_sig=?", (lap_id, model_sig)
+        ).fetchone()
+        return json.loads(row["data"]) if row else None
+
+    def valid_lap_ids(self, game: str, track_key: str, car: str, limit: int = 50) -> list[int]:
+        rows = self._db.execute(
+            """SELECT id FROM laps WHERE game=? AND track_key=? AND car=? AND valid=1
+               ORDER BY started_at DESC LIMIT ?""",
+            (game, track_key, car, limit),
+        ).fetchall()
+        return [int(r["id"]) for r in rows]
+
+    # -- section attempts ------------------------------------------------------
+
+    def add_section_attempt(
+        self, game: str, car: str, track_key: str, start_p: float, end_p: float, time_ms: int, clean: bool
+    ) -> None:
+        with self._lock, self._db:
+            self._db.execute(
+                """INSERT INTO section_attempts (game, car, track_key, start_p, end_p, time_ms, clean,
+                   created_at) VALUES (?,?,?,?,?,?,?,?)""",
+                (game, car, track_key, start_p, end_p, time_ms, int(clean), time.time()),
+            )
+
+    def best_section_ms(self, game: str, car: str, track_key: str, start_p: float, end_p: float) -> int | None:
+        row = self._db.execute(
+            """SELECT MIN(time_ms) AS best FROM section_attempts WHERE game=? AND car=? AND track_key=?
+               AND abs(start_p-?)<1e-4 AND abs(end_p-?)<1e-4 AND clean=1""",
+            (game, car, track_key, start_p, end_p),
+        ).fetchone()
+        return int(row["best"]) if row and row["best"] is not None else None
 
     # -- markers ------------------------------------------------------------
 

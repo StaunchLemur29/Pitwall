@@ -115,8 +115,11 @@ class ReplayAdapter(GameAdapter):
         clock: Callable[[], float] = time.monotonic,
         time_scale: float = 1.0,
         loop: bool = True,
+        install_dir: str = "",
     ) -> None:
         self._clock = clock
+        self._install_dir = install_dir
+        self._tracks = None
         self._scale = time_scale
         self._loop = loop
         self._events: list[tuple[float, Frame | None, SessionInfo | None]] = []
@@ -168,3 +171,13 @@ class ReplayAdapter(GameAdapter):
 
     def session(self) -> SessionInfo | None:
         return self._session
+
+    def track_model(self, session: SessionInfo):
+        """Replays of AC sessions use the real track files when AC is installed here."""
+        if session.game != "ac":
+            return None
+        if self._tracks is None:
+            from ..tracks.loader import TrackLoader
+
+            self._tracks = TrackLoader(self._install_dir)
+        return self._tracks.load(session)

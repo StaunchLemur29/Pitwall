@@ -14,7 +14,11 @@ from .input import InputEvent
 from .laps import LapRecorder
 from .models import Frame, GameStatus, Lap, Mode, SessionInfo, mode_for
 from .reference import ReferenceLap, downsample
+from .analysis import analyse_lap, corner_mastery, width_advice
 from .storage import Store
+from .tracks.live import Drill, TrackState
+from .tracks.loader import from_lap_trace
+from .tracks.model import TrackModel
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +51,8 @@ class Rig:
         self.driving_s = 0.0
         self._last_tick: float | None = None
         self.pending_bind: str | None = None
+        self.track: TrackState | None = None
+        self.track_live: dict[str, Any] | None = None
         self.laps = LapRecorder(self._on_lap, max_tyres_out=config["laps"]["max_tyres_out"])
 
     # -- main loop ----------------------------------------------------------
@@ -66,6 +72,7 @@ class Rig:
                 log.info("No session (game closed or in menus)")
             self._load_reference()
             self.emit({"type": "session", "session": session.to_dict() if session else None})
+            self._load_track()
 
         mode = mode_for(frame)
         if mode != self.mode:
@@ -86,6 +93,14 @@ class Rig:
             if self.reference and frame.status == GameStatus.LIVE and not frame.in_pit_box
             else None
         )
+        if self.track is not None:
+            self.track.max_tyres_out = self.config["laps"]["max_tyres_out"]
+            self.track_live = self.track.update(frame)
+            attempt = (self.track_live or {}).pop("attempt", None)
+            if attempt is not None:
+                self.emit({"type": "attempt", "attempt": attempt})
+        else:
+            self.track_live = None
 
     def _session_changed(self, s: SessionInfo | None) -> bool:
         a, b = self.session, s
@@ -114,6 +129,14 @@ class Rig:
         new_best = lap.valid and (self.reference is None or lap.lap_time_ms < self.reference.lap_time_ms)
         if new_best:
             self.reference = ReferenceLap(lap.trace, lap.lap_time_ms, lap.id)
+        if self.track is None or (self.track.model.source == "laps" and new_best):
+            self._load_track()  # a first (or better) lap lets us draw a learnt map
+        elif self.track is not None:
+            if new_best:
+                self.track.set_reference(lap.trace)
+            if lap.valid and lap.id is not None:
+                self._analyse(lap.id, lap.trace)
+            self._emit_corners(lap.id)
         s = self.session
         if s is not None:
             secs = self.store.best_sectors(s.game, s.track_key, s.car)
@@ -127,6 +150,130 @@ class Rig:
         )
         self.emit({"type": "lap", "lap": lap.summary(), "new_best": new_best})
 
+    # -- track ----------------------------------------------------------------
+
+    def _load_track(self) -> None:
+        s = self.session
+        self.track = None
+        if s is None:
+            self.emit({"type": "track", "track": None})
+            return
+        model: TrackModel | None = None
+        try:
+            model = self.adapter.track_model(s)
+        except Exception:  # noqa: BLE001 - a bad mod track must not stop telemetry
+            log.exception("Couldn't load the track layout for %s", s.track_key)
+        if model is None:
+            lap_id = self.store.outline_lap_id(s.game, s.track_key)
+            trace = self.store.trace(lap_id) if lap_id is not None else None
+            if trace:
+                model = from_lap_trace(s.track_key, trace, s.track_length_m)
+        if model is None:
+            self.emit({"type": "track", "track": None})
+            return
+        self.track = TrackState(model, self.config["laps"]["max_tyres_out"])
+        self.track.on_attempt = self._save_attempt
+        if self.reference is not None and self.reference.lap_id is not None:
+            self.track.set_reference(self.store.trace(self.reference.lap_id))
+        for lap_id in self.store.valid_lap_ids(s.game, s.track_key, s.car):
+            if self.store.lap_corners(lap_id, self._model_sig()) is None:
+                tr = self.store.trace(lap_id)
+                if tr:
+                    self._analyse(lap_id, tr)
+        self.track.mastery = self._mastery()
+        self.emit({"type": "track", "track": model.geometry()})
+        self._emit_corners(None)
+
+    def _model_sig(self) -> str:
+        m = self.track.model if self.track else None
+        if m is None:
+            return ""
+        return f"v1:{m.source}:{len(m.corners)}:{round(m.length_m)}"
+
+    def _analyse(self, lap_id: int, trace: dict[str, list[float]]) -> None:
+        if self.track is None:
+            return
+        self.store.set_lap_corners(lap_id, self._model_sig(), analyse_lap(trace, self.track.model))
+
+    def _mastery(self) -> dict[int, dict[str, Any]]:
+        s = self.session
+        if s is None or self.track is None:
+            return {}
+        history = []
+        for lap_id in self.store.valid_lap_ids(s.game, s.track_key, s.car, limit=30):
+            data = self.store.lap_corners(lap_id, self._model_sig())
+            if data:
+                history.append(data)
+        return corner_mastery(history)
+
+    def corner_report(self, lap_id: int | None = None) -> Event:
+        """Mastery per corner plus one lap's corner-by-corner numbers."""
+        if self.track is None:
+            return {"mastery": [], "lap": None, "lap_id": None, "reference": []}
+        s = self.session
+        if lap_id is None and s is not None:
+            ids = self.store.valid_lap_ids(s.game, s.track_key, s.car, limit=1)
+            lap_id = ids[0] if ids else None
+        lap = self.store.lap_corners(lap_id, self._model_sig()) if lap_id is not None else None
+        if lap:
+            m = self.track.model
+            ref = self.track.ref_corners
+            for i, data in enumerate(lap):
+                c = m.corners[i] if i < len(m.corners) else None
+                if c is None:
+                    continue
+                nxt = m.corners[(i + 1) % len(m.corners)]
+                gap = ((nxt.entry - c.exit) % 1.0) * m.length_m
+                data["advice"] = width_advice(c, data, gap)
+                r = ref.get(c.number)
+                data["loss_s"] = round(data["time_s"] - r["time_s"], 3) if r else None
+        return {
+            "mastery": list(self.track.mastery.values()),
+            "lap_id": lap_id,
+            "lap": lap,
+            "reference": list(self.track.ref_corners.values()),
+            "reference_lap_id": self.reference.lap_id if self.reference else None,
+        }
+
+    def _emit_corners(self, lap_id: int | None) -> None:
+        if self.track is not None:
+            self.track.mastery = self._mastery()
+        self.emit({"type": "corners", **self.corner_report(lap_id)})
+
+    # -- drills -----------------------------------------------------------------
+
+    def start_drill(self, start_p: float, end_p: float, name: str, corner: int | None = None) -> bool:
+        s = self.session
+        if self.track is None or s is None:
+            return False
+        drill = Drill(name=name, start_p=start_p % 1.0, end_p=end_p % 1.0, corner=corner)
+        best = self.store.best_section_ms(s.game, s.car, s.track_key, drill.start_p, drill.end_p)
+        self.track.start_drill(drill, best)
+        self.emit({"type": "drill", "drill": self.track.drill.to_wire() if self.track.drill else None})
+        return True
+
+    def drill_corner(self, number: int) -> bool:
+        if self.track is None:
+            return False
+        m = self.track.model
+        c = next((c for c in m.corners if c.number == number), None)
+        if c is None:
+            return False
+        before, after = 150.0 / m.length_m, 60.0 / m.length_m
+        return self.start_drill(c.entry - before, c.exit + after, c.label, c.number)
+
+    def stop_drill(self) -> None:
+        if self.track is not None:
+            self.track.stop_drill()
+        self.emit({"type": "drill", "drill": None})
+
+    def _save_attempt(self, a: dict[str, Any]) -> None:
+        s = self.session
+        if s is not None:
+            self.store.add_section_attempt(
+                s.game, s.car, s.track_key, a["start_p"], a["end_p"], a["time_ms"], a["clean"]
+            )
+
     # -- snapshots for the dashboard ---------------------------------------
 
     def live(self) -> Event:
@@ -138,6 +285,7 @@ class Rig:
             "ref_lap_ms": self.reference.lap_time_ms if self.reference else None,
             "theoretical_best_ms": self.theoretical_best_ms,
             "driving_s": round(self.driving_s, 1),
+            "track": self.track_live,
         }
 
     def hello(self) -> Event:
@@ -152,6 +300,9 @@ class Rig:
             "mode": self.mode.value,
             "started_at": self.started_at,
             "recent_laps": self.recent_laps(),
+            "track": self.track.model.geometry() if self.track else None,
+            "corners": self.corner_report() if self.track else None,
+            "drill": self.track.drill.to_wire() if self.track and self.track.drill else None,
         }
 
     def recent_laps(self, limit: int = 30) -> list[dict[str, Any]]:
@@ -189,6 +340,12 @@ class Rig:
             x, _, z = f.world if f.world else (None, None, None)
             self.store.add_marker(s.game, s.car, s.track_key, f.lap_progress, x, z)
             self.emit({"type": "markers", "markers": self.store.markers(s.game, s.track_key)})
+        elif name == "drill_here":
+            corner = (self.track_live or {}).get("corner")
+            if corner:
+                self.drill_corner(corner["number"])
+        elif name == "stop_drill":
+            self.stop_drill()
         self.emit({"type": "action", "action": name})
 
     def raw_input(self, ev: InputEvent) -> None:

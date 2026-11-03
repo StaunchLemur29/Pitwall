@@ -119,6 +119,7 @@ class AssettoCorsaAdapter(GameAdapter):
         clock: Callable[[], float] = time.monotonic,
         static_refresh_s: float = 2.0,
         stale_after_s: float = 3.0,
+        install_dir: str = "",
     ) -> None:
         if reader is None:
             if sys.platform != "win32":
@@ -131,6 +132,9 @@ class AssettoCorsaAdapter(GameAdapter):
         self._static_read_at = -1e9
         self._session_type = SessionType.UNKNOWN
         self._stale_after_s = stale_after_s
+        from ..tracks.loader import TrackLoader
+
+        self._tracks = TrackLoader(install_dir)
         self._last_packet = -1
         self._packet_changed_at = clock()
 
@@ -228,6 +232,9 @@ class AssettoCorsaAdapter(GameAdapter):
         if self._static is not None:
             self._static.session_type = self._session_type
         return self._static
+
+    def track_model(self, session: SessionInfo):
+        return self._tracks.load(session)
 
     def close(self) -> None:
         close = getattr(self._reader, "close", None)

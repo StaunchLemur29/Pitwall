@@ -160,6 +160,38 @@ async def cancel_bind(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def get_track(request: web.Request) -> web.Response:
+    rig = request.app[RIG_KEY]
+    return web.json_response(rig.track.model.geometry() if rig.track else None)
+
+
+async def get_corners(request: web.Request) -> web.Response:
+    lap_id = request.query.get("lap_id")
+    return web.json_response(request.app[RIG_KEY].corner_report(int(lap_id) if lap_id else None))
+
+
+async def post_drill(request: web.Request) -> web.Response:
+    rig = request.app[RIG_KEY]
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        body = {}
+    if "corner" in body:
+        ok = rig.drill_corner(int(body["corner"]))
+    elif "start_p" in body and "end_p" in body:
+        ok = rig.start_drill(float(body["start_p"]), float(body["end_p"]), str(body.get("name") or "Section"))
+    else:
+        return web.json_response({"errors": ["Give a corner number or start_p/end_p"]}, status=400)
+    if not ok:
+        return web.json_response({"errors": ["No track loaded yet — start a session first"]}, status=409)
+    return web.json_response({"ok": True})
+
+
+async def delete_drill(request: web.Request) -> web.Response:
+    request.app[RIG_KEY].stop_drill()
+    return web.json_response({"ok": True})
+
+
 async def get_monitors(request: web.Request) -> web.Response:
     from .monitors import list_monitors, pick_dashboard_monitor
 
@@ -238,6 +270,10 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_delete("/api/bind", cancel_bind)
     app.router.add_get("/api/input/devices", get_devices)
     app.router.add_get("/api/monitors", get_monitors)
+    app.router.add_get("/api/track", get_track)
+    app.router.add_get("/api/corners", get_corners)
+    app.router.add_post("/api/drill", post_drill)
+    app.router.add_delete("/api/drill", delete_drill)
 
     if static_dir is not None and (static_dir / "index.html").exists():
         index = static_dir / "index.html"

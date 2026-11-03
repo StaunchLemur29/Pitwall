@@ -23,11 +23,12 @@ log = logging.getLogger("pitwall")
 REPO_DASHBOARD = Path(__file__).resolve().parents[3] / "dashboard" / "dist"
 
 
-def _make_adapter(game: str, args: argparse.Namespace):
+def _make_adapter(game: str, args: argparse.Namespace, config: Config):
+    install_dir = config["games"]["ac"]["install_dir"]
     if game == "ac":
         from .adapters.ac import AssettoCorsaAdapter
 
-        return AssettoCorsaAdapter()
+        return AssettoCorsaAdapter(install_dir=install_dir)
     if game == "demo":
         from .adapters.demo import DemoAdapter
 
@@ -37,7 +38,7 @@ def _make_adapter(game: str, args: argparse.Namespace):
 
         if not args.replay:
             raise SystemExit("--replay FILE is required with --game replay")
-        return ReplayAdapter(args.replay, time_scale=args.time_scale)
+        return ReplayAdapter(args.replay, time_scale=args.time_scale, install_dir=install_dir)
     raise SystemExit(f"Unknown game {game!r}")
 
 
@@ -98,7 +99,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         config.save()  # write defaults so they're easy to find and edit
 
     game = args.game or config["game"]
-    adapter = _make_adapter(game, args)
+    adapter = _make_adapter(game, args, config)
     store_path = data_dir / ("demo.sqlite" if game == "demo" else "pitwall.sqlite")
     store = Store(store_path)
 
