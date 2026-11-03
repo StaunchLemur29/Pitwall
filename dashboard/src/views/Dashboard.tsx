@@ -16,6 +16,8 @@ export function Dashboard() {
   const session = useRig((s) => s.session);
   const status = useRig((s) => s.live.frame?.status ?? "off");
   const stopped = useRig((s) => s.stopped);
+  // The drill card shrinks to a slim strip while no drill is running.
+  const drilling = useRig((s) => !!s.live.track?.drill);
   const layoutMode: Exclude<Mode, "idle"> = mode === "driving" ? "driving" : "analysis";
   const pages = config?.layouts[layoutMode] ?? [];
   const [pageByMode, setPageByMode] = useState<Record<string, number>>({});
@@ -98,7 +100,11 @@ export function Dashboard() {
         {slots.map((slot, i) => {
           const W = WIDGETS[slot.widget]?.component;
           return (
-            <div key={`${page}-${i}-${slot.widget}`} className="dash__slot" style={{ flexGrow: slot.size }}>
+            <div
+              key={`${page}-${i}-${slot.widget}`}
+              className="dash__slot"
+              style={{ flexGrow: slot.widget === "drill" && !drilling ? Math.min(slot.size, 0.8) : slot.size }}
+            >
               {W ? <W /> : null}
             </div>
           );

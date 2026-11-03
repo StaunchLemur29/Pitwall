@@ -81,6 +81,7 @@ export function Settings() {
         ))}
       </nav>
 
+      <div className="settings__card">
       {tab === "general" && <General draft={draft} edit={edit} />}
       {tab === "layout" && <Layout draft={draft} edit={edit} />}
       {tab === "controls" && (
@@ -98,6 +99,7 @@ export function Settings() {
           }}
         />
       )}
+      </div>
     </div>
   );
 }
