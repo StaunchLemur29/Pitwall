@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import os
 import shutil
@@ -104,7 +105,23 @@ def cmd_run(args: argparse.Namespace) -> None:
     log.info("Laps are saved to %s", store_path)
     rig.on_open_analysis = lambda: open_analysis(url, config["display"])
     if args.open or config["display"]["open_browser"]:
-        open_dashboard(url, config["display"])
+
+        async def open_when_ready(_app: web.Application) -> None:
+            # Open the window only once the server answers, so Chrome never
+            # shows "localhost refused to connect".
+            async def go() -> None:
+                for _ in range(100):
+                    try:
+                        _r, w = await asyncio.open_connection("127.0.0.1", port)
+                        w.close()
+                        break
+                    except OSError:
+                        await asyncio.sleep(0.1)
+                open_dashboard(url, config["display"])
+
+            asyncio.get_running_loop().create_task(go())
+
+        app.on_startup.append(open_when_ready)
     web.run_app(app, host=host, port=port, print=None, access_log=None)
 
 
