@@ -239,7 +239,7 @@ class Rig:
         m = self.track.model if self.track else None
         if m is None:
             return ""
-        return f"v2:{m.source}:{len(m.corners)}:{round(m.length_m)}"
+        return f"v3:{m.source}:{len(m.corners)}:{round(m.length_m)}"
 
     def _analyse(self, lap_id: int, trace: dict[str, list[float]]) -> None:
         if self.track is None:
