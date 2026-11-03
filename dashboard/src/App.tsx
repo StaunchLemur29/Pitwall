@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useRig } from "./lib/rig";
 import { Dashboard } from "./views/Dashboard";
+import { AnalysisPage } from "./views/AnalysisPage";
 import { Settings } from "./views/Settings";
 
 function useHashRoute(): string {
@@ -19,5 +20,7 @@ export function App() {
   useEffect(() => {
     if (accent) document.documentElement.style.setProperty("--accent", accent);
   }, [accent]);
-  return route.startsWith("/settings") ? <Settings /> : <Dashboard />;
+  if (route.startsWith("/settings")) return <Settings />;
+  if (route.startsWith("/analysis")) return <AnalysisPage />;
+  return <Dashboard />;
 }

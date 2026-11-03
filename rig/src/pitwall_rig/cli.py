@@ -12,6 +12,7 @@ from pathlib import Path
 
 from aiohttp import web
 
+from .browser import open_analysis, open_dashboard
 from .config import Config, ConfigError, default_data_dir
 from .input import InputService
 from .rig import Rig
@@ -40,53 +41,6 @@ def _make_adapter(game: str, args: argparse.Namespace, config: Config):
             raise SystemExit("--replay FILE is required with --game replay")
         return ReplayAdapter(args.replay, time_scale=args.time_scale, install_dir=install_dir)
     raise SystemExit(f"Unknown game {game!r}")
-
-
-def _open_browser(url: str, display: dict, which: str) -> None:
-    from .monitors import list_monitors, pick_dashboard_monitor
-
-    x, y, w, h = display["window_x"], display["window_y"], 1080, 1920
-    if display.get("monitor", "auto") == "auto":
-        mon = pick_dashboard_monitor(list_monitors())
-        if mon is not None:
-            x, y, w, h = mon.x, mon.y, mon.width, mon.height
-            log.info("Opening the dashboard on the %dx%d monitor at (%d, %d)", w, h, x, y)
-        else:
-            log.info("Only one monitor found; opening the dashboard on it")
-    local = Path(os.environ.get("LOCALAPPDATA", ""))
-    candidates = {
-        "edge": [
-            shutil.which("msedge"),
-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-        ],
-        "chrome": [
-            shutil.which("chrome"),
-            shutil.which("google-chrome"),
-            shutil.which("chromium"),
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            str(local / "Google" / "Chrome" / "Application" / "chrome.exe"),  # per-user install
-        ],
-    }
-    order = ["chrome", "edge"] if which == "auto" else [which]
-    for name in order:
-        for exe in candidates.get(name, []):
-            if exe and Path(exe).exists():
-                profile = default_data_dir() / "browser-profile"
-                subprocess.Popen(
-                    [
-                        exe,
-                        f"--app={url}",
-                        f"--window-position={x},{y}",
-                        f"--window-size={w},{h}",
-                        "--start-fullscreen",
-                        f"--user-data-dir={profile}",
-                        "--no-first-run",
-                    ]
-                )
-                return
-    log.warning("Couldn't find Chrome or Edge; open %s on the vertical monitor yourself.", url)
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -148,9 +102,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     url = f"http://localhost:{port}/"
     log.info("Pitwall (%s) on %s", game, url)
     log.info("Laps are saved to %s", store_path)
+    rig.on_open_analysis = lambda: open_analysis(url, config["display"])
     if args.open or config["display"]["open_browser"]:
-        d = config["display"]
-        _open_browser(url, d, d["browser"])
+        open_dashboard(url, config["display"])
     web.run_app(app, host=host, port=port, print=None, access_log=None)
 
 

@@ -51,6 +51,7 @@ class Rig:
         self.driving_s = 0.0
         self._last_tick: float | None = None
         self.pending_bind: str | None = None
+        self.on_open_analysis: Callable[[], object] = lambda: None
         self.track: TrackState | None = None
         self.track_live: dict[str, Any] | None = None
         self.laps = LapRecorder(self._on_lap, max_tyres_out=config["laps"]["max_tyres_out"])
@@ -348,6 +349,8 @@ class Rig:
                 self.drill_corner(corner["number"])
         elif name == "stop_drill":
             self.stop_drill()
+        elif name == "open_analysis":
+            self.on_open_analysis()
         self.emit({"type": "action", "action": name})
 
     def raw_input(self, ev: InputEvent) -> None:

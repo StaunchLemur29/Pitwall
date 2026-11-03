@@ -35,6 +35,7 @@ ACTIONS: dict[str, str] = {
     "mark_corner": "Mark this spot on the track",
     "drill_here": "Start a drill on the next corner",
     "stop_drill": "Stop the drill",
+    "open_analysis": "Open analysis on the main screen",
 }
 
 

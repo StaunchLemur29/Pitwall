@@ -16,7 +16,7 @@ const MODES: [Mode, string][] = [
 type Trace = Record<string, number[]>;
 
 /** Post-session view: your line coloured four ways, plus every corner broken down. */
-export function LapAnalysis() {
+export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
   const g = useRig((s) => s.track);
   const latest = useRig((s) => s.corners);
   const laps = useRig((s) => s.laps);
@@ -61,7 +61,8 @@ export function LapAnalysis() {
         </select>
       }
     >
-      <div className="la">
+      <div className={`la ${wide ? "la--wide" : ""}`}>
+        <div className="la__left">
         <div className="la__modes" role="tablist">
           {MODES.map(([m, label]) => (
             <button key={m} className={`chipbtn ${mode === m ? "chipbtn--on" : ""}`} onClick={() => setMode(m)}>
@@ -71,6 +72,7 @@ export function LapAnalysis() {
         </div>
         <ColouredMap g={g} trace={trace} ref_={ref} mode={mode} rows={rows} focus={focus} onPick={setFocus} />
         <Legend mode={mode} />
+        </div>
         <div className="la__list">
           {g.corners.map((c, i) => {
             const r = rows[i];

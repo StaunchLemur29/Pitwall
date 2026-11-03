@@ -58,6 +58,13 @@ export function Dashboard() {
           {session ? `${prettyName(session.car)} · ${prettyName(session.track_key)}` : GAME_NAMES[game] ?? ""}
         </span>
         <span className={`dash__mode dash__mode--${mode}`}>{mode}</span>
+        <button
+          className="dash__open"
+          onClick={() => rig.action("open_analysis")}
+          title="Open the analysis in a window on your main screen"
+        >
+          Analysis ↗
+        </button>
         <a className="dash__gear" href="#/settings" title="Settings" aria-label="Settings">
           ⚙
         </a>
