@@ -74,15 +74,19 @@ def analyse_corner(view: LapView, model: TrackModel, c: Corner, lead_m: float = 
     inside = view.range(c.entry, c.exit) or [view.at(c.apex)]
     vmin_i = min(inside, key=lambda i: tr["speed"][i])
 
-    # Braking point: where the last braking phase before the apex began.
+    # Braking point: where the last braking phase before the apex began. A short
+    # release (a lift, modulating the pedal) doesn't start a new phase: you have
+    # to be off the brake for 40 m before a later press counts as fresh braking.
     brake_p = None
-    armed = True
+    released_at = None  # progress where the brake was last let go
     for i in view.range(max(0.0, c.entry - lead), c.apex):
-        b = tr["brake"][i]
-        if armed and b > 0.1:
-            brake_p, armed = tr["p"][i], False
-        elif b < 0.03:
-            armed = True
+        b, p = tr["brake"][i], tr["p"][i]
+        if b > 0.1:
+            if brake_p is None or (released_at is not None and (p - released_at) * length > 40):
+                brake_p = p
+            released_at = None
+        elif b < 0.03 and released_at is None and brake_p is not None:
+            released_at = p
 
     # Speeds at the key moments, and where the throttle went back to full.
     brake_i = view.at(brake_p) if brake_p is not None else None

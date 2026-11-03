@@ -1433,9 +1433,15 @@ select {
   overflow-y: auto;
 }
 
+/* stacked layout scrolls as one column: nothing may be squashed */
+.la:not(.la--wide) > *,
+.la:not(.la--wide) .la__left > * {
+  flex-shrink: 0;
+}
+
 .la:not(.la--wide) .la__left .la__map {
   flex: 0 0 auto;
-  height: calc(var(--u) * 55);
+  height: calc(var(--u) * 40);
 }
 
 .la--wide .la__left .la__map {

@@ -188,12 +188,15 @@ function CloseUp(props: {
     const i = Math.round((x - pf.x[0]) / (pf.x[1] - pf.x[0]));
     return pr([pf.wx[i], pf.wz[i]]);
   };
+  // Slowest point within this corner only (the window also shows bits of its neighbours).
+  const entryM = -((((c.apex - c.entry) % 1) + 1) % 1) * L;
+  const exitM = ((((c.exit - c.apex) % 1) + 1) % 1) * L;
   const slow = (pf: Profile) => {
-    let k = 0;
+    let k = -1;
     pf.speed.forEach((v, i) => {
-      if (v < pf.speed[k]) k = i;
+      if (pf.x[i] >= entryM && pf.x[i] <= exitM && (k < 0 || v < pf.speed[k])) k = i;
     });
-    return k;
+    return Math.max(0, k);
   };
 
   const road = g.has_edges
@@ -230,7 +233,7 @@ function CloseUp(props: {
           {them && <path d={line(them)} className="cd__line cd__line--other" stroke={OTHER} />}
           {them && other?.brake_m != null && <Dot at={at(them, -other.brake_m)} colour={OTHER} hollow />}
           {me && mine.brake_m != null && <Dot at={at(me, -mine.brake_m)} colour={YOU} />}
-          {them && <SpeedTag at={at(them, them.x[slow(them)])} text={Math.round(them.speed[slow(them)])} colour={OTHER} />}
+          {them && <SpeedTag at={at(them, them.x[slow(them)])} text={Math.round(them.speed[slow(them)])} colour={OTHER} flip />}
           {me && <SpeedTag at={at(me, me.x[slow(me)])} text={Math.round(me.speed[slow(me)])} colour={YOU} />}
           {hover !== null && me && <Dot at={at(me, hover)} colour="var(--text)" small />}
           {hover !== null && them && <Dot at={at(them, hover)} colour={OTHER} small hollow />}
@@ -249,12 +252,13 @@ function Dot({ at, colour, hollow, small }: { at: P | null; colour: string; holl
   );
 }
 
-function SpeedTag({ at, text, colour }: { at: P | null; text: number; colour: string }) {
+function SpeedTag({ at, text, colour, flip }: { at: P | null; text: number; colour: string; flip?: boolean }) {
   if (!at) return null;
+  // yours above-right, the other lap's below-left, so they never sit on each other
   return (
     <g transform={`translate(${at[0]},${at[1]})`}>
       <circle r={4} fill={colour} stroke="var(--card)" strokeWidth={2} />
-      <text className="cd__tag" x={8} y={-8}>{text}</text>
+      <text className="cd__tag" x={flip ? -8 : 8} y={flip ? 18 : -8} textAnchor={flip ? "end" : "start"}>{text}</text>
     </g>
   );
 }
