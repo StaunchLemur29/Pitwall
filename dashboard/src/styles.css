@@ -193,7 +193,7 @@ select {
   justify-content: space-between;
   align-items: baseline;
   gap: 1em;
-  font-size: calc(var(--u) * 1.9);
+  font-size: max(12px, calc(var(--u) * 1.9));
   margin-bottom: calc(var(--u) * 1);
 }
 
@@ -2249,4 +2249,52 @@ select {
   padding: 6px 10px;
   font-size: max(13px, calc(var(--u) * 1.8));
   line-height: 1.4;
+}
+
+/* -- hub (laps from the cloud) ------------------------------------------- */
+
+.hub .apage__top {
+  gap: 14px;
+}
+
+.hub__main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.hub__main > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.hub__main--narrow {
+  overflow-y: auto;
+}
+
+.hub__email {
+  font-size: 13px;
+}
+
+.hub__msg {
+  margin: 40px auto;
+  max-width: 560px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.hub__login {
+  margin: 60px auto;
+  width: min(400px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px;
+}
+
+@media (max-width: 700px) {
+  .hub__email,
+  .hub__who {
+    display: none;
+  }
 }

@@ -52,3 +52,41 @@ def test_downsample():
     ds = downsample(tr, 10)
     assert 99 <= len(ds["t"]) <= 102
     assert ds["v"][-1] == 599
+
+
+def test_store_is_safe_from_several_threads(tmp_path):
+    """The telemetry thread, the web server and the cloud sync share one store."""
+    import threading
+
+    from pitwall_rig.models import Lap
+    from pitwall_rig.storage import Store
+
+    store = Store(tmp_path / "laps.sqlite")
+    errors = []
+    trace = {"t": [0.0, 1.0], "p": [0.0, 0.5], "speed": [100.0, 110.0]}
+
+    def writer():
+        try:
+            for i in range(200):
+                lap_id = store.add_lap(Lap("ac", "car", "track", i, 90000 + i, True, False, 0.0, [], trace))
+                store.set_lap_corners(lap_id, "sig", [{"corner": 1, "time_s": 1.0}])
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    def reader():
+        try:
+            for _ in range(400):
+                for i in store.unsynced_lap_ids(5):
+                    store.trace(i)
+                    store.latest_lap_corners(i)
+                store.laps(limit=20)
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=writer)] + [threading.Thread(target=reader) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    assert store.unsynced_count() == 200

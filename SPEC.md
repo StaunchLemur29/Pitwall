@@ -255,7 +255,7 @@ Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
 |---|---|
 | **0 Foundation** | AC adapter, lap recording, SQLite, WebSocket, driving layout, settings UI, SF1000 input, demo/replay mode |
 | **1 Track learning core** | Auto corner detection, map, next-corner card, corner progress, section timing, drills + pass targets, CSP companion app (rewind/teleport), **mini Nordschleife pack** (corner names + chapter boundaries) |
-| **2 Cloud hub** | Supabase sync, hosted hub, history, lap comparison, AI debrief, AI time to beat |
+| **2 Cloud hub** | Supabase sync, hosted hub, history, lap comparison, AI debrief, AI time to beat. Done: sync (laps, corner analysis, ~20 Hz telemetry, track layouts, car profiles) and the hub site (same analysis screens, read-only, compares laps in the browser; Vercel). Next: AI debrief (Anthropic API key on the PC), progress over time, AI time to beat |
 | **3 Coaching** | Live tips (audio+visual), blind-spot scan, electronics + pressure advisor, music, session timer |
 | **— v1 = phases 0–3 —** | |
 | 4 Content | Full Nordschleife/Spa/Hampton Downs packs, lesson library, setup unlock tree, quiz, pace notes, drive-along, famous times |
@@ -273,6 +273,8 @@ Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
 - Second-screen smoothness depends on GPU headroom: capping AC's frame rate leaves room for Chrome.
 
 ## 16. Open items
+
+- **NEXT UP (owner request, 2026-11-03): drill teleport.** Pick a section and get put at its run-up straight away, over and over, without driving round first. Today the in-game app's retry only works after you've driven through the run-up once (it saves the car state there). Plan: `physics.setCarPosition` to the run-up point (offline only, like Time Shift), and use CSP's car-state helpers ("alter car position and velocity in a blob from `ac.saveCarStateAsync()`", lua-shared/sim/cars.lua) to arrive at the reference lap's speed there, not from a standstill. Bind it to the drill / retry buttons; "teleport to section N" from the dashboard's practice list.
 
 - **Rewind mod**: name and whether it can be triggered from a CSP Lua app / externally. Affects only phase 1 retry implementation; teleport is the fallback.
 - **AC EVO fields**: confirm BB/ABS/TC levels and tyre pressures exist before building EVO electronics features.
