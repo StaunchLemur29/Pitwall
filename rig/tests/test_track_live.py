@@ -100,3 +100,20 @@ def test_rig_loads_track_and_runs_a_drill(demo, clock, config, store):
     clock.advance(1 / 60)
     rig.tick()
     assert rig.live()["track"]["drill"]["name"]
+
+
+def test_pack_chapters_resolve_from_section_names():
+    from pitwall_rig.packs import find_pack, resolve_chapters
+    from pitwall_rig.tracks.ac_files import Section
+
+    pack = find_pack("ks_nordschleife")
+    assert pack is not None
+    names = [c["from"] for c in pack["chapters"]]
+    # pretend the layout has every start section, evenly spaced, plus one unknown
+    secs = [Section(n, i / len(names), i / len(names) + 0.01) for i, n in enumerate(names)]
+    secs.append(Section("Somewhere else", 0.5, 0.51))
+    ch = resolve_chapters(pack, secs)
+    assert [c.name for c in ch] == [c["name"] for c in pack["chapters"]]
+    assert all(a.end == b.start for a, b in zip(ch, ch[1:]))
+    assert ch[-1].end == 0.99999  # first chapter starts at the line
+    assert find_pack("spa") is None

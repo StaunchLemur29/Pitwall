@@ -1,0 +1,16 @@
+{
+  "name": "Nürburgring Nordschleife",
+  "match": ["nordschleife"],
+  "notes": "Chapters for learning the track one stretch at a time. Boundaries are the game's own section names, so they work on any layout that has them.",
+  "chapters": [
+    {"name": "Hatzenbach", "from": "Hatzenbachbogen", "summary": "The twisty opening: a rhythm of short left-rights. Smooth beats brave here."},
+    {"name": "Flugplatz to Aremberg", "from": "Quiddelbacher Höhe", "summary": "Fast crests and the Flugplatz jump, Schwedenkreuz flat-out, then hard braking for Aremberg."},
+    {"name": "Fuchsröhre and Adenauer Forst", "from": "Fuchsröhre", "summary": "The dive through the Fuchsröhre compression, then the tight Adenauer Forst chicane — brake early."},
+    {"name": "Metzgesfeld to 3-fach rechts", "from": "Metzgesfeld", "summary": "Flowing fast lefts and rights through the forest, Kallenhard, Spiegelkurve and the triple right."},
+    {"name": "Wehrseifen to Bergwerk", "from": "Wehrseifen", "summary": "Down to the slowest part of the lap: Wehrseifen, Breidscheid, Ex-Mühle, then the critical Bergwerk exit."},
+    {"name": "Kesselchen and Klostertal", "from": "Kesselchen", "summary": "The long uphill Kesselchen valley — exit speed from Bergwerk pays off all the way."},
+    {"name": "Karussell to Wippermann", "from": "Steilstrecke", "summary": "The banked Caracciola Karussell, then Hohe Acht and the Wippermann rights and lefts."},
+    {"name": "Brünnchen to Bellof S", "from": "Eschbach", "summary": "Brünnchen, Eiskurve and the Pflanzgarten jumps: commit, but land straight."},
+    {"name": "Schwalbenschwanz to the line", "from": "Schwalbenschwanz", "summary": "Small Karussell, Galgenkopf — the exit sets up the whole Döttinger Höhe straight — and home."}
+  ]
+}

@@ -74,6 +74,29 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
         <Legend mode={mode} />
         </div>
         <div className="la__list">
+          {report?.chapters && report.chapters.length > 0 && (
+            <div className="chapters">
+              <div className="chapters__title">Chapters</div>
+              {report.chapters.map((ch) => {
+                const d = ch.time_s != null && ch.ref_s != null ? ch.time_s - ch.ref_s : null;
+                return (
+                  <div key={ch.number} className="chap">
+                    <div className="chap__head">
+                      <span className="chap__num">{ch.number}</span>
+                      <span className="chap__name">{ch.name}</span>
+                      <span className="crow__time">{ch.time_s != null ? `${ch.time_s.toFixed(1)}s` : ""}</span>
+                      <span className={`crow__loss ${lossClass(d)}`}>{d !== null ? delta(d) : ""}</span>
+                      <button className="btn btn--sm btn--ghost" onClick={() => startDrill({ chapter: ch.number })}>
+                        Practise
+                      </button>
+                    </div>
+                    {ch.summary && <div className="chap__sum">{ch.summary}</div>}
+                  </div>
+                );
+              })}
+              <div className="chapters__title">Corners</div>
+            </div>
+          )}
           {g.corners.map((c, i) => {
             const r = rows[i];
             if (!r) return null;

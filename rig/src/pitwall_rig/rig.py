@@ -210,7 +210,7 @@ class Rig:
     def corner_report(self, lap_id: int | None = None) -> Event:
         """Mastery per corner plus one lap's corner-by-corner numbers."""
         if self.track is None:
-            return {"mastery": [], "lap": None, "lap_id": None, "reference": []}
+            return {"mastery": [], "lap": None, "lap_id": None, "reference": [], "chapters": []}
         s = self.session
         if lap_id is None and s is not None:
             ids = self.store.valid_lap_ids(s.game, s.track_key, s.car, limit=1)
@@ -230,13 +230,45 @@ class Rig:
                 # Time lost against your best ever through this corner (any lap).
                 best = self.track.mastery.get(c.number, {}).get("best_s")
                 data["loss_s"] = round(data["time_s"] - best, 3) if best is not None else None
+        chapters = self._chapter_times(lap_id)
         return {
+            "chapters": chapters,
             "mastery": list(self.track.mastery.values()),
             "lap_id": lap_id,
             "lap": lap,
             "reference": list(self.track.ref_corners.values()),
             "reference_lap_id": self.reference.lap_id if self.reference else None,
         }
+
+    def _chapter_times(self, lap_id: int | None) -> list[dict[str, Any]]:
+        """Each pack chapter with this lap's time through it and your reference lap's."""
+        if self.track is None or not self.track.model.chapters:
+            return []
+        from .analysis import LapView
+
+        def span(view: LapView | None, a: float, b: float) -> float | None:
+            if not view:
+                return None
+            if b > a:
+                return round(view.time_at(b) - view.time_at(a), 3)
+            return None  # runs over the line: needs two laps
+
+        lap_trace = self.store.trace(lap_id) if lap_id is not None else None
+        view = LapView(lap_trace) if lap_trace else None
+        ref = self.track.ref_view
+        out = []
+        for ch in self.track.model.chapters:
+            d = ch.to_dict()
+            d["time_s"] = span(view, ch.start, ch.end)
+            d["ref_s"] = span(ref, ch.start, ch.end)
+            out.append(d)
+        return out
+
+    def drill_chapter(self, number: int) -> bool:
+        if self.track is None:
+            return False
+        ch = next((c for c in self.track.model.chapters if c.number == number), None)
+        return ch is not None and self.start_drill(ch.start, ch.end, ch.name)
 
     def _emit_corners(self, lap_id: int | None) -> None:
         if self.track is not None:

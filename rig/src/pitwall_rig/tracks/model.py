@@ -40,6 +40,7 @@ class TrackModel:
     sections: list[Section] = field(default_factory=list)
     source: str = "game"  # "game" (AC's files) or "laps" (learnt from driving)
     has_edges: bool = True
+    chapters: list[Any] = field(default_factory=list)  # from a track pack
 
     def progress_of(self, i: int) -> float:
         return self.line.dist[i] / self.length_m if self.length_m else 0.0
@@ -89,6 +90,7 @@ class TrackModel:
             "right": [[r2(right[i][0]), r2(right[i][1])] for i in idx] if right else [],
             "corners": [c.to_dict() for c in self.corners],
             "sections": [asdict(s) for s in self.sections],
+            "chapters": [c.to_dict() for c in self.chapters],
         }
 
 
@@ -168,15 +170,18 @@ def detect_corners(
         apex = max(idx, key=lambda i: abs(curv[i]))
         radius = 1.0 / abs(curv[apex]) if curv[apex] else 1e9
         prog = lambda i: line.dist[i] / line.length  # noqa: E731
+        entry_p, exit_p = prog(idx[0]), prog(idx[-1])
+        if exit_p < entry_p:  # runs over the start line: end it at the line
+            exit_p = 0.99999
         corners.append(
             Corner(
                 number=0,
                 name="",
                 direction="R" if s > 0 else "L",
                 grade=grade_for_radius(radius),
-                entry=prog(idx[0]),
-                apex=prog(apex),
-                exit=prog(idx[-1]),
+                entry=entry_p,
+                apex=min(max(prog(apex), entry_p), exit_p),
+                exit=exit_p,
                 apex_radius_m=round(radius, 1),
                 apex_index=apex,
             )
@@ -194,7 +199,8 @@ def detect_corners(
     for group in by_name.values():
         if len(group) > 1:
             for k, c in enumerate(group, 1):
-                c.name = f"{c.name} {k}"
+                # "Pflanzgarten 1" + 2nd corner → "Pflanzgarten 1b", not "Pflanzgarten 1 2"
+                c.name = f"{c.name}{'abcdefgh'[k - 1]}" if c.name[-1].isdigit() else f"{c.name} {k}"
     return corners
 
 

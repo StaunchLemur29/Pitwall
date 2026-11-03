@@ -9,6 +9,7 @@ from pathlib import Path
 from ..models import SessionInfo
 from .ac_files import TrackLine, read_fast_lane, read_sections
 from .ac_install import find_ac_root, track_files
+from ..packs import find_pack, resolve_chapters
 from .model import TrackModel, detect_corners
 
 log = logging.getLogger(__name__)
@@ -30,7 +31,12 @@ def from_ac_files(ac_root: Path, session: SessionInfo) -> TrackModel | None:
         "Track %s: %.0f m, %d corners, %d named sections (from the game's files)",
         session.track_key, line.length, len(corners), len(sections),
     )
-    return TrackModel(session.track_key, line.length, line, corners, sections, source="game")
+    model = TrackModel(session.track_key, line.length, line, corners, sections, source="game")
+    pack = find_pack(session.track)
+    if pack is not None:
+        model.chapters = resolve_chapters(pack, sections)
+        log.info("Track pack %r: %d chapters", pack.get("name"), len(model.chapters))
+    return model
 
 
 def from_lap_trace(track_key: str, trace: dict[str, list[float]], length_m: float) -> TrackModel | None:

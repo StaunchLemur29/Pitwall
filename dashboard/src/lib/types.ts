@@ -104,6 +104,17 @@ export interface TrackGeometry {
   right: [number, number][];
   corners: Corner[];
   sections: { name: string; start: number; end: number }[];
+  chapters: Chapter[];
+}
+
+export interface Chapter {
+  number: number;
+  name: string;
+  summary: string;
+  start: number;
+  end: number;
+  time_s?: number | null;
+  ref_s?: number | null;
 }
 
 export interface CornerLive extends Corner {
@@ -172,6 +183,7 @@ export interface CornerLap {
 }
 
 export interface CornerReport {
+  chapters: Chapter[];
   mastery: Mastery[];
   lap_id: number | null;
   lap: CornerLap[] | null;

@@ -238,7 +238,9 @@ export async function cancelBinding(): Promise<void> {
   await fetch("/api/bind", { method: "DELETE" });
 }
 
-export async function startDrill(body: { corner: number } | { start_p: number; end_p: number; name: string }): Promise<string[]> {
+export async function startDrill(
+  body: { corner: number } | { chapter: number } | { start_p: number; end_p: number; name: string },
+): Promise<string[]> {
   const r = await fetch("/api/drill", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
