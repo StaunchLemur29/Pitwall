@@ -248,3 +248,23 @@ def test_analysis_works_for_a_past_car_and_track(demo, clock, config, store):
     assert later.track_geometry(s.game, s.car, s.track_key)["corners"]
     # Asking by lap id alone finds its car + track too.
     assert later.corner_report(rep["lap_id"])["lap"] == rep["lap"]
+
+
+def test_brake_cue_holds_at_the_braking_point(demo):
+    m = demo_model(demo)
+    ts = TrackState(m)
+    L = m.length_m
+    c = next(k for k in m.corners if (k.apex - k.entry) * L > 30)
+    bp = c.entry - 60 / L  # brake 60 m before the corner
+    ts.ref_corners = {c.number: {"brake_p": bp}}
+
+    def brake_at(metres_after_brake_point):
+        p = (bp + metres_after_brake_point / L) % 1.0
+        out = ts.update(frame_at(m, p, 0.0))
+        return out["corner"]["brake_in_m"] if out["corner"]["number"] == c.number else "other corner"
+
+    assert brake_at(-100) == 100  # counting down
+    assert brake_at(-1) == 1
+    assert brake_at(10) == -10  # just past: "brake now", not gone
+    assert brake_at(35) == -35
+    assert brake_at(50) is None  # well past it: cleared

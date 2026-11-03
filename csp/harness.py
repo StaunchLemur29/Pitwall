@@ -136,6 +136,7 @@ def main() -> int:
     # Drive a lap: the overlay should name corners and count down to braking.
     seen_corner = seen_brake = False
     quiet_frames = 0
+    seen_cue = False
     p = 0.0
     while p < 1.0:
         g.car.splinePosition = p
@@ -144,13 +145,15 @@ def main() -> int:
         script.windowMain(1 / 60)
         texts = list(state["texts"])
         seen_corner |= any(t in ("L1", "L2", "L3", "L4", "L5", "L6", "R1", "R2", "R3", "R4", "R5", "R6") for t in texts)
-        seen_brake |= any(t == "BRAKE" or t.isdigit() for t in texts)
+        seen_brake |= any(t.isdigit() for t in texts)
+        seen_cue |= "BRAKE" in texts
         quiet_frames += not texts
-        p += 20 / track["length_m"]
+        p += 8 / track["length_m"]
         if int(p * 1000) % 50 == 0:
             tick()
     check("overlay shows the next corner", seen_corner)
     check("overlay shows the brake countdown near braking points", seen_brake)
+    check("overlay says BRAKE at the braking point", seen_cue)
     check("overlay stays empty away from braking points", quiet_frames > 10, str(quiet_frames))
     state["texts"].clear()
     script.windowSettings(1 / 60)

@@ -54,8 +54,8 @@ export function NextCorner() {
           </div>
         </div>
       </div>
-      <div className={`brakeslot ${brakeNear && !inCorner ? "" : "brakeslot--hidden"}`}>
-        {brakeIn !== null && !inCorner && <BrakeBar initial={brakeIn} soon={brakeSoon} />}
+      <div className={`brakeslot ${brakeNear ? "" : "brakeslot--hidden"}`}>
+        {brakeIn !== null && <BrakeBar initial={brakeIn} soon={brakeSoon} />}
       </div>
     </Card>
   );
@@ -137,14 +137,20 @@ function BrakeBar({ initial, soon }: { initial: number; soon: boolean }) {
   const fill = useRef<HTMLDivElement>(null);
   const value = useRef<HTMLSpanElement>(null);
   const width = (m: number) => `${Math.max(0, Math.min(100, 100 - m / 3))}%`;
+  const bar = useRef<HTMLDivElement>(null);
+  const label = useRef<HTMLSpanElement>(null);
   useCountdown("brake_in_m", (m) => {
-    if (value.current) value.current.textContent = `${Math.round(m)} m`;
-    if (fill.current) fill.current.style.width = width(m);
+    // At the braking point: BRAKE, held briefly, instead of the cue vanishing.
+    const now = m <= 0.5;
+    if (value.current) value.current.textContent = now ? "BRAKE" : `${Math.round(m)} m`;
+    if (label.current) label.current.style.visibility = now ? "hidden" : "visible";
+    if (fill.current) fill.current.style.width = now ? "100%" : width(m);
+    bar.current?.classList.toggle("brakebar--now", now);
   });
   return (
-    <div className={`brakebar ${soon ? "brakebar--soon" : ""}`}>
-      <span className="brakebar__label">Brake in</span>
-      <span ref={value} className="brakebar__value">{initial} m</span>
+    <div ref={bar} className={`brakebar ${soon ? "brakebar--soon" : ""} ${initial <= 0 ? "brakebar--now" : ""}`}>
+      <span ref={label} className="brakebar__label">Brake in</span>
+      <span ref={value} className="brakebar__value">{initial <= 0 ? "BRAKE" : `${initial} m`}</span>
       <div className="brakebar__track">
         <div ref={fill} className="brakebar__fill" style={{ width: width(initial) }} />
       </div>

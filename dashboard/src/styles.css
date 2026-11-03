@@ -2219,3 +2219,14 @@ select {
   font-size: max(13px, calc(var(--u) * 1.8));
   cursor: pointer;
 }
+
+/* at the braking point */
+.brakebar--now .brakebar__value {
+  color: var(--bad);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.brakebar--now .brakebar__fill {
+  background: var(--bad);
+}

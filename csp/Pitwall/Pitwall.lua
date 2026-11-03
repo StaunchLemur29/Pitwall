@@ -137,9 +137,15 @@ end
 
 -- Metres to the braking point, moved earlier or later by how fast you're
 -- arriving compared with your reference lap.
+local function signed(x) return wrap(x + 0.5) - 0.5 end
+
+-- Positive before the braking point, negative just after it (so "BRAKE" can
+-- hold for a moment); nil once past the apex or well past the point.
+local BRAKE_HOLD_M = 40
 local function brakeIn(c, p, speedKmh)
   if not c.brake_p then return nil end
-  local d = wrap(c.brake_p - p) * track.length_m
+  local d = signed(c.brake_p - p) * track.length_m
+  if d < -BRAKE_HOLD_M or signed(c.apex - p) <= 0 then return nil end
   if shift.corner ~= c.n then shift.corner, shift.m = c.n, 0 end
   local ve, vmin, mp, now = c.entry_kmh, c.min_kmh, c.min_p, refSpeed(p)
   if ve and vmin and mp and now and ve - vmin >= 15 then
@@ -210,11 +216,11 @@ function script.windowMain(dt)
   elseif connected and track then
     local p = car.splinePosition
     local cc, dist = nextCorner(p)
-    if cc and dist and dist > 0 then
+    if cc and dist then
       local bb = brakeIn(cc, p, car.speedKmh)
       if bb and bb < settings.showFromM then
         if bb <= 0 and (held.b or 1) > 0 then cueUntil = now + 0.8 end -- just reached it
-        if bb > -40 then show, c, b = true, cc, bb end
+        show, c, b = true, cc, bb
       end
     end
   end

@@ -102,6 +102,9 @@ def _crossed(prev: float, now: float, mark: float) -> bool:
     return mark > prev or mark <= now  # wrapped past 1.0 → 0.0
 
 
+BRAKE_HOLD_M = 40.0  # keep showing "brake now" this far past the braking point
+
+
 class TrackState:
     def __init__(self, model: TrackModel, max_tyres_out: int = 2) -> None:
         self.model = model
@@ -225,11 +228,14 @@ class TrackState:
             ref = self.ref_corners.get(c.number, {})
             brake_in = None
             if ref.get("brake_p") is not None:
-                brake_in = ((ref["brake_p"] - p) % 1.0) * m.length_m
-                if brake_in > dist + 400:  # already past the braking point
-                    brake_in = None
-                else:
-                    brake_in -= self._speed_shift(c.number, ref, p, f.speed_kmh)
+                # Signed: positive before the braking point, negative after it.
+                # Just past it (up to BRAKE_HOLD_M, and before the apex) it's
+                # "brake now", so the cue holds at the moment that matters
+                # instead of vanishing.
+                ahead = (((ref["brake_p"] - p) + 0.5) % 1.0 - 0.5) * m.length_m
+                to_apex = (((c.apex - p) + 0.5) % 1.0 - 0.5) * m.length_m
+                if -BRAKE_HOLD_M <= ahead <= dist + 400 and to_apex > 0:
+                    brake_in = ahead - self._speed_shift(c.number, ref, p, f.speed_kmh)
             mast = self.mastery.get(c.number, {})
             out["corner"] = {
                 **c.to_dict(),
