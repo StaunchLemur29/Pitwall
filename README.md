@@ -144,6 +144,25 @@ then kept on the PC only (`%APPDATA%\Pitwall\ai.json`). Each debrief costs
 roughly 10 cents. Turn automatic debriefs off in the same tab; the
 **Write debrief** button in the analysis still works.
 
+**Debriefs from the hub (PC off).** The hub can write one too, for your latest
+session on the car + track you're looking at. The key then also lives in
+Supabase as a hidden secret (never in the browser), and a GitHub Action puts
+it there. One-time setup, in GitHub under **Settings → Secrets and variables →
+Actions → New repository secret**:
+
+1. `SUPABASE_ACCESS_TOKEN`: make one at
+   [supabase.com/dashboard/account/tokens](https://supabase.com/dashboard/account/tokens)
+   (**Generate new token**).
+2. `ANTHROPIC_API_KEY`: the same key as on the PC.
+3. `PITWALL_EMAIL`: the email you sign in to the hub with. Only that account
+   can write debriefs, so nobody else can spend your credit.
+
+Then **Actions → Deploy hub function → Run workflow**. When it's green, the
+hub's analysis has a **Write debrief** button. It uses `SUPABASE_DB_URL` (from
+the database step above) to know which project; if it can't tell, it asks for
+a `SUPABASE_PROJECT_REF` secret. New key later? Update the secret and run the
+workflow again.
+
 ### Recording a session (helps development)
 
 ```bat

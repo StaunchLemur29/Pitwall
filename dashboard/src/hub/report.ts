@@ -15,6 +15,7 @@ export interface HubLap {
   lap_number: number;
   lap_time_ms: number;
   valid: boolean;
+  out_lap?: boolean;
   started_at: number; // unix seconds
   sector_ms: number[];
   corners: CornerLap[] | null;

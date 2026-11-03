@@ -1,0 +1,57 @@
+# Deploys the hub's Supabase function (cloud/supabase/functions/debrief: AI
+# debriefs written from the website) and its secrets whenever it changes on
+# main. Run it by hand from the Actions tab ("Run workflow") after changing a
+# secret, e.g. a new Anthropic API key.
+#
+# Repository secrets (Settings > Secrets and variables > Actions):
+#   SUPABASE_ACCESS_TOKEN   supabase.com > Account > Access Tokens > Generate
+#   ANTHROPIC_API_KEY       the same key as on the PC (Settings > AI)
+#   PITWALL_EMAIL           the email you sign in to the hub with
+#   SUPABASE_DB_URL         already there (schema workflow); the project is read from it
+name: Deploy hub function
+
+on:
+  push:
+    branches: [main]
+    paths: [cloud/supabase/**, .github/workflows/functions.yml]
+  workflow_dispatch:
+
+concurrency: functions
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy the debrief function to Supabase
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PITWALL_EMAIL: ${{ secrets.PITWALL_EMAIL }}
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          missing=""
+          [ -n "$SUPABASE_ACCESS_TOKEN" ] || missing="$missing SUPABASE_ACCESS_TOKEN"
+          [ -n "$ANTHROPIC_API_KEY" ] || missing="$missing ANTHROPIC_API_KEY"
+          [ -n "$PITWALL_EMAIL" ] || missing="$missing PITWALL_EMAIL"
+          if [ -n "$missing" ]; then
+            echo "::error::Add these repository secrets first (README, AI debrief):$missing"
+            exit 1
+          fi
+          # Which Supabase project: from the database link the schema workflow uses
+          # (postgresql://postgres.<project>:...@...pooler.supabase.com or
+          # ...@db.<project>.supabase.co), unless SUPABASE_PROJECT_REF is set.
+          if [ -z "$PROJECT_REF" ]; then
+            PROJECT_REF=$(printf '%s' "$DB_URL" | sed -nE 's#^[a-z]+://postgres\.([a-z0-9]+)[:@].*#\1#p')
+            [ -n "$PROJECT_REF" ] || PROJECT_REF=$(printf '%s' "$DB_URL" | sed -nE 's#.*@db\.([a-z0-9]+)\.supabase\.co.*#\1#p')
+          fi
+          if [ -z "$PROJECT_REF" ]; then
+            echo "::error::Couldn't tell which Supabase project from SUPABASE_DB_URL. Add a secret SUPABASE_PROJECT_REF: the id in your project's address, supabase.com/dashboard/project/<this part>."
+            exit 1
+          fi
+          cli="npx -y supabase@2.122.1"
+          $cli secrets set --project-ref "$PROJECT_REF" \
+            "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" "PITWALL_ALLOWED_EMAILS=$PITWALL_EMAIL" >/dev/null
+          $cli functions deploy debrief --project-ref "$PROJECT_REF" --workdir cloud --use-api --no-verify-jwt
+          echo "Deployed. The hub's analysis now has a Write debrief button."

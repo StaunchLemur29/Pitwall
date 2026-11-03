@@ -38,7 +38,7 @@ def main() -> None:
     for info in store.laps(s.game, s.track_key, s.car, limit=100):
         r = sync._lap_row(info["id"], "fixture")
         rows.append({
-            "id": info["id"], "lap_number": r["lap_number"], "lap_time_ms": r["lap_time_ms"], "valid": r["valid"],
+            "id": info["id"], "lap_number": r["lap_number"], "lap_time_ms": r["lap_time_ms"], "valid": r["valid"], "out_lap": r["out_lap"],
             "started_at": info["started_at"], "sector_ms": r["sector_ms"], "corners": r["corners"],
             "systems": r["systems"],
             "trace": {"t": r["trace"]["t"], "p": r["trace"]["p"]} if r["trace"] else None,
@@ -58,6 +58,7 @@ def main() -> None:
         "game": s.game, "car": s.car, "track_key": s.track_key,
         "geometry": rig.track_geometry(s.game, s.car, s.track_key),
         "profile": rig.car_profile, "laps": rows, "cases": cases,
+        "session_summary": rig.session_summary(s.game, s.car, s.track_key),
     }))
     print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB, {len(rows)} laps, {len(cases)} cases)")
 
