@@ -113,6 +113,58 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
     </div>
   );
 
+  const chip = (num: number, why = false) => {
+    const i = g.corners.findIndex((k) => k.number === num);
+    if (i < 0) return null;
+    const r = rows[i];
+    const m = report?.mastery.find((x) => x.corner === num);
+    const open = !wide && corner?.number === num;
+    const notes = r ? (r.notes?.length ? r.notes : r.advice ?? []) : [];
+    return (
+      <div key={`${why ? "w" : "c"}${num}`} className={`cwrap ${open ? "cwrap--open" : ""}`}>
+        <button
+          className={`cchip ${corner?.number === num ? "cchip--on" : ""} ${focus === num ? "cchip--hover" : ""}`}
+          onClick={() => setPicked(num)}
+          onMouseEnter={() => setFocus(num)}
+          onMouseLeave={() => setFocus(null)}
+        >
+          <span className="mdot" style={{ background: GRADE_COLORS[m?.grade ?? "new"] }} />
+          <span className="cchip__name">{num}. {g.corners[i].label}</span>
+          {r && <span className="cchip__t">{r.time_s.toFixed(2)}s</span>}
+          {r?.vs_s !== undefined && <span className={`cchip__d ${vsClass(r.vs_s)}`}>{delta(r.vs_s)}</span>}
+        </button>
+        {why && !open && <div className="cwrap__why">{notes[0] ?? "Small losses all the way through rather than one mistake."}</div>}
+        {open && (
+          <div className="cwrap__body">
+            {notes.slice(0, 2).map((n) => (
+              <div key={n} className="cwrap__note">{n}</div>
+            ))}
+            <div className="cwrap__actions">
+              {section && (
+                <button className="btn btn--sm" onClick={() => startDrill({ section: section.number })}>
+                  Practise {section.name}
+                </button>
+              )}
+              <button className="btn btn--sm btn--ghost" onClick={() => rig.action("open_analysis")}>
+                Full breakdown ↗
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const modes = (
+    <div className="la__modes" role="tablist">
+      {MODES.map(([m, l]) => (
+        <button key={m} className={`chipbtn ${mode === m ? "chipbtn--on" : ""}`} onClick={() => setMode(m)}>
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+
   const list = (
     <div className="la__list">
       {report?.chapters && report.chapters.length > 0 && (
@@ -126,7 +178,7 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
                   <span className="chap__num">{ch.number}</span>
                   <span className="chap__name">{ch.name}</span>
                   <span className="crow__time">{ch.time_s != null ? `${ch.time_s.toFixed(1)}s` : ""}</span>
-                  <span className={`crow__loss ${lossClass(d)}`} title="vs your best lap">{d !== null ? delta(d) : ""}</span>
+                  <span className={`crow__loss ${vsClass(d)}`} title="vs your best lap">{d !== null ? delta(d) : ""}</span>
                   <button className="btn btn--sm btn--ghost" onClick={() => startDrill({ chapter: ch.number })}>
                     Practise
                   </button>
@@ -137,7 +189,13 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
           })}
         </div>
       )}
-      <div className="chapters__title">Sections · click a corner for the detail</div>
+      {!wide && losses.length > 0 && (
+        <>
+          <div className="chapters__title">Where the time went</div>
+          {losses.map(({ c }) => chip(c!.number, true))}
+        </>
+      )}
+      <div className="chapters__title">Sections{wide ? " · click a corner for the detail" : ""}</div>
       {(report?.practice?.length ? report.practice : g.practice).map((ps) => {
         const d = ps.time_s != null && ps.ref_s != null ? ps.time_s - ps.ref_s : null;
         return (
@@ -145,7 +203,7 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
             <div className="psec__head">
               <span className="psec__name">{ps.name}</span>
               <span className="crow__time">{ps.time_s != null ? `${ps.time_s.toFixed(2)}s` : ""}</span>
-              <span className={`crow__loss ${lossClass(d)}`} title="vs your best lap">
+              <span className={`crow__loss ${vsClass(d)}`} title="vs your best lap">
                 {d !== null ? delta(d) : ""}
               </span>
               <button className="btn btn--sm" onClick={() => startDrill({ section: ps.number })}>
@@ -153,28 +211,7 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
               </button>
             </div>
             {ps.drill_best_s ? <div className="psec__sub">best drill run {ps.drill_best_s.toFixed(2)}s</div> : null}
-            <div className="psec__corners">
-              {ps.corners.map((num) => {
-                const i = g.corners.findIndex((k) => k.number === num);
-                const r = rows[i];
-                const m = report?.mastery.find((x) => x.corner === num);
-                if (i < 0) return null;
-                return (
-                  <button
-                    key={num}
-                    className={`cchip ${corner?.number === num ? "cchip--on" : ""} ${focus === num ? "cchip--hover" : ""}`}
-                    onClick={() => setPicked(num)}
-                    onMouseEnter={() => setFocus(num)}
-                    onMouseLeave={() => setFocus(null)}
-                  >
-                    <span className="mdot" style={{ background: GRADE_COLORS[m?.grade ?? "new"] }} />
-                    <span className="cchip__name">{num}. {g.corners[i].label}</span>
-                    {r && <span className="cchip__t">{r.time_s.toFixed(2)}s</span>}
-                    {r?.vs_s !== undefined && <span className={`cchip__d ${vsClass(r.vs_s)}`}>{delta(r.vs_s)}</span>}
-                  </button>
-                );
-              })}
-            </div>
+            <div className="psec__corners">{ps.corners.map((num) => chip(num))}</div>
           </div>
         );
       })}
@@ -209,68 +246,48 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
         </span>
       }
     >
-      <div className={`la ${wide ? "la--wide" : ""}`}>
-        <div className="la__left">
-          {summary}
-          <div className="la__modes" role="tablist">
-            {MODES.map(([m, l]) => (
-              <button key={m} className={`chipbtn ${mode === m ? "chipbtn--on" : ""}`} onClick={() => setMode(m)}>
-                {l}
-              </button>
-            ))}
-          </div>
-          <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />
-          <Legend mode={mode} label={label} />
-          {wide && list}
-        </div>
-        {!wide ? (
-          <div className="la__right">
-            {corner && mine && (
-              <div className="brief">
-                <div className="brief__head">
-                  <span className="cd__grade">{corner.direction}{corner.grade}</span>
-                  <span className="brief__name">{corner.number}. {corner.label}</span>
-                  <span className="crow__time">{mine.time_s.toFixed(2)}s</span>
-                  {mine.vs_s !== undefined && <span className={`crow__loss ${vsClass(mine.vs_s)}`}>{delta(mine.vs_s)}</span>}
-                </div>
-                {(mine.notes?.length ? mine.notes : mine.advice ?? []).slice(0, 2).map((n) => (
-                  <div key={n} className="brief__note">{n}</div>
-                ))}
-                <div className="brief__actions">
-                  {section && (
-                    <button className="btn btn--sm" onClick={() => startDrill({ section: section.number })}>
-                      Practise {section.name}
-                    </button>
-                  )}
-                  <button className="btn btn--sm btn--ghost" onClick={() => rig.action("open_analysis")}>
-                    Full breakdown on main screen ↗
-                  </button>
-                </div>
-              </div>
-            )}
+      {wide ? (
+        <div className="la la--wide">
+          <div className="la__left">
+            {summary}
+            {modes}
+            <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />
+            <Legend mode={mode} label={label} />
             {list}
           </div>
-        ) : (
-        <div className="la__right">
-          {corner && mine ? (
-            <CornerDetail
-              g={g}
-              corner={corner}
-              mine={mine}
-              other={otherRow}
-              otherLabel={label}
-              myTrace={trace}
-              otherTrace={otherTrace}
-              mastery={report?.mastery.find((x) => x.corner === corner.number)}
-              section={section}
-              onStep={step}
-            />
-          ) : (
-            <div className="upcoming">Drive a clean lap and it'll be broken down here, corner by corner.</div>
-          )}
+          <div className="la__right">
+            {corner && mine ? (
+              <CornerDetail
+                g={g}
+                corner={corner}
+                mine={mine}
+                other={otherRow}
+                otherLabel={label}
+                myTrace={trace}
+                otherTrace={otherTrace}
+                mastery={report?.mastery.find((x) => x.corner === corner.number)}
+                section={section}
+                onStep={step}
+              />
+            ) : (
+              <div className="upcoming">Drive a clean lap and it'll be broken down here, corner by corner.</div>
+            )}
+          </div>
         </div>
-        )}
-      </div>
+      ) : (
+        <div className="la la--narrow">
+          <div className="nsum">
+            <span className="nsum__t">{lapTime(shown?.lap_time_ms)}</span>
+            {lapDelta !== null && <span className={lapDelta <= 0 ? "good" : "bad"}>{delta(lapDelta, 3)}</span>}
+            {lapDelta !== null && <span className="muted">vs {label}</span>}
+            {theo ? <span className="nsum__theo" title="best sectors combined">optimal {lapTime(theo)}</span> : null}
+          </div>
+          {modes}
+          <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />
+          <Legend mode={mode} label={label} />
+          {list}
+        </div>
+      )}
     </Card>
   );
 }
@@ -278,12 +295,7 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
 /** Gap to the comparison lap: green only when you were quicker, grey when it's a wash. */
 function vsClass(v: number | null | undefined): string {
   if (v == null) return "";
-  return v < -0.02 ? "good" : v <= 0.02 ? "muted" : v <= 0.1 ? "amber" : "bad";
-}
-
-function lossClass(loss: number | null | undefined): string {
-  if (loss == null) return "";
-  return loss <= 0.05 ? "good" : loss <= 0.2 ? "amber" : "bad";
+  return v < -0.02 ? "good" : v <= 0.02 ? "even" : v <= 0.1 ? "amber" : "bad";
 }
 
 function gradeColour(loss: number | null | undefined): string {
