@@ -124,6 +124,14 @@ class Store:
         ).fetchall()
         return [self._summary(r) for r in rows]
 
+    def lap(self, lap_id: int) -> dict[str, Any] | None:
+        row = self._db.execute(
+            """SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap,
+               started_at, sector_ms FROM laps WHERE id=?""",
+            (lap_id,),
+        ).fetchone()
+        return self._summary(row) if row else None
+
     def best_lap(self, game: str, track_key: str, car: str) -> dict[str, Any] | None:
         row = self._db.execute(
             """SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap,

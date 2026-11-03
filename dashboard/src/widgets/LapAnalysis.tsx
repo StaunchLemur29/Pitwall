@@ -1,42 +1,67 @@
 import { useEffect, useMemo, useState } from "react";
 import { delta, lapTime } from "../lib/format";
 import { fitTrack, type Pt } from "../lib/geometry";
+import { timeLookup, type Trace } from "../lib/profile";
 import { fetchCorners, fetchTrace, startDrill, useRig } from "../lib/rig";
 import { GRADE_COLORS, indexAt, pathOf, type P } from "../lib/track";
 import type { CornerLap, CornerReport, TrackGeometry } from "../lib/types";
+import { CornerDetail } from "./CornerDetail";
 import { Card, useSize } from "./common";
 
 type Mode = "phase" | "speed" | "delta" | "grade";
 const MODES: [Mode, string][] = [
+  ["delta", "Gain / loss"],
   ["phase", "Brake / coast / throttle"],
   ["speed", "Speed"],
-  ["delta", "Gain / loss"],
-  ["grade", "Corner grades"],
+  ["grade", "Corners vs your best"],
 ];
-type Trace = Record<string, number[]>;
 
-/** Post-session view: your line coloured four ways, plus every corner broken down. */
+/** Post-session view: a lap summary, your line on the map, and any corner in detail against another lap. */
 export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
   const g = useRig((s) => s.track);
   const latest = useRig((s) => s.corners);
   const laps = useRig((s) => s.laps);
-  const ref = useRig((s) => s.refTrace);
-  const [mode, setMode] = useState<Mode>("phase");
+  const theo = useRig((s) => s.live.theoretical_best_ms);
+  const [mode, setMode] = useState<Mode>("delta");
   const [lapId, setLapId] = useState<number | null>(null);
+  const [compareId, setCompareId] = useState<number | null>(null);
   const [report, setReport] = useState<CornerReport | null>(null);
   const [trace, setTrace] = useState<Trace | null>(null);
+  const [otherTrace, setOtherTrace] = useState<Trace | null>(null);
   const [focus, setFocus] = useState<number | null>(null);
+  const [picked, setPicked] = useState<number | null>(null);
 
   const shownId = lapId ?? latest?.lap_id ?? null;
   useEffect(() => {
     if (shownId === null) return;
     let live = true;
-    fetchCorners(shownId).then((r) => live && setReport(r));
-    fetchTrace(shownId, 10).then((t) => live && setTrace(t));
+    fetchCorners(shownId, compareId).then((r) => live && setReport(r));
+    fetchTrace(shownId, 30).then((t) => live && setTrace(t));
     return () => {
       live = false;
     };
-  }, [shownId, latest]);
+  }, [shownId, compareId, latest]);
+  const otherId = report?.compare_lap_id ?? null;
+  useEffect(() => {
+    if (otherId === null) return setOtherTrace(null);
+    let live = true;
+    fetchTrace(otherId, 30).then((t) => live && setOtherTrace(t));
+    return () => {
+      live = false;
+    };
+  }, [otherId]);
+
+  const rows = report?.lap ?? [];
+  // Biggest losses first: where the time went.
+  const losses = useMemo(
+    () =>
+      rows
+        .map((r, i) => ({ r, c: g?.corners[i] }))
+        .filter((x) => x.c && (x.r.vs_s ?? 0) > 0.03)
+        .sort((a, b) => (b.r.vs_s ?? 0) - (a.r.vs_s ?? 0))
+        .slice(0, 3),
+    [rows, g],
+  );
 
   if (!g) {
     return (
@@ -46,122 +71,176 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
     );
   }
   const valid = laps.filter((l) => l.valid);
-  const rows = report?.lap ?? [];
-  const renderCorner = (c: TrackGeometry["corners"][number], i: number) => {
-            const r = rows[i];
-            if (!r) return null;
-            const m = report?.mastery.find((x) => x.corner === c.number);
+  const shown = laps.find((l) => l.id === shownId);
+  const other = laps.find((l) => l.id === otherId);
+  const label = report?.compare_label ?? null;
+  const ci = Math.max(0, g.corners.findIndex((k) => k.number === (picked ?? losses[0]?.c?.number ?? g.corners[0]?.number)));
+  const corner = g.corners[ci];
+  const mine = rows[ci];
+  const otherRow = report?.compare?.find((x) => x.corner === corner?.number) ?? null;
+  const section = (report?.practice?.length ? report.practice : g.practice).find((ps) => ps.corners.includes(corner?.number));
+  const step = (d: 1 | -1) => setPicked(g.corners[(ci + d + g.corners.length) % g.corners.length].number);
+  const lapDelta = shown && other ? (shown.lap_time_ms - other.lap_time_ms) / 1000 : null;
+
+  const summary = (
+    <div className="lsum">
+      <div className="lsum__stat">
+        <div className="lsum__big">{lapTime(shown?.lap_time_ms)}</div>
+        <div className="muted">lap {shown?.lap_number ?? ""}</div>
+      </div>
+      {lapDelta !== null && (
+        <div className="lsum__stat">
+          <div className={`lsum__big ${lapDelta <= 0 ? "good" : "bad"}`}>{delta(lapDelta, 3)}</div>
+          <div className="muted">vs {label}</div>
+        </div>
+      )}
+      {theo ? (
+        <div className="lsum__stat">
+          <div className="lsum__big lsum__theo">{lapTime(theo)}</div>
+          <div className="muted">best sectors combined</div>
+        </div>
+      ) : null}
+      <div className="lsum__where">
+        <div className="cd__sub">{losses.length ? "Where the time went" : rows.length && other ? "No corner lost more than 0.03 s" : "Drive another clean lap to compare"}</div>
+        {losses.map(({ r, c }) => (
+          <button key={c!.number} className={`lossbtn ${corner?.number === c!.number ? "lossbtn--on" : ""}`} onClick={() => setPicked(c!.number)}>
+            <span className="lossbtn__name">{c!.label}</span>
+            <span className="bad">{delta(r.vs_s)}</span>
+            <span className="lossbtn__why">{r.notes?.[0] ?? "Small losses all the way through rather than one mistake."}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const list = (
+    <div className="la__list">
+      {report?.chapters && report.chapters.length > 0 && (
+        <div className="chapters">
+          <div className="chapters__title">Chapters</div>
+          {report.chapters.map((ch) => {
+            const d = ch.time_s != null && ch.ref_s != null ? ch.time_s - ch.ref_s : null;
             return (
-              <div
-                key={c.number}
-                className={`crow ${focus === c.number ? "crow--focus" : ""}`}
-                onMouseEnter={() => setFocus(c.number)}
-                onMouseLeave={() => setFocus(null)}
-              >
-                <div className="crow__head">
-                  <span className="mdot" style={{ background: GRADE_COLORS[m?.grade ?? "new"] }} />
-                  <span className="crow__name">
-                    {c.number}. {c.label}
-                  </span>
-                  <span className="crow__time">{r.time_s.toFixed(2)}s</span>
-                  <span className={`crow__loss ${lossClass(r.loss_s)}`}>{r.loss_s != null ? delta(r.loss_s) : ""}</span>
+              <div key={ch.number} className="chap">
+                <div className="chap__head">
+                  <span className="chap__num">{ch.number}</span>
+                  <span className="chap__name">{ch.name}</span>
+                  <span className="crow__time">{ch.time_s != null ? `${ch.time_s.toFixed(1)}s` : ""}</span>
+                  <span className={`crow__loss ${lossClass(d)}`} title="vs your best lap">{d !== null ? delta(d) : ""}</span>
+                  <button className="btn btn--sm btn--ghost" onClick={() => startDrill({ chapter: ch.number })}>
+                    Practise
+                  </button>
                 </div>
-                <div className="crow__stats">
-                  <span>min {Math.round(r.min_speed_kmh)} km/h</span>
-                  <span>gear {r.apex_gear}</span>
-                  {r.coast_s > 0.2 && <span className="warn">coast {r.coast_s.toFixed(1)}s</span>}
-                  {m && m.spread_s !== null && <span>± {m.spread_s.toFixed(2)}s over {Math.min(m.laps, 10)} laps</span>}
-                </div>
-                {r.entry_frac !== undefined && <WidthUse c={c.direction} r={r} />}
-                {r.advice && r.advice.length > 0 && (
-                  <ul className="crow__advice">
-                    {r.advice.map((a) => (
-                      <li key={a}>{a}</li>
-                    ))}
-                  </ul>
-                )}
+                {ch.summary && <div className="chap__sum">{ch.summary}</div>}
               </div>
             );
-          
-  };
+          })}
+        </div>
+      )}
+      <div className="chapters__title">Sections · click a corner for the detail</div>
+      {(report?.practice?.length ? report.practice : g.practice).map((ps) => {
+        const d = ps.time_s != null && ps.ref_s != null ? ps.time_s - ps.ref_s : null;
+        return (
+          <div key={`s${ps.number}`} className="psec">
+            <div className="psec__head">
+              <span className="psec__name">{ps.name}</span>
+              <span className="crow__time">{ps.time_s != null ? `${ps.time_s.toFixed(2)}s` : ""}</span>
+              <span className={`crow__loss ${lossClass(d)}`} title="vs your best lap">
+                {d !== null ? delta(d) : ""}
+              </span>
+              <button className="btn btn--sm" onClick={() => startDrill({ section: ps.number })}>
+                Practise
+              </button>
+            </div>
+            {ps.drill_best_s ? <div className="psec__sub">best drill run {ps.drill_best_s.toFixed(2)}s</div> : null}
+            <div className="psec__corners">
+              {ps.corners.map((num) => {
+                const i = g.corners.findIndex((k) => k.number === num);
+                const r = rows[i];
+                const m = report?.mastery.find((x) => x.corner === num);
+                if (i < 0) return null;
+                return (
+                  <button
+                    key={num}
+                    className={`cchip ${corner?.number === num ? "cchip--on" : ""} ${focus === num ? "cchip--hover" : ""}`}
+                    onClick={() => setPicked(num)}
+                    onMouseEnter={() => setFocus(num)}
+                    onMouseLeave={() => setFocus(null)}
+                  >
+                    <span className="mdot" style={{ background: GRADE_COLORS[m?.grade ?? "new"] }} />
+                    <span className="cchip__name">{num}. {g.corners[i].label}</span>
+                    {r && <span className="cchip__t">{r.time_s.toFixed(2)}s</span>}
+                    {r?.vs_s !== undefined && <span className={`cchip__d ${lossClass(r.vs_s)}`}>{delta(r.vs_s)}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
   return (
     <Card
       title="Lap analysis"
       right={
-        <select className="lapsel" value={shownId ?? ""} onChange={(e) => setLapId(Number(e.target.value) || null)}>
-          {valid.map((l) => (
-            <option key={l.id} value={l.id}>
-              Lap {l.lap_number} · {lapTime(l.lap_time_ms)}
-              {l.id === report?.reference_lap_id ? " (best)" : ""}
-            </option>
-          ))}
-        </select>
+        <span className="lapsels">
+          <select className="lapsel" value={shownId ?? ""} onChange={(e) => setLapId(Number(e.target.value) || null)} aria-label="Lap to analyse">
+            {valid.map((l) => (
+              <option key={l.id} value={l.id}>
+                Lap {l.lap_number} · {lapTime(l.lap_time_ms)}
+                {l.id === report?.reference_lap_id ? " (best)" : ""}
+              </option>
+            ))}
+          </select>
+          <span className="muted">vs</span>
+          <select className="lapsel" value={compareId ?? ""} onChange={(e) => setCompareId(Number(e.target.value) || null)} aria-label="Compare with">
+            <option value="">{compareId === null && label ? `auto: ${label}` : "auto"}</option>
+            {valid
+              .filter((l) => l.id !== shownId)
+              .map((l) => (
+                <option key={l.id} value={l.id}>
+                  Lap {l.lap_number} · {lapTime(l.lap_time_ms)}
+                  {l.id === report?.reference_lap_id ? " (best)" : ""}
+                </option>
+              ))}
+          </select>
+        </span>
       }
     >
       <div className={`la ${wide ? "la--wide" : ""}`}>
         <div className="la__left">
-        <div className="la__modes" role="tablist">
-          {MODES.map(([m, label]) => (
-            <button key={m} className={`chipbtn ${mode === m ? "chipbtn--on" : ""}`} onClick={() => setMode(m)}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <ColouredMap g={g} trace={trace} ref_={ref} mode={mode} rows={rows} focus={focus} onPick={setFocus} />
-        <Legend mode={mode} />
-        </div>
-        <div className="la__list">
-          {report?.chapters && report.chapters.length > 0 && (
-            <div className="chapters">
-              <div className="chapters__title">Chapters</div>
-              {report.chapters.map((ch) => {
-                const d = ch.time_s != null && ch.ref_s != null ? ch.time_s - ch.ref_s : null;
-                return (
-                  <div key={ch.number} className="chap">
-                    <div className="chap__head">
-                      <span className="chap__num">{ch.number}</span>
-                      <span className="chap__name">{ch.name}</span>
-                      <span className="crow__time">{ch.time_s != null ? `${ch.time_s.toFixed(1)}s` : ""}</span>
-                      <span className={`crow__loss ${lossClass(d)}`}>{d !== null ? delta(d) : ""}</span>
-                      <button className="btn btn--sm btn--ghost" onClick={() => startDrill({ chapter: ch.number })}>
-                        Practise
-                      </button>
-                    </div>
-                    {ch.summary && <div className="chap__sum">{ch.summary}</div>}
-                  </div>
-                );
-              })}
-              <div className="chapters__title">Sections</div>
-            </div>
-          )}
-          <div className="wkey">
-            <b>How to read the strips:</b> each corner has a bar from the <b>L</b>eft edge of the track to the{" "}
-            <b>R</b>ight edge. <span className="wkey__m">E</span> = where you turned in,{" "}
-            <span className="wkey__m">A</span> = apex, <span className="wkey__m">X</span> = exit. The green end is the
-            inside of the corner — a classic line goes outside → inside → outside.
+          {summary}
+          <div className="la__modes" role="tablist">
+            {MODES.map(([m, l]) => (
+              <button key={m} className={`chipbtn ${mode === m ? "chipbtn--on" : ""}`} onClick={() => setMode(m)}>
+                {l}
+              </button>
+            ))}
           </div>
-          {(report?.practice?.length ? report.practice : g.practice).map((ps) => {
-            const d = ps.time_s != null && ps.ref_s != null ? ps.time_s - ps.ref_s : null;
-            return (
-              <div key={`s${ps.number}`} className="psec">
-                <div className="psec__head">
-                  <span className="psec__name">{ps.name}</span>
-                  <span className="crow__time">{ps.time_s != null ? `${ps.time_s.toFixed(2)}s` : ""}</span>
-                  <span className={`crow__loss ${lossClass(d)}`} title="vs your best lap">
-                    {d !== null ? delta(d) : ""}
-                  </span>
-                  <button className="btn btn--sm" onClick={() => startDrill({ section: ps.number })}>
-                    Practise
-                  </button>
-                </div>
-                {ps.drill_best_s ? <div className="psec__sub">best drill run {ps.drill_best_s.toFixed(2)}s</div> : null}
-                {ps.corners.map((num) => {
-                  const i = g.corners.findIndex((k) => k.number === num);
-                  return i >= 0 ? renderCorner(g.corners[i], i) : null;
-                })}
-              </div>
-            );
-          })}
+          <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />
+          <Legend mode={mode} label={label} />
+          {wide && list}
+        </div>
+        <div className="la__right">
+          {corner && mine ? (
+            <CornerDetail
+              g={g}
+              corner={corner}
+              mine={mine}
+              other={otherRow}
+              otherLabel={label}
+              myTrace={trace}
+              otherTrace={otherTrace}
+              mastery={report?.mastery.find((x) => x.corner === corner.number)}
+              section={section}
+              onStep={step}
+            />
+          ) : (
+            <div className="upcoming">Drive a clean lap and it'll be broken down here, corner by corner.</div>
+          )}
+          {!wide && list}
         </div>
       </div>
     </Card>
@@ -178,33 +257,7 @@ function gradeColour(loss: number | null | undefined): string {
   return loss <= 0.05 ? "#3ddc84" : loss <= 0.2 ? "#ffc542" : "#ff5252";
 }
 
-/** Entry, apex and exit marked on a strip that runs from the left edge to the right edge. */
-function WidthUse({ c, r }: { c: "L" | "R"; r: CornerLap }) {
-  const marks: [string, number | undefined][] = [
-    ["E", r.entry_frac],
-    ["A", r.apex_frac],
-    ["X", r.exit_frac],
-  ];
-  const title: Record<string, string> = { E: "turn-in", A: "apex", X: "exit" };
-  return (
-    <div className="wuse" title="Where you were across the track: E = turn-in, A = apex, X = exit">
-      <span className="wuse__side">L</span>
-      <div className="wuse__bar">
-        <div className={`wuse__inside wuse__inside--${c}`} />
-        {marks.map(([k, f]) =>
-          f === undefined ? null : (
-            <span key={k} className="wuse__mark" title={title[k]} style={{ left: `${Math.max(0, Math.min(1, f)) * 100}%` }}>
-              {k}
-            </span>
-          ),
-        )}
-      </div>
-      <span className="wuse__side">R</span>
-    </div>
-  );
-}
-
-function Legend({ mode }: { mode: Mode }) {
+function Legend({ mode, label }: { mode: Mode; label: string | null }) {
   const items: Record<Mode, [string, string][]> = {
     phase: [
       ["#ff5252", "braking"],
@@ -217,13 +270,13 @@ function Legend({ mode }: { mode: Mode }) {
       ["hsl(0 80% 60%)", "fast"],
     ],
     delta: [
-      ["#3ddc84", "gaining on best"],
+      ["#3ddc84", `gaining on ${label ?? "the other lap"}`],
       ["#8b94a1", "even"],
       ["#ff5252", "losing"],
     ],
     grade: [
-      ["#3ddc84", "≤0.05s lost"],
-      ["#ffc542", "≤0.2s"],
+      ["#3ddc84", "within 0.05 s of your best ever"],
+      ["#ffc542", "within 0.2 s"],
       ["#ff5252", "more"],
     ],
   };
@@ -247,6 +300,7 @@ function ColouredMap(props: {
   rows: CornerLap[];
   focus: number | null;
   onPick: (n: number | null) => void;
+  onSelect: (n: number) => void;
 }) {
   const { g, trace, ref_, mode, rows, focus } = props;
   const [box, { w, h }] = useSize<HTMLDivElement>();
@@ -275,6 +329,7 @@ function ColouredMap(props: {
                 transform={`translate(${at[0]},${at[1]})`}
                 onMouseEnter={() => props.onPick(c.number)}
                 onMouseLeave={() => props.onPick(null)}
+                onClick={() => props.onSelect(c.number)}
                 className="la__cnum"
               >
                 <circle r={focus === c.number ? 14 : 10} className="map__cnum" />
@@ -310,7 +365,7 @@ function colourSegments(tr: Trace, ref: Trace | null, mode: Mode, g: TrackGeomet
       }
       case "delta": {
         if (!d) return "#8b94a1";
-        const j = Math.min(n - 1, i + 15); // ~1.5 s ahead at 10 Hz
+        const j = Math.min(n - 1, i + 45); // ~1.5 s ahead at 30 Hz
         const rate = d[j] - d[i];
         return rate < -0.03 ? "#3ddc84" : rate > 0.03 ? "#ff5252" : "#8b94a1";
       }
@@ -335,28 +390,4 @@ function colourSegments(tr: Trace, ref: Trace | null, mode: Mode, g: TrackGeomet
     } else cur[1].push(pt);
   }
   return out;
-}
-
-function timeLookup(tr: Trace): (p: number) => number {
-  const ps: number[] = [];
-  const ts: number[] = [];
-  tr.p.forEach((p, i) => {
-    if (tr.t[i] < 5 && p > 0.9) return;
-    if (!ps.length || p > ps[ps.length - 1]) {
-      ps.push(p);
-      ts.push(tr.t[i]);
-    }
-  });
-  return (p: number) => {
-    let lo = 0;
-    let hi = ps.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (ps[mid] < p) lo = mid + 1;
-      else hi = mid;
-    }
-    if (lo === 0) return ts[0];
-    const k = (p - ps[lo - 1]) / Math.max(1e-9, ps[lo] - ps[lo - 1]);
-    return ts[lo - 1] + k * (ts[lo] - ts[lo - 1]);
-  };
 }

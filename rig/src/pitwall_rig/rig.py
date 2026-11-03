@@ -14,7 +14,7 @@ from .input import InputEvent
 from .laps import LapRecorder
 from .models import Frame, GameStatus, Lap, Mode, SessionInfo, mode_for
 from .reference import ReferenceLap, downsample
-from .analysis import analyse_lap, corner_mastery, width_advice
+from .analysis import analyse_lap, compare_notes, corner_mastery, width_advice
 from .storage import Store
 from .tracks.live import Drill, TrackState
 from .tracks.loader import from_lap_trace
@@ -239,7 +239,7 @@ class Rig:
         m = self.track.model if self.track else None
         if m is None:
             return ""
-        return f"v1:{m.source}:{len(m.corners)}:{round(m.length_m)}"
+        return f"v2:{m.source}:{len(m.corners)}:{round(m.length_m)}"
 
     def _analyse(self, lap_id: int, trace: dict[str, list[float]]) -> None:
         if self.track is None:
@@ -258,10 +258,13 @@ class Rig:
         return corner_mastery(history)
 
     @_locked
-    def corner_report(self, lap_id: int | None = None) -> Event:
-        """Mastery per corner plus one lap's corner-by-corner numbers."""
+    def corner_report(self, lap_id: int | None = None, compare_id: int | None = None) -> Event:
+        """Mastery per corner plus one lap's corner-by-corner numbers, compared
+        with another lap (your best by default; your next best when looking at
+        the best lap itself)."""
         if self.track is None:
-            return {"mastery": [], "lap": None, "lap_id": None, "reference": [], "chapters": [], "practice": []}
+            return {"mastery": [], "lap": None, "lap_id": None, "reference": [], "chapters": [], "practice": [],
+                    "compare": None, "compare_lap_id": None, "compare_label": None}
         s = self.session
         if lap_id is None and s is not None:
             ids = self.store.valid_lap_ids(s.game, s.track_key, s.car, limit=1)
@@ -281,9 +284,36 @@ class Rig:
                 # Time lost against your best ever through this corner (any lap).
                 best = self.track.mastery.get(c.number, {}).get("best_s")
                 data["loss_s"] = round(data["time_s"] - best, 3) if best is not None else None
+        compare, compare_label = None, None
+        if lap and s is not None:
+            if compare_id is None:
+                best = [i for i in self.store.valid_lap_ids(s.game, s.track_key, s.car, limit=500) if i != lap_id]
+                ranked = sorted(best, key=lambda i: (self.store.lap(i) or {}).get("lap_time_ms") or 1e12)
+                ref_id = self.reference.lap_id if self.reference else None
+                compare_id = ref_id if ref_id is not None and ref_id != lap_id else (ranked[0] if ranked else None)
+            if compare_id is not None and compare_id != lap_id:
+                compare = self.store.lap_corners(compare_id, self._model_sig())
+                if compare is None:
+                    tr = self.store.trace(compare_id)
+                    if tr:
+                        self._analyse(compare_id, tr)
+                        compare = self.store.lap_corners(compare_id, self._model_sig())
+                info = self.store.lap(compare_id)
+                is_best = self.reference is not None and compare_id == self.reference.lap_id
+                compare_label = "your best lap" if is_best else f"lap {info['lap_number']}" if info else "the other lap"
+            if compare:
+                by_num = {c["corner"]: c for c in compare}
+                for data in lap:
+                    other = by_num.get(data["corner"])
+                    if other:
+                        data["vs_s"] = round(data["time_s"] - other["time_s"], 3)
+                        data["notes"] = compare_notes(data, other, compare_label)
         chapters = self._chapter_times(lap_id)
         practice = self._practice_times(lap_id)
         return {
+            "compare": compare,
+            "compare_lap_id": compare_id if compare else None,
+            "compare_label": compare_label,
             "chapters": chapters,
             "practice": practice,
             "mastery": list(self.track.mastery.values()),

@@ -195,6 +195,17 @@ export interface CornerLap {
   exit_frac?: number;
   advice?: string[];
   loss_s?: number | null;
+  /** metres before the apex braking started (null: no braking) */
+  brake_m?: number | null;
+  peak_brake?: number;
+  entry_kmh?: number;
+  exit_kmh?: number;
+  /** metres after the apex you were back to full throttle (negative: before it) */
+  throttle_m?: number | null;
+  /** time through the corner minus the comparison lap's */
+  vs_s?: number;
+  /** what you did differently from the comparison lap, biggest first */
+  notes?: string[];
 }
 
 export interface CornerReport {
@@ -205,6 +216,9 @@ export interface CornerReport {
   lap: CornerLap[] | null;
   reference: CornerLap[];
   reference_lap_id: number | null;
+  compare: CornerLap[] | null;
+  compare_lap_id: number | null;
+  compare_label: string | null;
 }
 
 export type WidgetId =

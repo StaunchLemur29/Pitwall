@@ -354,8 +354,11 @@ export async function stopDrill(): Promise<void> {
   await fetch("/api/drill", { method: "DELETE" });
 }
 
-export async function fetchCorners(lapId: number | null): Promise<CornerReport> {
-  return (await fetch(`/api/corners${lapId ? `?lap_id=${lapId}` : ""}`)).json();
+export async function fetchCorners(lapId: number | null, compareId?: number | null): Promise<CornerReport> {
+  const q = new URLSearchParams();
+  if (lapId) q.set("lap_id", String(lapId));
+  if (compareId) q.set("compare", String(compareId));
+  return (await fetch(`/api/corners?${q}`)).json();
 }
 
 export async function fetchTrace(lapId: number, hz = 10): Promise<Record<string, number[]> | null> {

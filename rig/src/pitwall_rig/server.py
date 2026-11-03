@@ -169,7 +169,10 @@ async def get_track(request: web.Request) -> web.Response:
 
 async def get_corners(request: web.Request) -> web.Response:
     lap_id = request.query.get("lap_id")
-    return web.json_response(request.app[RIG_KEY].corner_report(int(lap_id) if lap_id else None))
+    compare = request.query.get("compare")
+    return web.json_response(
+        request.app[RIG_KEY].corner_report(int(lap_id) if lap_id else None, int(compare) if compare else None)
+    )
 
 
 async def post_drill(request: web.Request) -> web.Response:

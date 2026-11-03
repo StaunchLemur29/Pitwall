@@ -169,3 +169,36 @@ def test_retry_run_up_follows_the_reference_lap(demo):
     trace["z"] = [m.line.z[m.index_at(q)] for q in trace["p"]]
     ts.set_reference(trace)
     assert abs(ts.lead_in_m(d, 4) - 200) < 3
+
+
+def test_compare_notes_name_the_biggest_differences():
+    from pitwall_rig.analysis import compare_notes
+
+    mine = {"min_speed_kmh": 92.0, "exit_kmh": 140.0, "brake_m": 120, "throttle_m": 40, "coast_s": 0.6, "apex_gear": 2}
+    best = {"min_speed_kmh": 101.0, "exit_kmh": 142.0, "brake_m": 100, "throttle_m": 15, "coast_s": 0.1, "apex_gear": 3}
+    notes = compare_notes(mine, best, "your best lap")
+    assert notes[0] == "9 km/h slower at the slowest point than your best lap."
+    assert "Braked 20 m earlier than your best lap." in notes
+    assert "Back to full throttle 25 m later than your best lap." in notes
+    assert any(n.startswith("Coasted 0.5 s longer") for n in notes)
+    assert not any("exit" in n for n in notes)  # 2 km/h is within the noise
+    assert compare_notes(mine, mine, "x") == []
+
+
+def test_corner_report_compares_with_the_best_lap(demo, clock, config, store):
+    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
+    for _ in range(60 * 60 * 4):
+        clock.advance(1 / 60)
+        rig.tick()
+        if len(store.valid_lap_ids("demo", rig.session.track_key, rig.session.car)) >= 3:
+            break
+    rep = rig.corner_report()
+    assert rep["compare_lap_id"] is not None and rep["compare_lap_id"] != rep["lap_id"]
+    assert rep["compare_label"]
+    row = rep["lap"][0]
+    assert "vs_s" in row and isinstance(row["notes"], list)
+    assert {"brake_m", "entry_kmh", "exit_kmh", "throttle_m", "peak_brake"} <= row.keys()
+    # Looking at the best lap itself compares with the next best.
+    best = rig.reference.lap_id
+    rep = rig.corner_report(best)
+    assert rep["compare_lap_id"] not in (None, best)

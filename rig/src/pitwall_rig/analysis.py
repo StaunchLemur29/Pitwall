@@ -84,8 +84,25 @@ def analyse_corner(view: LapView, model: TrackModel, c: Corner, lead_m: float = 
         elif b < 0.03:
             armed = True
 
+    # Speeds at the key moments, and where the throttle went back to full.
+    brake_i = view.at(brake_p) if brake_p is not None else None
+    exit_i = view.at(c.exit)
+    throttle_p = None
+    for i in view.range(tr["p"][vmin_i], min(0.99999, c.exit + 150 / length)):
+        if tr["gas"][i] >= 0.9:
+            throttle_p = tr["p"][i]
+            break
+    peak_brake = max((tr["brake"][i] for i in view.range(max(0.0, c.entry - lead), c.exit)), default=0.0)
+
     out: dict[str, Any] = {
         "corner": c.number,
+        # metres before the apex you started braking (None: didn't brake)
+        "brake_m": round((c.apex - brake_p) * length) if brake_p is not None else None,
+        "peak_brake": round(peak_brake, 2),
+        "entry_kmh": round(tr["speed"][brake_i if brake_i is not None else view.at(c.entry)], 1),
+        "exit_kmh": round(tr["speed"][exit_i], 1),
+        # metres after the apex you were back to full throttle (negative: before it)
+        "throttle_m": round((throttle_p - c.apex) * length) if throttle_p is not None else None,
         "time_s": round(exit_t - entry_t, 3),
         "min_speed_kmh": round(tr["speed"][vmin_i], 1),
         "min_speed_p": tr["p"][vmin_i],
@@ -116,6 +133,36 @@ def analyse_lap(trace: dict[str, list[float]], model: TrackModel) -> list[dict[s
     if not view or not model.corners:
         return []
     return [analyse_corner(view, model, c) for c in model.corners]
+
+
+def compare_notes(mine: dict[str, Any], other: dict[str, Any], label: str) -> list[str]:
+    """What you did differently from another lap through one corner, biggest
+    likely cause first, in plain words."""
+    notes: list[tuple[float, str]] = []  # (weight, text)
+    dv = mine["min_speed_kmh"] - other["min_speed_kmh"]
+    if abs(dv) >= 3:
+        notes.append((abs(dv) * 1.5, f"{abs(dv):.0f} km/h {'slower' if dv < 0 else 'faster'} at the slowest point than {label}."))
+    de = mine.get("exit_kmh", 0) - other.get("exit_kmh", 0)
+    if abs(de) >= 3 and mine.get("exit_kmh") is not None and other.get("exit_kmh") is not None:
+        notes.append((abs(de) * 1.2, f"{abs(de):.0f} km/h {'slower' if de < 0 else 'faster'} on the exit than {label}."))
+    mb, ob = mine.get("brake_m"), other.get("brake_m")
+    if mb is not None and ob is not None and abs(mb - ob) >= 8:
+        d = mb - ob
+        notes.append((abs(d) / 3, f"Braked {abs(d)} m {'earlier' if d > 0 else 'later'} than {label}."))
+    elif mb is not None and ob is None:
+        notes.append((5, f"You braked here; {label} didn't."))
+    elif mb is None and ob is not None:
+        notes.append((5, f"You didn't brake here; {label} did."))
+    mt, ot = mine.get("throttle_m"), other.get("throttle_m")
+    if mt is not None and ot is not None and abs(mt - ot) >= 10:
+        d = mt - ot
+        notes.append((abs(d) / 4, f"Back to full throttle {abs(d)} m {'later' if d > 0 else 'earlier'} than {label}."))
+    dc = mine.get("coast_s", 0) - other.get("coast_s", 0)
+    if dc >= 0.3:
+        notes.append((dc * 10, f"Coasted {dc:.1f} s longer than {label} (no brake, no throttle)."))
+    if mine.get("apex_gear") and other.get("apex_gear") and mine["apex_gear"] != other["apex_gear"]:
+        notes.append((2, f"Gear {mine['apex_gear']} at the apex; {label} used {other['apex_gear']}."))
+    return [t for _, t in sorted(notes, key=lambda n: -n[0])]
 
 
 # -- mastery across laps --------------------------------------------------------
