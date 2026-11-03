@@ -136,7 +136,7 @@ function General({ draft, edit }: EditProps) {
         />
       </Field>
       <h2>Vertical monitor</h2>
-      <Field label="Open the dashboard automatically" hint="Starts Edge/Chrome full-screen on the vertical monitor when the service starts.">
+      <Field label="Open the dashboard automatically" hint="Starts Chrome (or Edge) full-screen on the vertical monitor when the service starts.">
         <input
           type="checkbox"
           checked={draft.display.open_browser}
@@ -153,7 +153,7 @@ function General({ draft, edit }: EditProps) {
       </div>
       <Field label="Browser">
         <select value={draft.display.browser} onChange={(e) => edit((c) => (c.display.browser = e.target.value as Config["display"]["browser"]))}>
-          <option value="auto">Auto (Edge, then Chrome)</option>
+          <option value="auto">Auto (Chrome, then Edge)</option>
           <option value="edge">Edge</option>
           <option value="chrome">Chrome</option>
         </select>

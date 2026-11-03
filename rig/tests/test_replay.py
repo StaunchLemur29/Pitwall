@@ -34,3 +34,26 @@ def test_recording_survives_being_killed(tmp_path, demo, clock):
     # no rec.close(): simulate the process being killed
     rp = ReplayAdapter(path, clock=type(clock)(0.0))
     assert rp._duration > 3.0  # at least the flushed seconds are there
+
+
+def test_real_ac_recording_yields_a_valid_lap():
+    """One real lap of Spa from Assetto Corsa (RSS GT-M Mercer V8), recorded with Pitwall."""
+    from pathlib import Path
+
+    from pitwall_rig.laps import LapRecorder
+
+    path = Path(__file__).parent / "fixtures" / "ac_spa_one_lap.pwrec"
+    t = [0.0]
+    rp = ReplayAdapter(path, clock=lambda: t[0], loop=False)
+    laps = []
+    rec = LapRecorder(laps.append, wall_clock=lambda: t[0])
+    while t[0] < rp._duration + 2:
+        t[0] += 1 / 60
+        rec.feed(rp.poll(), rp.session())
+    # The clip starts 3 s before the line, so the first "lap" is a partial one.
+    assert [lap.lap_time_ms for lap in laps] == [149045, 148252]
+    assert laps[0].out_lap and not laps[0].valid
+    lap = laps[1]
+    assert lap.valid and not lap.out_lap
+    assert lap.track_key == "spa@2022"
+    assert len(lap.sector_ms) == 3 and sum(lap.sector_ms) == 148252

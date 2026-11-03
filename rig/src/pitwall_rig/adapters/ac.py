@@ -86,6 +86,15 @@ class WindowsSharedMemory:
         self.reset()
 
 
+def _player_name(first: str, last: str) -> str:
+    # Content Manager often puts the full name in both fields.
+    if not last or last in first:
+        return first
+    if first in last:
+        return last
+    return f"{first} {last}"
+
+
 def _parse(struct: type[C.Structure], data: bytes) -> C.Structure:
     need = C.sizeof(struct)
     if len(data) < need:
@@ -214,9 +223,7 @@ class AssettoCorsaAdapter(GameAdapter):
                     max_rpm=int(st.maxRpm),
                     max_fuel_l=float(st.maxFuel),
                     sector_count=int(st.sectorCount),
-                    player_name=" ".join(
-                        p for p in (decode_wstr(st.playerName), decode_wstr(st.playerSurname)) if p
-                    ),
+                    player_name=_player_name(decode_wstr(st.playerName), decode_wstr(st.playerSurname)),
                 )
         if self._static is not None:
             self._static.session_type = self._session_type

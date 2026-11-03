@@ -42,6 +42,7 @@ def _make_adapter(game: str, args: argparse.Namespace):
 
 
 def _open_browser(url: str, x: int, y: int, which: str) -> None:
+    local = Path(os.environ.get("LOCALAPPDATA", ""))
     candidates = {
         "edge": [
             shutil.which("msedge"),
@@ -53,9 +54,11 @@ def _open_browser(url: str, x: int, y: int, which: str) -> None:
             shutil.which("google-chrome"),
             shutil.which("chromium"),
             r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            str(local / "Google" / "Chrome" / "Application" / "chrome.exe"),  # per-user install
         ],
     }
-    order = ["edge", "chrome"] if which == "auto" else [which]
+    order = ["chrome", "edge"] if which == "auto" else [which]
     for name in order:
         for exe in candidates.get(name, []):
             if exe and Path(exe).exists():
@@ -71,7 +74,7 @@ def _open_browser(url: str, x: int, y: int, which: str) -> None:
                     ]
                 )
                 return
-    log.warning("Couldn't find Edge or Chrome; open %s on the vertical monitor yourself.", url)
+    log.warning("Couldn't find Chrome or Edge; open %s on the vertical monitor yourself.", url)
 
 
 def cmd_run(args: argparse.Namespace) -> None:
