@@ -63,12 +63,6 @@ def main() -> int:
         getCar = function () return car end,
         isCarResetAllowed = function () return true end,
         onCarJumped = function (i, fn) jumped[#jumped + 1] = fn end,
-        setABS = function (v) car.absMode = v end,
-        setTC = function (v) car.tractionControlMode = v end,
-        setBrakeBias = function (v) car.brakeBias = v end,
-        setMGUKDelivery = function (v) car.mgukDelivery = v end,
-        setMGUKRecovery = function (v) car.mgukRecovery = v end,
-        setEngineBrakeSetting = function (v) car.currentEngineBrakeSetting = v end,
       }
       vec2 = function (x, y) return { x = x, y = y } end
       rgbm = function (r, g, b, a) return { r = r, g = g, b = b, mult = a } end
@@ -226,13 +220,6 @@ def main() -> int:
           f"{g.car.splinePosition} vs {run_up}")
     http("DELETE", RIG + "/api/drill")
 
-    # Wheel buttons bound in Pitwall change the car's systems through the app.
-    for a in ("deploy_up", "deploy_up", "deploy_up", "deploy_up", "bb_forward", "abs_down", "engine_brake_down"):
-        http("POST", RIG + "/api/action/" + a)
-    tick(3)
-    check("deploy goes up and stops at the top mode", g.car.mgukDelivery == 3, str(g.car.mgukDelivery))
-    check("brake bias moves forward 0.5 %", abs(g.car.brakeBias - 0.575) < 1e-6, str(g.car.brakeBias))
-    check("ABS and engine braking step down", g.car.absMode == 2 and g.car.currentEngineBrakeSetting == 1)
     print("ALL PASS" if ok else "SOME CHECKS FAILED")
     return 0 if ok else 1
 

@@ -9,7 +9,7 @@ from typing import Any
 
 from .adapters.base import GameAdapter
 from .adapters.replay import Recorder
-from .config import ACTIONS, CAR_ACTIONS, Config
+from .config import ACTIONS, Config
 from . import car_profile
 from .csp import CspLink
 from .input import InputEvent
@@ -784,13 +784,6 @@ class Rig:
                 self.keys.up()
             return
         if not pressed:
-            return
-        if name in CAR_ACTIONS:
-            what, step = CAR_ACTIONS[name]
-            if self.csp.connected:
-                self.csp.send({"cmd": "adjust", "what": what, "step": step})
-            else:
-                self.emit({"type": "notice", "text": "Car settings from Pitwall need the in-game app running."})
             return
         if name == "mark_corner":
             s, f = self.session, self.frame

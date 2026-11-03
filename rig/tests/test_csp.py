@@ -77,16 +77,3 @@ def test_app_installs_and_updates(tmp_path):
     (dest / "Pitwall.lua").write_text("-- old version")
     assert install_app(root) == "updated"
 
-
-def test_car_system_buttons_go_through_the_app(demo, clock, config, store):
-    events = []
-    rig = Rig(demo, store, config, emit=events.append, clock=clock)
-    drive(rig, clock)
-    rig.action("deploy_up")  # app not running: say so instead of doing nothing silently
-    assert events[-1]["type"] == "notice"
-    rig.csp_sync({})
-    rig.action("deploy_up")
-    rig.action("bb_back")
-    rig.action("abs_down", pressed=False)  # releases do nothing
-    cmds = rig.csp_sync({})["commands"]
-    assert cmds == [{"cmd": "adjust", "what": "deploy", "step": 1}, {"cmd": "adjust", "what": "bb", "step": -1}]
