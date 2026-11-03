@@ -1,9 +1,9 @@
 import { delta, lapTime } from "../lib/format";
+import { stopDrill, useRig } from "../lib/rig";
+import { Card } from "./common";
 
 /** Section times read better as plain seconds under a minute: "10.62". */
 const secs = (ms: number) => (ms < 60000 ? (ms / 1000).toFixed(2) : lapTime(ms));
-import { stopDrill, useRig } from "../lib/rig";
-import { Card } from "./common";
 
 export function DrillCard() {
   const d = useRig((s) => s.live.track?.drill ?? null);

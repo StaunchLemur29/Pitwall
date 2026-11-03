@@ -1,9 +1,12 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { useRig } from "../lib/rig";
 import { indexAt, pathOf, ribbonPath, type P } from "../lib/track";
 import { Card, useSize } from "./common";
 
-const METRES_ACROSS = 170; // how much track fits across the widget
+// The view zooms so the next corner (plus a bit of its exit) is always on
+// screen: between MIN_AHEAD and MAX_AHEAD metres in front of the car.
+const MIN_AHEAD = 90;
+const MAX_AHEAD = 320;
 
 /**
  * Heading-up close-up of the road ahead: real track edges, your best lap's
@@ -15,6 +18,7 @@ export function TurnByTurn() {
   const f = useRig((s) => s.live.frame);
   const ref = useRig((s) => s.refTrace);
   const [box, { w, h }] = useSize<HTMLDivElement>();
+  const ahead = useRef(150);
 
   // World-space paths are built once per track; only the transform moves.
   const paths = useMemo(() => {
@@ -42,9 +46,12 @@ export function TurnByTurn() {
   const live = !!tl && !!f?.world && f.status !== "off";
   const car: P = live ? [f!.world![0], f!.world![2]] : (g.center[0] as P);
   const heading = live ? tl!.heading : 0;
-  const scale = w > 0 ? w / METRES_ACROSS : 1;
   const cx = w / 2;
   const cy = h * 0.8;
+  const c0 = tl?.corner;
+  const want = c0 ? Math.min(MAX_AHEAD, Math.max(MIN_AHEAD, c0.distance_m + 90)) : 150;
+  ahead.current += (want - ahead.current) * 0.08; // ease, so zoom changes aren't jarring
+  const scale = h > 0 ? (cy - 24) / ahead.current : 1;
   const rot = -90 - heading;
   const transform = `translate(${cx},${cy}) rotate(${rot}) scale(${scale}) translate(${-car[0]},${-car[1]})`;
   const rad = (rot * Math.PI) / 180;
