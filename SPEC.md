@@ -115,7 +115,9 @@ The dashboard switches mode automatically from game state:
 Examples: lock-ups → BB/ABS advice; exit wheelspin → TC/throttle advice; braking earlier than reference; coasting; stepped brake release; throttle hesitation; not using track width; wrong gear; lifting instead of light braking; not adjusting BB/TC as fuel/tyres change.
 
 ### Blind-spot scan
-Runs silently over the first sessions. Only surfaces fundamentals the telemetry shows being missed; each becomes a 2-min lesson + drill. Complemented by a one-off ~5-min **knowledge quiz** (on the Mac) for things telemetry can't reveal (flags, pressures, ABS/TC theory, track limits).
+Order: **telemetry scan first, then the quiz.**
+1. **Scan** — runs silently over the first sessions. Only surfaces fundamentals the telemetry shows being missed; each becomes a 2-min lesson + drill.
+2. **Quiz** — offered once the scan has enough data: a one-off ~5-min **knowledge quiz** (on the Mac) for things telemetry can't reveal (flags, pressures, ABS/TC theory, track limits). It skips topics the scan already shows you handle, so it stays short.
 
 ### AI debrief (Claude)
 Post-session race-engineer debrief: explains *why*, answers follow-up questions, teaches theory in context. Also generates the **AI "time to beat"**: a realistic per-corner stretch target based on consistency and where time is lost.
@@ -213,6 +215,7 @@ Standalone tools, recommended during onboarding:
 1. FOV calculator (monitor size/aspect/distance → FOV, seat/camera position)
 2. Wheel/FFB: Thrustmaster Control Panel, AC FFB, CSP FFB tweaks; per-car steering lock & FFB
 3. Controls: deadzones, curves, brake gamma, SF1000 bindings
+   - Hardware walkthroughs per wheel rim / wheelbase / pedal set (e.g. Thrustmaster TS-PC + SF1000), recommended in-game and driver settings
 4. Assists & realism (in guides)
 5. Graphics/performance (CSP + Pure)
 
@@ -225,6 +228,17 @@ Reads AC `cfg/*.ini`; writes only after one-click confirm, with automatic backup
 - **Music**: now playing + play/pause/skip via Windows media session (Spotify, Apple Music) and wheel buttons.
 - **Session timer**: compact — race time/laps remaining when relevant, rig-session timer, optional break reminder.
 - **Discord** (low priority): Rich Presence status ("Nordschleife · 911 GT3 · PB 7:12.4 · learning Fuchsröhre") via local IPC.
+- **Car systems & hardware** (from docs/research/car-and-hardware.md):
+  - done: car systems strip (DRS, battery, deploy, engine brake), battery & DRS along the lap in analysis ("ran out of battery", "DRS available but not opened"), car systems on wheel buttons / encoders via the app, per-car profile of which systems a car has (used by the UI now, by coaching later)
+  - FFB clipping meter from AC's `finalFF` (per lap, per car, with a gain suggestion) for the TS-PC
+  - T-LCM pedal check: peak brake per stop vs 100 %, consistency, release smoothness; calibration advice
+- **SF1000 wheel screen** (big feature): Pitwall drives the SF1000's built-in display with its own data, so key info sits on the wheel in your eyeline.
+  - Two possible routes:
+    - **USB ("Native" mode)**: the wheel's screen and LEDs are driven through the wheelbase's USB link (Wi-Fi off). Games with Thrustmaster's SDK built in use this, and Thrustmaster's "SDK Test" PC app drives the screen this way, so a PC-side library exists. Preferred if it's usable by other apps (no Wi-Fi, no re-enabling after power-up), but no public documentation was found: research spike needed.
+    - **Wi-Fi UDP** (known to work, fallback): in the F1 games' telemetry format (port 20777; F1 2020 or F1 23 format, chosen by firmware). Pitwall sends those packets itself, filling the fields with Pitwall data. Prior art: the community SimHub SF1000 UDP plugin feeds AC this way. On firmware v5 and older, UDP mode has to be switched on at the wheel after every power-up.
+  - What to show (configurable, no code): gear/speed/RPM lights as normal, plus Pitwall's own: live delta to your reference, brake-in countdown and next corner grade, drill timer/target and pass streak, lap/sector times vs best, ABS/TC/BB once the CSP app reports real levels, flags/pit limiter.
+  - Constraint: the wheel's screen layouts are Thrustmaster's F1 pages, so "custom" means choosing which F1 field carries which Pitwall value (e.g. the delta field, lap times, ERS/DRS bars repurposed). First step is a research spike: map every field each SF1000 page actually displays, then design pages around that.
+  - Settings tool: wheel IP, format (F1 2020 / F1 23), what goes on each page, a "test pattern" button.
 - **Home Assistant** (very last): flags, shift light, pit lane, PB flash via HA WebSocket API; each toggleable.
 
 ---
@@ -248,15 +262,22 @@ Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
 | 5 Car learning | Profiles, shakedown, transfer tips |
 | 6 Racecraft | Lessons, pre-race briefing, incident review, AI scenario drills |
 | 7 Settings tools | FOV, FFB, controls, graphics; more track packs |
-| 8 Extras | Discord RP, EVO + BeamNG adapters, iRacing + Garage61, Home Assistant, polished README + demo GIF, public repo |
+| 8 Extras | SF1000 wheel screen (UDP), Discord RP, EVO + BeamNG adapters, iRacing + Garage61, Home Assistant, polished README + demo GIF, public repo |
 
 ---
+
+## 15b. Notes for later
+
+- **In-game CSP Lua app** (v0.1 built: `csp/Pitwall`, installed by start.bat; next corner + brake countdown overlay, instant drill retry via saved car state, real ABS/TC/BB. Still to do: in-game drill timer, coaching tips in game). Original plan: zero-latency overlays (brake countdown, next corner, drill), real ABS/TC levels (`car.absMode`, `car.tractionControlMode`), its own rewind using `ac.saveCarStateAsync` / `ac.loadCarState` (same approach as Time Shift), talking to the rig over `web.get/post`.
+- A deeper AC/CSP **mod** is also an option if an app can't do something.
+- Second-screen smoothness depends on GPU headroom: capping AC's frame rate leaves room for Chrome.
 
 ## 16. Open items
 
 - **Rewind mod**: name and whether it can be triggered from a CSP Lua app / externally. Affects only phase 1 retry implementation; teleport is the fallback.
 - **AC EVO fields**: confirm BB/ABS/TC levels and tyre pressures exist before building EVO electronics features.
 - **TTS voice**: audition 2–3 voices.
+- **SF1000 screen**: whether Thrustmaster's SDK (USB/Native mode) can be used by a third-party app; which F1-format fields each wheel page shows, the user's firmware version, and whether the screen accepts a second sender alongside a game's own output. Could move earlier than phase 8 if wanted, since it's independent of the rest.
 
 - **GitHub Student Developer Pack** perks to check and use (offers change; verify at education.github.com/pack): free domain for the hosted hub, Azure for Students credit (Azure neural TTS as a voice candidate), Sentry for error tracking, Copilot, cloud credits as a fallback host.
 
