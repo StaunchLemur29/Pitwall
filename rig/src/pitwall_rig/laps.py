@@ -30,6 +30,7 @@ class _LapBuffer:
     started_at: float
     started_in_pit: bool
     first_progress: float
+    first_lap_time_ms: int
     trace: dict[str, list[float]] = field(default_factory=lambda: {c: [] for c in TRACE_CHANNELS})
     sector_ms: list[int] = field(default_factory=list)
     last_sector: int = 0
@@ -122,6 +123,7 @@ class LapRecorder:
                 started_at=self._wall(),
                 started_in_pit=frame.in_pit_box or frame.in_pit_lane,
                 first_progress=frame.lap_progress,
+                first_lap_time_ms=frame.lap_time_ms,
                 last_sector=frame.sector,
                 last_lap_ms_at_start=frame.last_lap_ms,
             )
@@ -147,7 +149,8 @@ class LapRecorder:
         if sectors:
             sectors.append(lap_ms - sum(sectors))
         # Joined partway round (e.g. the rig service started mid-lap) or from the pits.
-        partial = 0.05 < buf.first_progress < 0.95
+        # The lap clock was already running when we started recording it.
+        partial = buf.first_lap_time_ms > 5000
         out_lap = buf.started_in_pit or partial
         lap = Lap(
             game=self._session.game,

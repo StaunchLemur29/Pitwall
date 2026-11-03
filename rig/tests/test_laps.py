@@ -21,7 +21,7 @@ def drive(rec, start_lap=0, laps=1, lap_s=60.0, hz=60, t0=0.0, start_progress=0.
                     status=GameStatus.LIVE,
                     packet_id=packet,
                     lap=lap,
-                    lap_time_ms=int(i / hz * 1000),
+                    lap_time_ms=int(prog * lap_s * 1000),
                     last_lap_ms=last_ms,
                     lap_progress=prog,
                     sector=min(2, int(prog * 3)),
