@@ -85,14 +85,17 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     game = args.game or config["game"]
     adapter = _make_adapter(game, args)
-    store = Store(data_dir / ("demo.sqlite" if game == "demo" else "pitwall.sqlite"))
+    store_path = data_dir / ("demo.sqlite" if game == "demo" else "pitwall.sqlite")
+    store = Store(store_path)
 
     recorder = None
     if args.record:
         from .adapters.replay import Recorder
 
-        recorder = Recorder(args.record, adapter.game_id, adapter.capabilities)
-        log.info("Recording telemetry to %s", args.record)
+        rec_path = Path(args.record).expanduser().resolve()
+        rec_path.parent.mkdir(parents=True, exist_ok=True)
+        recorder = Recorder(rec_path, adapter.game_id, adapter.capabilities)
+        log.info("Recording telemetry to %s", rec_path)
 
     hub = Hub()
     rig = Rig(adapter, store, config, emit=hub.emit, recorder=recorder)
@@ -128,7 +131,8 @@ def cmd_run(args: argparse.Namespace) -> None:
     host = "0.0.0.0" if args.lan else config["server"]["host"]
     port = args.port or config["server"]["port"]
     url = f"http://localhost:{port}/"
-    log.info("Pitwall (%s) on %s  — data in %s", game, url, data_dir)
+    log.info("Pitwall (%s) on %s", game, url)
+    log.info("Laps are saved to %s", store_path)
     if args.open or config["display"]["open_browser"]:
         d = config["display"]
         _open_browser(url, d["window_x"], d["window_y"], d["browser"])

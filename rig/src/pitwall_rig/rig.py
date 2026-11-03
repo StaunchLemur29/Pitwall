@@ -60,6 +60,10 @@ class Rig:
 
         if self._session_changed(session):
             self.session = session
+            if session is not None:
+                log.info("Session: %s on %s (%s)", session.car, session.track_key, session.session_type.value)
+            else:
+                log.info("No session (game closed or in menus)")
             self._load_reference()
             self.emit({"type": "session", "session": session.to_dict() if session else None})
 

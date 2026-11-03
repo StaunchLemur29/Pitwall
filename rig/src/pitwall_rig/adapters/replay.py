@@ -11,7 +11,8 @@ from __future__ import annotations
 import gzip
 import json
 import time
-from collections.abc import Callable
+import zlib
+from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from pathlib import Path
 from typing import IO, Any
@@ -24,16 +25,37 @@ VERSION = 1
 
 
 class Recorder:
-    def __init__(self, path: Path | str, game: str, capabilities: Capabilities) -> None:
-        self._f: IO[str] = gzip.open(path, "wt", encoding="utf-8")
+    """Writes a recording, flushing to disk every second.
+
+    The flush matters: if the window is closed instead of stopped with Ctrl+C,
+    everything up to the last flush is still readable.
+    """
+
+    def __init__(
+        self,
+        path: Path | str,
+        game: str,
+        capabilities: Capabilities,
+        flush_every_s: float = 1.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._f = gzip.open(path, "wb")
+        self._clock = clock
+        self._flush_every = flush_every_s
+        self._flushed_at = clock()
         self._t0: float | None = None
         self._last_session: dict[str, Any] | None = None
         self._write(
             {"format": FORMAT, "version": VERSION, "game": game, "capabilities": asdict(capabilities)}
         )
+        self.flush()
 
     def _write(self, obj: dict[str, Any]) -> None:
-        self._f.write(json.dumps(obj, separators=(",", ":")) + "\n")
+        self._f.write((json.dumps(obj, separators=(",", ":")) + "\n").encode("utf-8"))
+
+    def flush(self) -> None:
+        self._f.flush(zlib.Z_SYNC_FLUSH)
+        self._flushed_at = self._clock()
 
     def add(self, frame: Frame, session: SessionInfo | None) -> None:
         if self._t0 is None:
@@ -47,9 +69,24 @@ class Recorder:
         d = frame.to_wire()
         d["t"] = round(frame.t - self._t0, 4)
         self._write({"frame": d})
+        if self._clock() - self._flushed_at >= self._flush_every:
+            self.flush()
 
     def close(self) -> None:
-        self._f.close()
+        if not self._f.closed:
+            self._f.close()
+
+
+def _lines(f: IO[str]) -> Iterator[dict[str, Any]]:
+    """JSON lines, stopping quietly at a cut-off end (recording not closed cleanly)."""
+    try:
+        for line in f:
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                return
+    except (EOFError, gzip.BadGzipFile, zlib.error):
+        return
 
 
 def _frame_from(d: dict[str, Any], t: float) -> Frame:
@@ -93,8 +130,7 @@ class ReplayAdapter(GameAdapter):
                 **{k: v for k, v in caps.items() if k in Capabilities.__dataclass_fields__}
             )
             current_session: SessionInfo | None = None
-            for line in f:
-                obj = json.loads(line)
+            for obj in _lines(f):
                 if "session" in obj:
                     current_session = _session_from(obj["session"])
                 elif "frame" in obj:
