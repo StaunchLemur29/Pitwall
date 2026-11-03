@@ -280,6 +280,8 @@ class LagStats {
 }
 
 export const lag = new LagStats();
+// lets the performance capture read recent data ages
+(window as unknown as { __pitwallLagAges?: () => number[] }).__pitwallLagAges = () => lag.ages.slice(-60);
 
 /** Counters for the performance part of the lag meter. */
 export const perf = { storeUpdates: 0, renders: 0 };

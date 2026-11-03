@@ -212,6 +212,47 @@ async def shutdown(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def post_perf_report(request: web.Request) -> web.Response:
+    """Save a performance capture from the dashboard, plus the rig's own timings."""
+    import platform
+    import statistics
+    import time as _time
+
+    from .config import default_data_dir
+
+    rig = request.app[RIG_KEY]
+    body = await request.json()
+    ticks = list(rig.tick_ms)
+    gaps = list(request.app[LOOP_GAPS_KEY])
+    rig_side = {
+        "python": platform.python_version(),
+        "os": platform.platform(),
+        "cpu": platform.processor(),
+        "tick_ms": _summ(ticks),
+        "loop_gap_ms": _summ(gaps),
+        "tick_hz": rig.tick_hz,
+        "game_hz": rig.game_hz,
+        "config_rates": rig.config["rates"],
+        "track": rig.track.model.track_key if rig.track else None,
+        "track_points": len(rig.track.model.line) if rig.track else None,
+    }
+    _ = statistics
+    folder = default_data_dir() / "perf"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"perf-{_time.strftime('%Y%m%d-%H%M%S')}.json"
+    path.write_text(json.dumps({"dashboard": body, "rig": rig_side}, indent=1), encoding="utf-8")
+    return web.json_response({"ok": True, "path": str(path)})
+
+
+def _summ(xs: list[float]) -> dict[str, float] | None:
+    if not xs:
+        return None
+    s = sorted(xs)
+    pick = lambda q: round(s[min(len(s) - 1, int(q * len(s)))], 2)  # noqa: E731
+    return {"n": len(s), "avg": round(sum(s) / len(s), 2), "p50": pick(0.5), "p95": pick(0.95), "p99": pick(0.99),
+            "max": round(s[-1], 2)}
+
+
 async def get_monitors(request: web.Request) -> web.Response:
     from .monitors import list_monitors, pick_dashboard_monitor
 
@@ -236,6 +277,7 @@ async def get_devices(request: web.Request) -> web.Response:
 ON_CONFIG_KEY: web.AppKey[Any] = web.AppKey("on_config")
 INPUT_KEY: web.AppKey[Any] = web.AppKey("input")
 TASK_KEY: web.AppKey[Any] = web.AppKey("rig_task")
+LOOP_GAPS_KEY: web.AppKey[Any] = web.AppKey("loop_gaps")
 
 
 # -- app --------------------------------------------------------------------
@@ -245,7 +287,12 @@ async def _rig_loop(app: web.Application) -> None:
     rig, hub = app[RIG_KEY], app[HUB_KEY]
     loop = asyncio.get_running_loop()
     next_poll = next_send = loop.time()
+    gaps = app[LOOP_GAPS_KEY]
+    last = loop.time()
     while True:
+        t = loop.time()
+        gaps.append((t - last) * 1000)
+        last = t
         poll_dt = 1.0 / rig.config["rates"]["poll_hz"]
         send_dt = 1.0 / rig.config["rates"]["broadcast_hz"]
         now = loop.time()
@@ -278,6 +325,9 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app = web.Application()
     app[RIG_KEY] = rig
     app[HUB_KEY] = hub
+    from collections import deque
+
+    app[LOOP_GAPS_KEY] = deque(maxlen=3000)  # ms between rig loop iterations
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/api/config", get_config)
     app.router.add_put("/api/config", put_config)
@@ -292,6 +342,7 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_get("/api/monitors", get_monitors)
     app.router.add_post("/api/window/{which}/{op}", window_op)
     app.router.add_post("/api/shutdown", shutdown)
+    app.router.add_post("/api/perf-report", post_perf_report)
     app.router.add_get("/api/track", get_track)
     app.router.add_get("/api/corners", get_corners)
     app.router.add_post("/api/drill", post_drill)

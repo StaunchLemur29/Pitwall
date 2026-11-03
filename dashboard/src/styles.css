@@ -1024,7 +1024,8 @@ select {
   min-height: 0;
 }
 
-.tbt svg {
+.tbt svg,
+.tbt canvas {
   position: absolute;
   inset: 0;
 }
@@ -1677,5 +1678,34 @@ select {
 .psec__sub {
   color: var(--muted);
   font-size: 13px;
+  padding: 0 4px;
+}
+
+.lagm__rec {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.lagm__cap {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--warn);
+  word-break: break-all;
+  max-width: 300px;
+}
+
+.wkey {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  padding: 4px 6px 8px;
+}
+
+.wkey__m {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--bg);
+  background: var(--text);
+  border-radius: 4px;
   padding: 0 4px;
 }

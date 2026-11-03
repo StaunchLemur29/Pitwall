@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { capturePerformance } from "../lib/perfcapture";
 import { lag, perf } from "../lib/rig";
 
 /**
@@ -14,6 +15,7 @@ export function LagMeter() {
     }
   });
   const [, force] = useState(0);
+  const [cap, setCap] = useState<string>("");
   const fps = useRef({ n: 0, t0: performance.now(), value: 0, worst: 0, worstShown: 0, last: performance.now(), renders: 0, updates: 0 });
 
   useEffect(() => {
@@ -75,6 +77,18 @@ export function LagMeter() {
       <Row label="Screen fps" value={`${fps.current.value.toFixed(0)}`} tone={low(fps.current.value, 50, 30)} />
       <Row label="Slowest frame" value={`${fps.current.worstShown.toFixed(0)} ms`} tone={bad(fps.current.worstShown, 25, 50)} />
       <Row label="Dashboard updates/s" value={`${fps.current.updates.toFixed(0)}`} tone={bad(fps.current.updates, 25, 45)} />
+      <button
+        className="btn btn--sm lagm__rec"
+        disabled={cap.startsWith("Recording")}
+        onClick={async () => {
+          setCap("Recording… 45 s — go drive");
+          const r = await capturePerformance(45, (left) => setCap(`Recording… ${left} s — keep driving`));
+          setCap(r.ok ? `Saved: ${r.path}` : `Couldn't save: ${r.error}`);
+        }}
+      >
+        Record performance (45 s)
+      </button>
+      {cap && <div className="lagm__cap">{cap}</div>}
       <div className="lagm__hint">
         If fps is low but redraws are low too, check Chrome's graphics acceleration: open a normal Chrome tab at
         chrome://gpu — “Canvas” and “Compositing” should say “Hardware accelerated”.

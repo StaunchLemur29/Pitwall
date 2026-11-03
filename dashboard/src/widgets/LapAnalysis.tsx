@@ -134,6 +134,12 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
               <div className="chapters__title">Sections</div>
             </div>
           )}
+          <div className="wkey">
+            <b>How to read the strips:</b> each corner has a bar from the <b>L</b>eft edge of the track to the{" "}
+            <b>R</b>ight edge. <span className="wkey__m">E</span> = where you turned in,{" "}
+            <span className="wkey__m">A</span> = apex, <span className="wkey__m">X</span> = exit. The green end is the
+            inside of the corner — a classic line goes outside → inside → outside.
+          </div>
           {(report?.practice?.length ? report.practice : g.practice).map((ps) => {
             const d = ps.time_s != null && ps.ref_s != null ? ps.time_s - ps.ref_s : null;
             return (
@@ -179,6 +185,7 @@ function WidthUse({ c, r }: { c: "L" | "R"; r: CornerLap }) {
     ["A", r.apex_frac],
     ["X", r.exit_frac],
   ];
+  const title: Record<string, string> = { E: "turn-in", A: "apex", X: "exit" };
   return (
     <div className="wuse" title="Where you were across the track: E = turn-in, A = apex, X = exit">
       <span className="wuse__side">L</span>
@@ -186,7 +193,7 @@ function WidthUse({ c, r }: { c: "L" | "R"; r: CornerLap }) {
         <div className={`wuse__inside wuse__inside--${c}`} />
         {marks.map(([k, f]) =>
           f === undefined ? null : (
-            <span key={k} className="wuse__mark" style={{ left: `${Math.max(0, Math.min(1, f)) * 100}%` }}>
+            <span key={k} className="wuse__mark" title={title[k]} style={{ left: `${Math.max(0, Math.min(1, f)) * 100}%` }}>
               {k}
             </span>
           ),

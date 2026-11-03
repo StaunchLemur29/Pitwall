@@ -66,6 +66,9 @@ class Rig:
         self._last_packet = -1
         self.tick_hz = 0.0
         self.game_hz = 0.0
+        from collections import deque
+
+        self.tick_ms: deque[float] = deque(maxlen=3000)  # how long each tick took
         self.track: TrackState | None = None
         self.track_live: dict[str, Any] | None = None
         self.laps = LapRecorder(self._on_lap, max_tyres_out=config["laps"]["max_tyres_out"])
@@ -73,6 +76,13 @@ class Rig:
     # -- main loop ----------------------------------------------------------
 
     def tick(self) -> None:
+        t_start = time.perf_counter()
+        try:
+            self._tick()
+        finally:
+            self.tick_ms.append((time.perf_counter() - t_start) * 1000)
+
+    def _tick(self) -> None:
         now = self._clock()
         frame = self.adapter.poll()
         session = self.adapter.session() if frame is not None else None
