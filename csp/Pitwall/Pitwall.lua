@@ -203,9 +203,9 @@ end
 settings = settings or { showTurn = true, showTurnName = true, showBrake = true, showFromM = 250 }
 local preview = false -- settings: sample content, to position the window
 
-local WHITE = rgbm(0.96, 0.97, 0.98, 1)
+local WHITE = rgbm(0.933, 0.941, 0.953, 1) -- dashboard --text
 local DIM = rgbm(0.62, 0.66, 0.71, 1)
-local RED = rgbm(1, 0.27, 0.23, 1)
+local RED = rgbm(1, 0.322, 0.322, 1) -- dashboard --bad
 local PANEL = rgbm(0.03, 0.035, 0.045, 0.72)
 local alpha = 0
 local held = { c = nil, b = nil } -- last thing shown, kept while fading out
@@ -213,36 +213,27 @@ local cueUntil = 0 -- BRAKE flash
 
 local function fade(c, a) return rgbm(c.r, c.g, c.b, c.mult * a) end
 
-local function ordinal(n)
-  local suffix = ({ 'st', 'nd', 'rd' })[n] or 'th'
-  return n .. suffix
+
+-- Looks like the dashboard: its card colours, its font (Inter, bundled in
+-- ./fonts) and its exact turn arrows (rendered from the dashboard to ./icons,
+-- one per direction and severity: tighter bends for sharper corners).
+local FONT_MEDIUM = 'Inter:./fonts;Weight=Medium'
+local FONT_BOLD = 'Inter:./fonts;Weight=Bold'
+local FONT_HEAVY = 'Inter:./fonts;Weight=ExtraBold'
+local CARD = rgbm(0.055, 0.067, 0.082, 0.86)
+local EDGE = rgbm(0.12, 0.145, 0.173, 1)
+local TRACK = rgbm(0.114, 0.137, 0.169, 1)
+local MUTED = rgbm(0.545, 0.58, 0.63, 1)
+
+local function icon(dir, grade)
+  return string.format('icons/turn_%s%d.png', dir == 'L' and 'L' or 'R', math.max(1, math.min(6, grade or 4)))
 end
 
--- The turn as a picture: a bent arrow, tighter for sharper corners (same as the
--- dashboard's). Drawn in a size x size box with its top-left at (x, y).
-local BENDS = { [1] = 170, [2] = 135, [3] = 105, [4] = 75, [5] = 50, [6] = 30 }
-local function drawTurn(x, y, size, dir, grade, colour)
-  local k = size / 100
-  local function P(px, py) return vec2(x + px * k, y + py * k) end
-  local bend = math.rad(BENDS[grade] or 60)
-  local s = dir == 'R' and 1 or -1
-  local r = grade <= 2 and 16 or 24
-  local cy = 58
-  local cx = 50 + s * r
-  local ex, ey = cx - s * r * math.cos(bend), cy - r * math.sin(bend)
-  -- stem, then the arc round the corner
-  ui.pathLineTo(P(50, 96))
-  ui.pathLineTo(P(50, cy))
-  if s > 0 then
-    ui.pathArcTo(P(cx, cy), r * k, math.pi, math.pi + bend, 24)
-  else
-    ui.pathArcTo(P(cx, cy), r * k, 0, -bend, 24)
-  end
-  ui.pathStroke(colour, false, 9 * k)
-  -- arrow head
-  local tx, ty = s * math.sin(bend), -math.cos(bend)
-  local nx, ny = -ty, tx
-  ui.drawTriangleFilled(P(ex + tx * 17, ey + ty * 17), P(ex + nx * 12, ey + ny * 12), P(ex - nx * 12, ey - ny * 12), colour)
+local function text(str, font, size, x, y, w, h, align, colour)
+  ui.pushDWriteFont(font)
+  ui.setCursor(vec2(x, y))
+  ui.dwriteTextAligned(str, size, align, ui.Alignment.Center, vec2(w, h), false, colour)
+  ui.popDWriteFont()
 end
 
 function script.windowMain(dt)
@@ -250,7 +241,7 @@ function script.windowMain(dt)
   local now = os.preciseClock()
   local show, c, b = false, nil, nil
   if preview then
-    show, c, b = true, { dir = 'R', grade = 2, label = 'Chicane 1', gear = 2 }, 112
+    show, c, b = true, { dir = 'R', grade = 2, label = 'Chicane 1', gear = 2 }, 160
   elseif connected and track then
     local p = car.splinePosition
     local cc, dist = nextCorner(p)
@@ -267,47 +258,45 @@ function script.windowMain(dt)
   if alpha <= 0 or not held.c or not (settings.showBrake or settings.showTurn) then return end
   c, b = held.c, held.b
 
-  local PW = 200
+  -- card
+  local PW, PAD = 200, 16
   local x0 = (W - PW) / 2
-  local ICON = 76
-  local turnH = settings.showTurn and (ICON + 36 + (settings.showTurnName and 18 or 0)) or 0
-  local brakeH = settings.showBrake and 28 or 0
-  ui.drawRectFilled(vec2(x0, 2), vec2(x0 + PW, 2 + turnH + brakeH + 12), fade(PANEL, alpha), 8)
-  local y = 8
+  local turnH = settings.showTurn and (75 + (settings.showTurnName and 22 or 0)) or 0
+  local brakeH = settings.showBrake and (settings.showTurn and 34 or 26) or 0
+  local H = 14 + turnH + brakeH + 12
+  ui.drawRectFilled(vec2(x0, 1), vec2(x0 + PW, 1 + H), fade(CARD, alpha), 8)
+  ui.drawRect(vec2(x0, 1), vec2(x0 + PW, 1 + H), fade(EDGE, alpha), 8)
+  local y = 15
 
   if settings.showTurn then
-    drawTurn((W - ICON) / 2, y, ICON, c.dir, c.grade, fade(WHITE, alpha))
-    y = y + ICON + 2
-    if c.gear then
-      ui.setCursor(vec2(x0, y))
-      ui.pushDWriteFont('@System;Weight=Bold')
-      ui.dwriteTextAligned(tostring(c.gear), 32, ui.Alignment.Center, ui.Alignment.Center, vec2(PW, 34), false,
-        fade(WHITE, alpha))
-      ui.popDWriteFont()
-    end
-    y = y + 34
+    -- arrow, gear beside it, centred as a pair
+    local IW, IH = 84, 75
+    ui.pushDWriteFont(FONT_HEAVY)
+    local gw = c.gear and ui.measureDWriteText(tostring(c.gear), 54).x or 0
+    ui.popDWriteFont()
+    local gx = (W - (IW + (c.gear and 14 + gw or 0))) / 2
+    ui.drawImage(icon(c.dir, c.grade), vec2(gx, y), vec2(gx + IW, y + IH), fade(WHITE, alpha))
+    if c.gear then text(tostring(c.gear), FONT_HEAVY, 54, gx + IW + 14, y, gw + 4, IH, ui.Alignment.Start, fade(WHITE, alpha)) end
+    y = y + IH
     if settings.showTurnName then
-      ui.setCursor(vec2(x0, y - 2))
-      ui.dwriteTextAligned(c.label, 13, ui.Alignment.Center, ui.Alignment.Center, vec2(PW, 18), false, fade(DIM, alpha))
-      y = y + 18
+      text(string.upper(c.label), FONT_BOLD, 12, x0, y + 2, PW, 18, ui.Alignment.Center, fade(MUTED, alpha))
+      y = y + 22
     end
+    y = y + 8
   end
 
   if settings.showBrake and b then
     if now < cueUntil or b <= 0 then
-      ui.setCursor(vec2(x0, y))
-      ui.pushDWriteFont('@System;Weight=Bold')
-      ui.dwriteTextAligned('BRAKE', 22, ui.Alignment.Center, ui.Alignment.Center, vec2(PW, 26), false, fade(RED, alpha))
-      ui.popDWriteFont()
+      text('BRAKE', FONT_HEAVY, 24, x0, y, PW, 26, ui.Alignment.Center, fade(RED, alpha))
     else
       local close = b < 100
+      local accent = close and RED or WHITE
       local frac = math.max(0, math.min(1, 1 - b / settings.showFromM))
-      local bx0, bx1 = x0 + 16, x0 + PW - 52
-      ui.drawRectFilled(vec2(bx0, y + 11), vec2(bx1, y + 16), fade(rgbm(1, 1, 1, 0.14), alpha), 3)
-      ui.drawRectFilled(vec2(bx0, y + 11), vec2(bx0 + (bx1 - bx0) * frac, y + 16), fade(close and RED or WHITE, alpha), 3)
-      ui.setCursor(vec2(bx1 + 4, y + 2))
-      ui.dwriteTextAligned(string.format('%d', math.floor(b + 0.5)), 14, ui.Alignment.End, ui.Alignment.Center,
-        vec2(PW - (bx1 - x0) - 16, 22), false, fade(close and RED or DIM, alpha))
+      local bx0, bx1 = x0 + PAD, x0 + PW - PAD - 42
+      ui.drawRectFilled(vec2(bx0, y + 10), vec2(bx1, y + 16), fade(TRACK, alpha), 3)
+      ui.drawRectFilled(vec2(bx0, y + 10), vec2(bx0 + (bx1 - bx0) * frac, y + 16), fade(accent, alpha), 3)
+      text(string.format('%d', math.floor(b + 0.5)), FONT_BOLD, 15, bx1, y, 42, 26, ui.Alignment.End,
+        fade(close and RED or MUTED, alpha))
     end
   end
 end

@@ -108,7 +108,9 @@ def main() -> int:
     ui.setCursor = lambda *a: None
     ui.pathLineTo = lambda *a: None
     ui.pathArcTo = lambda *a: None
-    ui.pathStroke = lambda *a: state["texts"].append("<arrow>")
+    ui.pathStroke = lambda *a: None
+    ui.drawImage = lambda path, *a: state["texts"].append("<arrow>") if str(path).startswith("icons/turn_") else None
+    ui.drawRect = lambda *a: None
     ui.drawTriangleFilled = lambda *a: None
     ui.textWrapped = lambda *a: None
     g.ui = ui

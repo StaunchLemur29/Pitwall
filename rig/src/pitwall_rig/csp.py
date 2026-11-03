@@ -90,10 +90,11 @@ def install_app(ac_root: Path, source: Path = APP_SOURCE) -> str:
     existed = dest.is_dir()
     changed = False
     dest.mkdir(parents=True, exist_ok=True)
-    for f in source.iterdir():
+    for f in sorted(source.rglob("*")):  # includes icons/ and fonts/
         if not f.is_file():
             continue
-        target = dest / f.name
+        target = dest / f.relative_to(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
         data = f.read_bytes()
         if not target.exists() or target.read_bytes() != data:
             target.write_bytes(data)

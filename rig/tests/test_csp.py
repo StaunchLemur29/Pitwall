@@ -72,6 +72,7 @@ def test_app_installs_and_updates(tmp_path):
     assert install_app(root) == "installed"
     dest = root / "apps" / "lua" / "Pitwall"
     assert (dest / "Pitwall.lua").read_bytes() == (APP_SOURCE / "Pitwall.lua").read_bytes()
+    assert (dest / "icons" / "turn_L1.png").exists() and (dest / "fonts" / "Inter-Bold.ttf").exists()
     assert install_app(root) == "up to date"
     (dest / "Pitwall.lua").write_text("-- old version")
     assert install_app(root) == "updated"
