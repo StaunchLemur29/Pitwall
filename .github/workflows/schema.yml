@@ -28,6 +28,22 @@ jobs:
             echo "::error::Add the SUPABASE_DB_URL repository secret first (README, Cloud hub)."
             exit 1
           fi
+          # Forgive stray spaces, newlines or quotes from copy-paste.
+          DB_URL=$(printf '%s' "$DB_URL" | tr -d '\r\n' | sed -e 's/^[[:space:]"'"'"']*//' -e 's/[[:space:]"'"'"']*$//')
+          case "$DB_URL" in
+            postgres://*|postgresql://*) ;;
+            https://*|http://*)
+              echo "::error::SUPABASE_DB_URL is the project URL (https://...). It needs the database link instead: Supabase > Connect > Session pooler, starting postgresql://"
+              exit 1 ;;
+            *)
+              echo "::error::SUPABASE_DB_URL should start with postgresql:// (Supabase > Connect > Session pooler). It starts with something else."
+              exit 1 ;;
+          esac
+          case "$DB_URL" in
+            *YOUR-PASSWORD*|*YOUR_PASSWORD*)
+              echo "::error::SUPABASE_DB_URL still has [YOUR-PASSWORD] in it: replace that (brackets too) with your database password."
+              exit 1 ;;
+          esac
           command -v psql >/dev/null || sudo apt-get install -y postgresql-client
           psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f cloud/schema.sql
           echo "Schema applied."
