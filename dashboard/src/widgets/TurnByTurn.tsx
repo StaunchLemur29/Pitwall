@@ -49,7 +49,10 @@ export function TurnByTurn() {
   const cx = w / 2;
   const cy = h * 0.8;
   const c0 = tl?.corner;
-  const want = c0 ? Math.min(MAX_AHEAD, Math.max(MIN_AHEAD, c0.distance_m + 90)) : 150;
+  // Approaching: show up to the corner. Inside it: show through to its exit.
+  const toExit = c0 && tl ? ((((c0.exit - tl.p) % 1) + 1) % 1) * g.length_m : 0;
+  const span = c0 ? (c0.distance_m > 0 ? c0.distance_m + 90 : toExit + 60) : 150;
+  const want = Math.min(MAX_AHEAD, Math.max(MIN_AHEAD, span));
   ahead.current += (want - ahead.current) * 0.08; // ease, so zoom changes aren't jarring
   const scale = h > 0 ? (cy - 24) / ahead.current : 1;
   const rot = -90 - heading;
