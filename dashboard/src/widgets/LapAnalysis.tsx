@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { delta, lapTime } from "../lib/format";
 import { fitTrack, type Pt } from "../lib/geometry";
 import { timeLookup, type Trace } from "../lib/profile";
-import { fetchCorners, fetchTrace, rig, startDrill, useRig } from "../lib/rig";
+import { prettyName } from "../lib/format";
+import { fetchCombos, fetchCorners, fetchGeometry, fetchLaps, fetchTrace, rig, startDrill, useRig, type Combo } from "../lib/rig";
 import { GRADE_COLORS, indexAt, pathOf, type P } from "../lib/track";
-import type { CornerLap, CornerReport, TrackGeometry } from "../lib/types";
+import type { CornerLap, CornerReport, LapSummary, TrackGeometry } from "../lib/types";
 import { CornerDetail } from "./CornerDetail";
 import { Card, useSize } from "./common";
 
@@ -17,11 +18,35 @@ const MODES: [Mode, string][] = [
 ];
 
 /** Post-session view: a lap summary, your line on the map, and any corner in detail against another lap. */
+const comboKey = (c: Combo | null) => (c ? `${c.game}|${c.car}|${c.track_key}` : "live");
+
 export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
-  const g = useRig((s) => s.track);
+  const liveG = useRig((s) => s.track);
   const latest = useRig((s) => s.corners);
-  const laps = useRig((s) => s.laps);
-  const theo = useRig((s) => s.live.theoretical_best_ms);
+  const liveLaps = useRig((s) => s.laps);
+  const liveTheo = useRig((s) => s.live.theoretical_best_ms);
+  // Which car + track: the one you're driving, or any you've driven before.
+  const [combos, setCombos] = useState<Combo[]>([]);
+  const [combo, setCombo] = useState<Combo | null>(null);
+  const [comboG, setComboG] = useState<TrackGeometry | null>(null);
+  const [comboLaps, setComboLaps] = useState<LapSummary[]>([]);
+  useEffect(() => {
+    fetchCombos().then(setCombos);
+  }, [liveLaps.length, liveG]);
+  const active = combo ?? (!liveG && combos[0] ? combos[0] : null);
+  const activeKey = comboKey(active);
+  useEffect(() => {
+    if (!active) return;
+    let ok = true;
+    setComboG(null);
+    fetchGeometry(active).then((x) => ok && setComboG(x));
+    fetchLaps(active).then((x) => ok && setComboLaps(x));
+    return () => {
+      ok = false;
+    };
+  }, [activeKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const g = active ? comboG : liveG;
+  const laps = active ? comboLaps : liveLaps;
   const [mode, setMode] = useState<Mode>("delta");
   const [lapId, setLapId] = useState<number | null>(null);
   const [compareId, setCompareId] = useState<number | null>(null);
@@ -31,16 +56,47 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
   const [focus, setFocus] = useState<number | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
 
-  const shownId = lapId ?? latest?.lap_id ?? null;
+  const requested = lapId ?? (active ? null : latest?.lap_id ?? null);
+  useEffect(() => {
+    if (requested === null && !active) return;
+    let live = true;
+    fetchCorners(requested, compareId, active).then((r) => live && setReport(r));
+    return () => {
+      live = false;
+    };
+  }, [requested, compareId, activeKey, latest]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shownId = report?.lap_id ?? requested;
   useEffect(() => {
     if (shownId === null) return;
     let live = true;
-    fetchCorners(shownId, compareId).then((r) => live && setReport(r));
     fetchTrace(shownId, 30).then((t) => live && setTrace(t));
     return () => {
       live = false;
     };
-  }, [shownId, compareId, latest]);
+  }, [shownId]);
+  const theo = active ? report?.theoretical_best_ms ?? null : liveTheo;
+  const canDrill = !active; // drills run on the car + track you're driving
+  const pickCombo = (key: string) => {
+    const c = combos.find((x) => comboKey(x) === key) ?? null;
+    setCombo(c && !c.live ? c : null);
+    setLapId(null);
+    setCompareId(null);
+    setPicked(null);
+    setReport(null);
+    setTrace(null);
+  };
+  const comboPicker =
+    combos.length > 1 || active ? (
+      <select className="lapsel combosel" value={activeKey === "live" ? comboKey(combos.find((c) => c.live) ?? null) : activeKey} onChange={(e) => pickCombo(e.target.value)} aria-label="Car and track">
+        {!combos.some((c) => c.live) && liveG && <option value="live">Now driving</option>}
+        {combos.map((c) => (
+          <option key={comboKey(c)} value={comboKey(c)}>
+            {c.live ? "● " : ""}
+            {prettyName(c.car)} · {prettyName(c.track_key)} ({c.valid_laps ?? 0})
+          </option>
+        ))}
+      </select>
+    ) : null;
   const otherId = report?.compare_lap_id ?? null;
   useEffect(() => {
     if (otherId === null) return setOtherTrace(null);
@@ -65,8 +121,10 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
 
   if (!g) {
     return (
-      <Card title="Lap analysis" dim>
-        <div className="upcoming">Analysis appears once the track layout loads and you've done a lap.</div>
+      <Card title="Lap analysis" dim right={comboPicker}>
+        <div className="upcoming">
+          {active ? "Loading that track…" : "Analysis appears once the track layout loads and you've done a lap."}
+        </div>
       </Card>
     );
   }
@@ -140,7 +198,7 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
               <div key={n} className="cwrap__note">{n}</div>
             ))}
             <div className="cwrap__actions">
-              {section && (
+              {section && canDrill && (
                 <button className="btn btn--sm" onClick={() => startDrill({ section: section.number })}>
                   Practise {section.name}
                 </button>
@@ -179,9 +237,11 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
                   <span className="chap__name">{ch.name}</span>
                   <span className="crow__time">{ch.time_s != null ? `${ch.time_s.toFixed(1)}s` : ""}</span>
                   <span className={`crow__loss ${vsClass(d)}`} title="vs your best lap">{d !== null ? delta(d) : ""}</span>
-                  <button className="btn btn--sm btn--ghost" onClick={() => startDrill({ chapter: ch.number })}>
-                    Practise
-                  </button>
+                  {canDrill && (
+                    <button className="btn btn--sm btn--ghost" onClick={() => startDrill({ chapter: ch.number })}>
+                      Practise
+                    </button>
+                  )}
                 </div>
                 {ch.summary && <div className="chap__sum">{ch.summary}</div>}
               </div>
@@ -206,9 +266,11 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
               <span className={`crow__loss ${vsClass(d)}`} title="vs your best lap">
                 {d !== null ? delta(d) : ""}
               </span>
-              <button className="btn btn--sm" onClick={() => startDrill({ section: ps.number })}>
-                Practise
-              </button>
+              {canDrill && (
+                <button className="btn btn--sm" onClick={() => startDrill({ section: ps.number })}>
+                  Practise
+                </button>
+              )}
             </div>
             {ps.drill_best_s ? <div className="psec__sub">best drill run {ps.drill_best_s.toFixed(2)}s</div> : null}
             <div className="psec__corners">{ps.corners.map((num) => chip(num))}</div>
@@ -223,6 +285,7 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
       title="Lap analysis"
       right={
         <span className="lapsels">
+          {comboPicker}
           <select className="lapsel" value={shownId ?? ""} onChange={(e) => setLapId(Number(e.target.value) || null)} aria-label="Lap to analyse">
             {valid.map((l) => (
               <option key={l.id} value={l.id}>
@@ -266,7 +329,7 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
                 myTrace={trace}
                 otherTrace={otherTrace}
                 mastery={report?.mastery.find((x) => x.corner === corner.number)}
-                section={section}
+                section={canDrill ? section : undefined}
                 onStep={step}
               />
             ) : (

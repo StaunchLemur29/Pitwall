@@ -25,6 +25,18 @@ log = logging.getLogger(__name__)
 Event = dict[str, Any]
 
 
+class AnalysisCtx:
+    """Everything the analysis needs for one car on one track: the live session,
+    or any car + track you've driven before."""
+
+    def __init__(self, game: str, car: str, track_key: str, track: TrackState, ref_lap_id: int | None, live: bool):
+        self.game, self.car, self.track_key = game, car, track_key
+        self.track = track
+        self.ref_lap_id = ref_lap_id
+        self.live = live
+        self.lap_count = -1  # cache check for past combos
+
+
 def _locked(fn):  # type: ignore[no-untyped-def]
     """Rig state is touched by the telemetry thread and the web server: one at a time."""
     import functools
@@ -58,6 +70,8 @@ class Rig:
         self._clock = clock
         self.frame: Frame | None = None
         self.session: SessionInfo | None = None
+        self._ctx_cache: dict[tuple[str, str, str], AnalysisCtx] = {}
+        self._ac_tracks = None  # track loader for past AC tracks when another adapter is running
         self.mode: Mode = Mode.IDLE
         self.reference: ReferenceLap | None = None
         self.theoretical_best_ms: int | None = None
@@ -235,45 +249,142 @@ class Rig:
         self.emit({"type": "track", "track": model.geometry()})
         self._emit_corners(None)
 
-    def _model_sig(self) -> str:
-        m = self.track.model if self.track else None
+    def _model_sig(self, track: TrackState | None = None) -> str:
+        track = track or self.track
+        m = track.model if track else None
         if m is None:
             return ""
-        return f"v3:{m.source}:{len(m.corners)}:{round(m.length_m)}"
+        return f"v4:{m.source}:{len(m.corners)}:{round(m.length_m)}"
 
-    def _analyse(self, lap_id: int, trace: dict[str, list[float]]) -> None:
-        if self.track is None:
+    def _analyse(self, lap_id: int, trace: dict[str, list[float]], track: TrackState | None = None) -> None:
+        track = track or self.track
+        if track is None:
             return
-        self.store.set_lap_corners(lap_id, self._model_sig(), analyse_lap(trace, self.track.model))
+        self.store.set_lap_corners(lap_id, self._model_sig(track), analyse_lap(trace, track.model))
 
-    def _mastery(self) -> dict[int, dict[str, Any]]:
-        s = self.session
-        if s is None or self.track is None:
+    def _mastery(self, ctx: AnalysisCtx | None = None) -> dict[int, dict[str, Any]]:
+        ctx = ctx or self._live_ctx()
+        if ctx is None:
             return {}
         history = []
-        for lap_id in self.store.valid_lap_ids(s.game, s.track_key, s.car, limit=30):
-            data = self.store.lap_corners(lap_id, self._model_sig())
+        for lap_id in self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=30):
+            data = self.store.lap_corners(lap_id, self._model_sig(ctx.track))
             if data:
                 history.append(data)
         return corner_mastery(history)
 
-    @_locked
-    def corner_report(self, lap_id: int | None = None, compare_id: int | None = None) -> Event:
+    # -- analysis for any car + track ----------------------------------------
+
+    def _live_ctx(self) -> AnalysisCtx | None:
+        s = self.session
+        if s is None or self.track is None:
+            return None
+        ref = self.reference.lap_id if self.reference else None
+        return AnalysisCtx(s.game, s.car, s.track_key, self.track, ref, live=True)
+
+    def _is_live(self, game: str, car: str, track_key: str) -> bool:
+        s = self.session
+        return s is not None and self.track is not None and (s.game, s.car, s.track_key) == (game, car, track_key)
+
+    def _load_model(self, game: str, car: str, track_key: str) -> TrackModel | None:
+        """A track layout without a live session: from the game's files when we
+        can read them, else drawn from a lap you drove there. (No lock needed.)"""
+        track, _, config = track_key.partition("@")
+        si = SessionInfo(game=game, car=car, track=track, track_config=config)
+        model = None
+        try:
+            if game == self.adapter.game_id:
+                model = self.adapter.track_model(si)
+            elif game == "ac":
+                if self._ac_tracks is None:
+                    from .tracks.loader import TrackLoader
+
+                    self._ac_tracks = TrackLoader(self.config["games"]["ac"]["install_dir"])
+                model = self._ac_tracks.load(si)
+        except Exception:  # noqa: BLE001
+            log.exception("Couldn't load the track layout for %s", track_key)
+        if model is None:
+            lap_id = self.store.outline_lap_id(game, track_key)
+            trace = self.store.trace(lap_id) if lap_id is not None else None
+            if trace:
+                model = from_lap_trace(track_key, trace, 0.0)
+        return model
+
+    def analysis_ctx(self, game: str | None = None, car: str | None = None, track_key: str | None = None,
+                     lap_id: int | None = None) -> AnalysisCtx | None:
+        """The live session by default; another car + track if asked (directly or via a lap)."""
+        if lap_id is not None and game is None:
+            info = self.store.lap(lap_id)
+            if info:
+                game, car, track_key = info["game"], info["car"], info["track_key"]
+        with self.lock:
+            if game is None or car is None or track_key is None or self._is_live(game, car, track_key):
+                return self._live_ctx()
+            key = (game, car, track_key)
+            ctx = self._ctx_cache.get(key)
+            count = len(self.store.valid_lap_ids(game, track_key, car, limit=10000))
+            if ctx is not None and ctx.lap_count == count:
+                return ctx
+        model = self._load_model(game, car, track_key)  # file reading: outside the lock
+        if model is None:
+            return None
+        with self.lock:
+            ts = TrackState(model, self.config["laps"]["max_tyres_out"])
+            best = self.store.best_lap(game, track_key, car)
+            if best:
+                ts.set_reference(self.store.trace(best["id"]))
+            for lid in self.store.valid_lap_ids(game, track_key, car):
+                if self.store.lap_corners(lid, self._model_sig(ts)) is None:
+                    tr = self.store.trace(lid)
+                    if tr:
+                        self._analyse(lid, tr, ts)
+            ctx = AnalysisCtx(game, car, track_key, ts, best["id"] if best else None, live=False)
+            ts.mastery = self._mastery(ctx)
+            ctx.lap_count = count
+            self._ctx_cache[key] = ctx
+            return ctx
+
+    def combos(self) -> list[dict[str, Any]]:
+        """Every car + track you've driven, most recent first."""
+        out = self.store.combos()
+        s = self.session
+        for c in out:
+            c["live"] = s is not None and (s.game, s.car, s.track_key) == (c["game"], c["car"], c["track_key"])
+        return out
+
+    def track_geometry(self, game: str | None, car: str | None, track_key: str | None) -> dict[str, Any] | None:
+        ctx = self.analysis_ctx(game, car, track_key)
+        return ctx.track.model.geometry() if ctx else None
+
+    def corner_report(self, lap_id: int | None = None, compare_id: int | None = None,
+                      game: str | None = None, car: str | None = None, track_key: str | None = None) -> Event:
         """Mastery per corner plus one lap's corner-by-corner numbers, compared
         with another lap (your best by default; your next best when looking at
-        the best lap itself)."""
-        if self.track is None:
+        the best lap itself). The live session's car + track unless another is asked for."""
+        ctx = self.analysis_ctx(game, car, track_key, lap_id)
+        with self.lock:
+            return self._corner_report(ctx, lap_id, compare_id)
+
+    def _corner_report(self, ctx: AnalysisCtx | None, lap_id: int | None, compare_id: int | None) -> Event:
+        if ctx is None:
             return {"mastery": [], "lap": None, "lap_id": None, "reference": [], "chapters": [], "practice": [],
-                    "compare": None, "compare_lap_id": None, "compare_label": None}
-        s = self.session
-        if lap_id is None and s is not None:
-            ids = self.store.valid_lap_ids(s.game, s.track_key, s.car, limit=1)
+                    "compare": None, "compare_lap_id": None, "compare_label": None, "live": False,
+                    "game": None, "car": None, "track_key": None, "theoretical_best_ms": None}
+        track = ctx.track
+        sig = self._model_sig(track)
+        if lap_id is None:
+            ids = self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=1)
             lap_id = ids[0] if ids else None
-        lap = self.store.lap_corners(lap_id, self._model_sig()) if lap_id is not None else None
+        lap = self.store.lap_corners(lap_id, sig) if lap_id is not None else None
+        if lap is None and lap_id is not None:
+            tr = self.store.trace(lap_id)  # e.g. an invalid lap picked by hand
+            if tr:
+                self._analyse(lap_id, tr, track)
+                lap = self.store.lap_corners(lap_id, sig)
         if lap:
-            m = self.track.model
-            if not self.track.mastery:
-                self.track.mastery = self._mastery()
+            m = track.model
+            if not track.mastery:
+                track.mastery = self._mastery(ctx)
             for i, data in enumerate(lap):
                 c = m.corners[i] if i < len(m.corners) else None
                 if c is None:
@@ -282,24 +393,27 @@ class Rig:
                 gap = ((nxt.entry - c.exit) % 1.0) * m.length_m
                 data["advice"] = width_advice(c, data, gap)
                 # Time lost against your best ever through this corner (any lap).
-                best = self.track.mastery.get(c.number, {}).get("best_s")
+                best = track.mastery.get(c.number, {}).get("best_s")
                 data["loss_s"] = round(data["time_s"] - best, 3) if best is not None else None
         compare, compare_label = None, None
-        if lap and s is not None:
+        if lap:
+            ref_id = ctx.ref_lap_id
             if compare_id is None:
-                best = [i for i in self.store.valid_lap_ids(s.game, s.track_key, s.car, limit=500) if i != lap_id]
-                ranked = sorted(best, key=lambda i: (self.store.lap(i) or {}).get("lap_time_ms") or 1e12)
-                ref_id = self.reference.lap_id if self.reference else None
-                compare_id = ref_id if ref_id is not None and ref_id != lap_id else (ranked[0] if ranked else None)
+                if ref_id is not None and ref_id != lap_id:
+                    compare_id = ref_id
+                else:
+                    others = [i for i in self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=500) if i != lap_id]
+                    ranked = sorted(others, key=lambda i: (self.store.lap(i) or {}).get("lap_time_ms") or 1e12)
+                    compare_id = ranked[0] if ranked else None
             if compare_id is not None and compare_id != lap_id:
-                compare = self.store.lap_corners(compare_id, self._model_sig())
+                compare = self.store.lap_corners(compare_id, sig)
                 if compare is None:
                     tr = self.store.trace(compare_id)
                     if tr:
-                        self._analyse(compare_id, tr)
-                        compare = self.store.lap_corners(compare_id, self._model_sig())
+                        self._analyse(compare_id, tr, track)
+                        compare = self.store.lap_corners(compare_id, sig)
                 info = self.store.lap(compare_id)
-                is_best = self.reference is not None and compare_id == self.reference.lap_id
+                is_best = compare_id == ref_id
                 compare_label = "your best lap" if is_best else f"lap {info['lap_number']}" if info else "the other lap"
             if compare:
                 by_num = {c["corner"]: c for c in compare}
@@ -308,24 +422,30 @@ class Rig:
                     if other:
                         data["vs_s"] = round(data["time_s"] - other["time_s"], 3)
                         data["notes"] = compare_notes(data, other, compare_label)
-        chapters = self._chapter_times(lap_id)
-        practice = self._practice_times(lap_id)
+        chapters = self._chapter_times(lap_id, ctx)
+        practice = self._practice_times(lap_id, ctx)
+        secs = self.store.best_sectors(ctx.game, ctx.track_key, ctx.car)
         return {
+            "game": ctx.game,
+            "car": ctx.car,
+            "track_key": ctx.track_key,
+            "live": ctx.live,
+            "theoretical_best_ms": sum(secs) if secs else None,
             "compare": compare,
             "compare_lap_id": compare_id if compare else None,
             "compare_label": compare_label,
             "chapters": chapters,
             "practice": practice,
-            "mastery": list(self.track.mastery.values()),
+            "mastery": list(track.mastery.values()),
             "lap_id": lap_id,
             "lap": lap,
-            "reference": list(self.track.ref_corners.values()),
-            "reference_lap_id": self.reference.lap_id if self.reference else None,
+            "reference": list(track.ref_corners.values()),
+            "reference_lap_id": ctx.ref_lap_id,
         }
 
-    def _chapter_times(self, lap_id: int | None) -> list[dict[str, Any]]:
+    def _chapter_times(self, lap_id: int | None, ctx: AnalysisCtx) -> list[dict[str, Any]]:
         """Each pack chapter with this lap's time through it and your reference lap's."""
-        if self.track is None or not self.track.model.chapters:
+        if not ctx.track.model.chapters:
             return []
         from .analysis import LapView
 
@@ -338,36 +458,33 @@ class Rig:
 
         lap_trace = self.store.trace(lap_id) if lap_id is not None else None
         view = LapView(lap_trace) if lap_trace else None
-        ref = self.track.ref_view
+        ref = ctx.track.ref_view
         out = []
-        for ch in self.track.model.chapters:
+        for ch in ctx.track.model.chapters:
             d = ch.to_dict()
             d["time_s"] = span(view, ch.start, ch.end)
             d["ref_s"] = span(ref, ch.start, ch.end)
             out.append(d)
         return out
 
-    def _practice_times(self, lap_id: int | None) -> list[dict[str, Any]]:
+    def _practice_times(self, lap_id: int | None, ctx: AnalysisCtx) -> list[dict[str, Any]]:
         """Each practice section with this lap's time, your best lap's, and your
         best clean drill attempt."""
-        if self.track is None:
-            return []
         from .analysis import LapView
 
-        s = self.session
         lap_trace = self.store.trace(lap_id) if lap_id is not None else None
         view = LapView(lap_trace) if lap_trace else None
-        ref = self.track.ref_view
+        ref = ctx.track.ref_view
 
         def span(v: LapView | None, a: float, b: float) -> float | None:
             return round(v.time_at(b) - v.time_at(a), 3) if v and b > a else None
 
         out = []
-        for ps in self.track.model.practice:
+        for ps in ctx.track.model.practice:
             d = ps.to_dict()
             d["time_s"] = span(view, ps.start, ps.end)
             d["ref_s"] = span(ref, ps.start, ps.end)
-            best = self.store.best_section_ms(s.game, s.car, s.track_key, ps.start, ps.end) if s else None
+            best = self.store.best_section_ms(ctx.game, ctx.car, ctx.track_key, ps.start, ps.end)
             d["drill_best_s"] = best / 1000 if best else None
             out.append(d)
         return out

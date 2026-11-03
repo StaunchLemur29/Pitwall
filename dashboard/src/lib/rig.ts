@@ -354,11 +354,48 @@ export async function stopDrill(): Promise<void> {
   await fetch("/api/drill", { method: "DELETE" });
 }
 
-export async function fetchCorners(lapId: number | null, compareId?: number | null): Promise<CornerReport> {
-  const q = new URLSearchParams();
+/** A car + track you've driven (null = the live session's). */
+export interface Combo {
+  game: string;
+  car: string;
+  track_key: string;
+  laps?: number;
+  valid_laps?: number;
+  best_ms?: number | null;
+  last_driven?: number;
+  live?: boolean;
+}
+
+function comboQuery(q: URLSearchParams, c: Combo | null | undefined): URLSearchParams {
+  if (c) {
+    q.set("game", c.game);
+    q.set("car", c.car);
+    q.set("track_key", c.track_key);
+  }
+  return q;
+}
+
+export async function fetchCorners(lapId: number | null, compareId?: number | null, combo?: Combo | null): Promise<CornerReport> {
+  const q = comboQuery(new URLSearchParams(), combo);
   if (lapId) q.set("lap_id", String(lapId));
   if (compareId) q.set("compare", String(compareId));
   return (await fetch(`/api/corners?${q}`)).json();
+}
+
+export async function fetchCombos(): Promise<Combo[]> {
+  const r = await fetch("/api/combos");
+  return r.ok ? r.json() : [];
+}
+
+export async function fetchGeometry(combo: Combo): Promise<TrackGeometry | null> {
+  const r = await fetch(`/api/track?${comboQuery(new URLSearchParams(), combo)}`);
+  return r.ok ? r.json() : null;
+}
+
+export async function fetchLaps(combo: Combo): Promise<LapSummary[]> {
+  const q = new URLSearchParams({ game: combo.game, car: combo.car, track_key: combo.track_key, limit: "500" });
+  const r = await fetch(`/api/laps?${q}`);
+  return r.ok ? r.json() : [];
 }
 
 export async function fetchTrace(lapId: number, hz = 10): Promise<Record<string, number[]> | null> {

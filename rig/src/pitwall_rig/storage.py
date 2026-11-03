@@ -124,6 +124,16 @@ class Store:
         ).fetchall()
         return [self._summary(r) for r in rows]
 
+    def combos(self) -> list[dict[str, Any]]:
+        """Every game + car + track with laps, most recently driven first."""
+        rows = self._db.execute(
+            """SELECT game, car, track_key, COUNT(*) AS laps, SUM(valid) AS valid_laps,
+                      MAX(started_at) AS last_driven,
+                      MIN(CASE WHEN valid=1 THEN lap_time_ms END) AS best_ms
+               FROM laps GROUP BY game, car, track_key ORDER BY last_driven DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def lap(self, lap_id: int) -> dict[str, Any] | None:
         row = self._db.execute(
             """SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap,

@@ -66,7 +66,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     if not (data_dir / "config.json").exists():
         config.save()  # write defaults so they're easy to find and edit
 
-    game = args.game or config["game"]
+    game = args.game or ("replay" if args.replay else config["game"])
     adapter = _make_adapter(game, args, config)
     store_path = data_dir / ("demo.sqlite" if game == "demo" else "pitwall.sqlite")
     store = Store(store_path)

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 export function Card({
   title,
@@ -27,19 +27,25 @@ export function Card({
 }
 
 /** Tracks an element's size (for SVG layouts that need pixel dimensions). */
-export function useSize<T extends HTMLElement>(): [React.RefObject<T>, { w: number; h: number }] {
-  const ref = useRef<T>(null);
+/**
+ * Measures an element's size. Uses a callback ref so it keeps working when the
+ * element appears later (a chart waiting for data, a view waiting for the track).
+ */
+export function useSize<T extends HTMLElement>(): [(el: T | null) => void, { w: number; h: number }] {
   const [size, setSize] = useState({ w: 0, h: 0 });
-  useEffect(() => {
-    const el = ref.current;
+  const observer = useRef<ResizeObserver | null>(null);
+  const ref = useCallback((el: T | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
       setSize((s) => (s.w === width && s.h === height ? s : { w: width, h: height }));
     });
     ro.observe(el);
-    return () => ro.disconnect();
+    observer.current = ro;
   }, []);
+  useEffect(() => () => observer.current?.disconnect(), []);
   return [ref, size];
 }
 

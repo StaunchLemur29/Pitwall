@@ -164,15 +164,35 @@ async def cancel_bind(request: web.Request) -> web.Response:
 
 async def get_track(request: web.Request) -> web.Response:
     rig = request.app[RIG_KEY]
+    q = request.query
+    if q.get("track_key"):
+        # Building another track's layout reads files: keep it off the event loop.
+        geo = await asyncio.get_running_loop().run_in_executor(
+            None, rig.track_geometry, q.get("game"), q.get("car"), q.get("track_key")
+        )
+        return web.json_response(geo)
     return web.json_response(rig.track.model.geometry() if rig.track else None)
 
 
+async def get_combos(request: web.Request) -> web.Response:
+    return web.json_response(request.app[RIG_KEY].combos())
+
+
 async def get_corners(request: web.Request) -> web.Response:
-    lap_id = request.query.get("lap_id")
-    compare = request.query.get("compare")
-    return web.json_response(
-        request.app[RIG_KEY].corner_report(int(lap_id) if lap_id else None, int(compare) if compare else None)
+    q = request.query
+    lap_id, compare = q.get("lap_id"), q.get("compare")
+    rig = request.app[RIG_KEY]
+    rep = await asyncio.get_running_loop().run_in_executor(
+        None,
+        lambda: rig.corner_report(
+            int(lap_id) if lap_id else None,
+            int(compare) if compare else None,
+            q.get("game"),
+            q.get("car"),
+            q.get("track_key"),
+        ),
     )
+    return web.json_response(rep)
 
 
 async def post_drill(request: web.Request) -> web.Response:
@@ -368,6 +388,7 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_post("/api/perf-report", post_perf_report)
     app.router.add_get("/api/track", get_track)
     app.router.add_get("/api/corners", get_corners)
+    app.router.add_get("/api/combos", get_combos)
     app.router.add_post("/api/drill", post_drill)
     app.router.add_delete("/api/drill", delete_drill)
 

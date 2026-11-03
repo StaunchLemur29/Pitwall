@@ -1764,7 +1764,14 @@ select {
 .lapsels {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 6px;
+}
+
+.combosel {
+  max-width: 22em;
+  text-overflow: ellipsis;
 }
 
 .la__right {

@@ -227,3 +227,24 @@ def test_braking_point_moves_with_approach_speed(demo):
     assert 10 < faster < 20  # (210²-100²)/(200²-100²) × 100 m ≈ 114 m
     assert -30 < slower < -15
     assert abs(settle(300) - 50) < 0.01  # capped at half the braking distance
+
+
+def test_analysis_works_for_a_past_car_and_track(demo, clock, config, store):
+    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
+    for _ in range(60 * 60 * 4):
+        clock.advance(1 / 60)
+        rig.tick()
+        if len(store.valid_lap_ids("demo", rig.session.track_key, rig.session.car)) >= 2:
+            break
+    s = rig.session
+    # A fresh start with no game session: pick the car + track from the list.
+    later = Rig(demo, store, config, emit=lambda e: None, clock=clock)
+    combos = later.combos()
+    assert [(c["car"], c["track_key"]) for c in combos] == [(s.car, s.track_key)]
+    assert combos[0]["valid_laps"] >= 2 and combos[0]["live"] is False
+    rep = later.corner_report(game=s.game, car=s.car, track_key=s.track_key)
+    assert rep["lap"] and rep["live"] is False and rep["track_key"] == s.track_key
+    assert rep["compare_lap_id"] is not None
+    assert later.track_geometry(s.game, s.car, s.track_key)["corners"]
+    # Asking by lap id alone finds its car + track too.
+    assert later.corner_report(rep["lap_id"])["lap"] == rep["lap"]

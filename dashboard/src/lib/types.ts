@@ -219,6 +219,12 @@ export interface CornerReport {
   compare: CornerLap[] | null;
   compare_lap_id: number | null;
   compare_label: string | null;
+  /** which car + track this is, and whether it's the one you're driving now */
+  game: string | null;
+  car: string | null;
+  track_key: string | null;
+  live: boolean;
+  theoretical_best_ms: number | null;
 }
 
 export type WidgetId =

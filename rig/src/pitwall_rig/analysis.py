@@ -66,10 +66,16 @@ class LapView:
         return self.idx[a:b]
 
 
-def analyse_corner(view: LapView, model: TrackModel, c: Corner, lead_m: float = 250.0) -> dict[str, Any]:
+def analyse_corner(
+    view: LapView, model: TrackModel, c: Corner, lead_m: float = 250.0, prev_apex: float | None = None
+) -> dict[str, Any]:
     tr = view.trace
     length = model.length_m or 1.0
     lead = lead_m / length
+    # Braking for the corner before (a chicane's first half) isn't braking for this one.
+    look_from = max(0.0, c.entry - lead)
+    if prev_apex is not None and look_from < prev_apex < c.entry:
+        look_from = prev_apex
     entry_t, exit_t = view.time_at(c.entry), view.time_at(c.exit)
     inside = view.range(c.entry, c.exit) or [view.at(c.apex)]
     vmin_i = min(inside, key=lambda i: tr["speed"][i])
@@ -79,7 +85,7 @@ def analyse_corner(view: LapView, model: TrackModel, c: Corner, lead_m: float = 
     # to be off the brake for 40 m before a later press counts as fresh braking.
     brake_p = None
     released_at = None  # progress where the brake was last let go
-    for i in view.range(max(0.0, c.entry - lead), c.apex):
+    for i in view.range(look_from, c.apex):
         b, p = tr["brake"][i], tr["p"][i]
         if b > 0.1:
             if brake_p is None or (released_at is not None and (p - released_at) * length > 40):
@@ -96,7 +102,7 @@ def analyse_corner(view: LapView, model: TrackModel, c: Corner, lead_m: float = 
         if tr["gas"][i] >= 0.9:
             throttle_p = tr["p"][i]
             break
-    peak_brake = max((tr["brake"][i] for i in view.range(max(0.0, c.entry - lead), c.exit)), default=0.0)
+    peak_brake = max((tr["brake"][i] for i in view.range(look_from, c.exit)), default=0.0)
 
     out: dict[str, Any] = {
         "corner": c.number,
@@ -112,7 +118,7 @@ def analyse_corner(view: LapView, model: TrackModel, c: Corner, lead_m: float = 
         "min_speed_p": tr["p"][vmin_i],
         "apex_gear": int(tr["gear"][view.at(c.apex)]),
         "brake_p": brake_p,
-        "coast_s": round(_coast_time(tr, view.range(max(0.0, c.entry - lead), c.exit)), 2),
+        "coast_s": round(_coast_time(tr, view.range(look_from, c.exit)), 2),
     }
     if model.has_edges:
         for key, p in (("entry", c.entry), ("apex", c.apex), ("exit", c.exit)):
@@ -136,7 +142,8 @@ def analyse_lap(trace: dict[str, list[float]], model: TrackModel) -> list[dict[s
     view = LapView(trace)
     if not view or not model.corners:
         return []
-    return [analyse_corner(view, model, c) for c in model.corners]
+    cs = model.corners
+    return [analyse_corner(view, model, c, prev_apex=cs[i - 1].apex if i > 0 else None) for i, c in enumerate(cs)]
 
 
 def compare_notes(mine: dict[str, Any], other: dict[str, Any], label: str) -> list[str]:
