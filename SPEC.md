@@ -228,6 +228,11 @@ Reads AC `cfg/*.ini`; writes only after one-click confirm, with automatic backup
 - **Music**: now playing + play/pause/skip via Windows media session (Spotify, Apple Music) and wheel buttons.
 - **Session timer**: compact — race time/laps remaining when relevant, rig-session timer, optional break reminder.
 - **Discord** (low priority): Rich Presence status ("Nordschleife · 911 GT3 · PB 7:12.4 · learning Fuchsröhre") via local IPC.
+- **SF1000 wheel screen** (big feature): Pitwall drives the SF1000's built-in display with its own data, so key info sits on the wheel in your eyeline.
+  - How: the SF1000 listens on Wi-Fi for UDP in the F1 games' telemetry format (port 20777; F1 2020 or F1 23 format, chosen by firmware). Pitwall sends those packets itself, filling the fields with Pitwall data. Prior art: the community SimHub SF1000 UDP plugin feeds AC this way. On firmware v5 and older, UDP mode has to be switched on at the wheel after every power-up.
+  - What to show (configurable, no code): gear/speed/RPM lights as normal, plus Pitwall's own: live delta to your reference, brake-in countdown and next corner grade, drill timer/target and pass streak, lap/sector times vs best, ABS/TC/BB once the CSP app reports real levels, flags/pit limiter.
+  - Constraint: the wheel's screen layouts are Thrustmaster's F1 pages, so "custom" means choosing which F1 field carries which Pitwall value (e.g. the delta field, lap times, ERS/DRS bars repurposed). First step is a research spike: map every field each SF1000 page actually displays, then design pages around that.
+  - Settings tool: wheel IP, format (F1 2020 / F1 23), what goes on each page, a "test pattern" button.
 - **Home Assistant** (very last): flags, shift light, pit lane, PB flash via HA WebSocket API; each toggleable.
 
 ---
@@ -251,7 +256,7 @@ Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
 | 5 Car learning | Profiles, shakedown, transfer tips |
 | 6 Racecraft | Lessons, pre-race briefing, incident review, AI scenario drills |
 | 7 Settings tools | FOV, FFB, controls, graphics; more track packs |
-| 8 Extras | Discord RP, EVO + BeamNG adapters, iRacing + Garage61, Home Assistant, polished README + demo GIF, public repo |
+| 8 Extras | SF1000 wheel screen (UDP), Discord RP, EVO + BeamNG adapters, iRacing + Garage61, Home Assistant, polished README + demo GIF, public repo |
 
 ---
 
@@ -266,6 +271,7 @@ Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
 - **Rewind mod**: name and whether it can be triggered from a CSP Lua app / externally. Affects only phase 1 retry implementation; teleport is the fallback.
 - **AC EVO fields**: confirm BB/ABS/TC levels and tyre pressures exist before building EVO electronics features.
 - **TTS voice**: audition 2–3 voices.
+- **SF1000 screen**: which F1-format fields each wheel page shows, the user's firmware version, and whether the screen accepts a second sender alongside a game's own output. Could move earlier than phase 8 if wanted, since it's independent of the rest.
 
 - **GitHub Student Developer Pack** perks to check and use (offers change; verify at education.github.com/pack): free domain for the hosted hub, Azure for Students credit (Azure neural TTS as a voice candidate), Sentry for error tracking, Copilot, cloud credits as a fallback host.
 

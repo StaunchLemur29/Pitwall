@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { delta, lapTime } from "../lib/format";
 import { fitTrack, type Pt } from "../lib/geometry";
 import { timeLookup, type Trace } from "../lib/profile";
-import { fetchCorners, fetchTrace, startDrill, useRig } from "../lib/rig";
+import { fetchCorners, fetchTrace, rig, startDrill, useRig } from "../lib/rig";
 import { GRADE_COLORS, indexAt, pathOf, type P } from "../lib/track";
 import type { CornerLap, CornerReport, TrackGeometry } from "../lib/types";
 import { CornerDetail } from "./CornerDetail";
@@ -170,7 +170,7 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
                     <span className="mdot" style={{ background: GRADE_COLORS[m?.grade ?? "new"] }} />
                     <span className="cchip__name">{num}. {g.corners[i].label}</span>
                     {r && <span className="cchip__t">{r.time_s.toFixed(2)}s</span>}
-                    {r?.vs_s !== undefined && <span className={`cchip__d ${lossClass(r.vs_s)}`}>{delta(r.vs_s)}</span>}
+                    {r?.vs_s !== undefined && <span className={`cchip__d ${vsClass(r.vs_s)}`}>{delta(r.vs_s)}</span>}
                   </button>
                 );
               })}
@@ -223,6 +223,34 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
           <Legend mode={mode} label={label} />
           {wide && list}
         </div>
+        {!wide ? (
+          <div className="la__right">
+            {corner && mine && (
+              <div className="brief">
+                <div className="brief__head">
+                  <span className="cd__grade">{corner.direction}{corner.grade}</span>
+                  <span className="brief__name">{corner.number}. {corner.label}</span>
+                  <span className="crow__time">{mine.time_s.toFixed(2)}s</span>
+                  {mine.vs_s !== undefined && <span className={`crow__loss ${vsClass(mine.vs_s)}`}>{delta(mine.vs_s)}</span>}
+                </div>
+                {(mine.notes?.length ? mine.notes : mine.advice ?? []).slice(0, 2).map((n) => (
+                  <div key={n} className="brief__note">{n}</div>
+                ))}
+                <div className="brief__actions">
+                  {section && (
+                    <button className="btn btn--sm" onClick={() => startDrill({ section: section.number })}>
+                      Practise {section.name}
+                    </button>
+                  )}
+                  <button className="btn btn--sm btn--ghost" onClick={() => rig.action("open_analysis")}>
+                    Full breakdown on main screen ↗
+                  </button>
+                </div>
+              </div>
+            )}
+            {list}
+          </div>
+        ) : (
         <div className="la__right">
           {corner && mine ? (
             <CornerDetail
@@ -240,11 +268,17 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
           ) : (
             <div className="upcoming">Drive a clean lap and it'll be broken down here, corner by corner.</div>
           )}
-          {!wide && list}
         </div>
+        )}
       </div>
     </Card>
   );
+}
+
+/** Gap to the comparison lap: green only when you were quicker, grey when it's a wash. */
+function vsClass(v: number | null | undefined): string {
+  if (v == null) return "";
+  return v < -0.02 ? "good" : v <= 0.02 ? "muted" : v <= 0.1 ? "amber" : "bad";
 }
 
 function lossClass(loss: number | null | undefined): string {

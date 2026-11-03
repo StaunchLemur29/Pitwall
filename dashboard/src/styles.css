@@ -1441,7 +1441,7 @@ select {
 
 .la:not(.la--wide) .la__left .la__map {
   flex: 0 0 auto;
-  height: calc(var(--u) * 40);
+  height: calc(var(--u) * 34);
 }
 
 .la--wide .la__left .la__map {
@@ -2040,4 +2040,43 @@ select {
 
 .cd__table small {
   color: var(--faint);
+}
+
+/* compact corner card on the vertical screen; the full breakdown lives in the analysis window */
+.brief {
+  background: var(--card-2);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: max(14px, calc(var(--u) * 2));
+}
+
+.brief__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brief__name {
+  flex: 1;
+  font-weight: 800;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brief__note {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.brief__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
 }
