@@ -81,6 +81,27 @@ bar (the Pitwall icon). It adds:
 The app needs the Pitwall service running. If it says "Pitwall isn't
 running", start `scripts\start.bat`.
 
+### Cloud hub (laps on the MacBook)
+
+Pitwall can upload your laps to your own free Supabase project, so the hub can
+show them while the PC is off. One-time setup:
+
+1. Create a project at [supabase.com](https://supabase.com) (free tier is plenty).
+2. In the project: **SQL Editor → New query**, paste all of
+   [`cloud/schema.sql`](cloud/schema.sql), **Run**. That creates the tables and
+   the rules that only let your login see your data.
+3. **Authentication → Users → Add user → Create new user**: your email and a
+   password, with **Auto Confirm User** ticked.
+4. **Project Settings → API**: copy the **Project URL** and the **anon public** key.
+5. In Pitwall: **Settings → Cloud**, paste both, enter the email and password,
+   **Connect**.
+
+From then on every lap uploads in the background (with its corner analysis,
+telemetry at ~20 samples a second, the track layout and the car's profile).
+Laps driven offline upload when you're back online. Your password isn't
+stored; Pitwall keeps a sign-in token in `%APPDATA%\Pitwall\cloud.json`.
+Demo and replay laps stay on the PC.
+
 ### Recording a session (helps development)
 
 ```bat

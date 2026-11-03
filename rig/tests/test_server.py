@@ -89,3 +89,36 @@ async def test_laps_are_recorded_and_served(config, store):
         await ws.close()
     finally:
         await client.close()
+
+
+async def test_cloud_connect_from_settings(config, store, tmp_path):
+    from pitwall_rig.cloud import CloudSync
+    from pitwall_rig.server import CLOUD_KEY
+
+    from .fake_supabase import FakeSupabase
+
+    supa = FakeSupabase()
+    hub = Hub()
+    rig = Rig(DemoAdapter(seed=1, start_in_pit_s=0.0), store, config, emit=hub.emit)
+    app = make_app(rig, hub, static_dir=None)
+    app[CLOUD_KEY] = CloudSync(store, tmp_path, geometry_for=rig.track_geometry)
+    client = TestClient(TestServer(app))
+    await client.start_server()
+    try:
+        assert (await (await client.get("/api/cloud")).json())["connected"] is False
+        r = await client.post("/api/cloud/connect", json={"url": supa.url, "anon_key": "anon", "email": "me@example.com"})
+        assert r.status == 400  # missing password: says what's missing
+        r = await client.post("/api/cloud/connect",
+                              json={"url": supa.url, "anon_key": "anon", "email": "me@example.com", "password": "nope"})
+        assert r.status == 400 and "Invalid login" in (await r.json())["error"]
+        r = await client.post("/api/cloud/connect",
+                              json={"url": supa.url, "anon_key": "anon", "email": "me@example.com", "password": "pw"})
+        status = await r.json()
+        assert r.status == 200 and status["connected"] and status["email"] == "me@example.com"
+        # The settings the dashboard reads never contain the cloud token.
+        cfg = await (await client.get("/api/config")).json()
+        assert "refresh_token" not in str(cfg) and "anon" not in str(cfg.get("cloud", ""))
+        assert (await (await client.post("/api/cloud/disconnect")).json())["connected"] is False
+    finally:
+        await client.close()
+        supa.close()

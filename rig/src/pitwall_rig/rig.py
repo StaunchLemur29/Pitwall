@@ -92,6 +92,7 @@ class Rig:
         self._retry: dict[str, Any] | None = None
         self.csp = CspLink(clock)  # the in-game CSP app, when it's running
         self.car_profile: dict[str, Any] | None = None  # which systems the current car has
+        self.on_lap_saved: Callable[[], None] = lambda: None  # e.g. wake the cloud sync
         # rates for the lag meter: rig ticks/s and new game packets/s
         self._rate_t0 = time.perf_counter()
         self._ticks = 0
@@ -198,6 +199,7 @@ class Rig:
 
     def _on_lap(self, lap: Lap) -> None:
         self.store.add_lap(lap)
+        self.on_lap_saved()
         new_best = lap.valid and (self.reference is None or lap.lap_time_ms < self.reference.lap_time_ms)
         if new_best:
             self.reference = ReferenceLap(lap.trace, lap.lap_time_ms, lap.id)
