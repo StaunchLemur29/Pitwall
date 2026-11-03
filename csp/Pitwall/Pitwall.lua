@@ -52,8 +52,31 @@ local function loadTrack(version)
   end)
 end
 
+local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
+
+-- A wheel button / encoder bound in Pitwall: nudge one of the car's systems.
+local function adjust(what, step)
+  if what == 'abs' and (car.absModes or 0) > 0 then
+    ac.setABS(clamp(car.absMode + step, 0, car.absModes))
+  elseif what == 'tc' and (car.tractionControlModes or 0) > 0 then
+    ac.setTC(clamp(car.tractionControlMode + step, 0, car.tractionControlModes))
+  elseif what == 'bb' and car.brakeBias and car.brakeBias > 0 then
+    local lo, hi = car.brakesBiasLimitDown or 0.3, car.brakesBiasLimitUp or 0.8
+    if not lo or lo <= 0 or lo >= hi then lo, hi = 0.3, 0.8 end
+    ac.setBrakeBias(clamp(car.brakeBias + step * 0.005, lo, hi))
+  elseif what == 'deploy' and (car.mgukDeliveryCount or 0) > 0 then
+    ac.setMGUKDelivery(clamp(car.mgukDelivery + step, 0, car.mgukDeliveryCount - 1))
+  elseif what == 'recovery' and car.kersPresent then
+    ac.setMGUKRecovery(clamp(car.mgukRecovery + step, 0, 10))
+  elseif what == 'engine_brake' and (car.engineBrakeSettingsCount or 0) > 0 then
+    ac.setEngineBrakeSetting(clamp(car.currentEngineBrakeSetting + step, 0, car.engineBrakeSettingsCount - 1))
+  end
+end
+
 local function handle(cmd)
-  if cmd.cmd == 'retry' then
+  if cmd.cmd == 'adjust' then
+    adjust(cmd.what, tonumber(cmd.step) or 0)
+  elseif cmd.cmd == 'retry' then
     if not ac.isCarResetAllowed() then
       events[#events + 1] = { type = 'retry', ok = false, reason = 'not_allowed' }
       say('Retry only works in offline practice')

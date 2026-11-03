@@ -53,7 +53,9 @@ def main() -> int:
     state = {"texts": [], "saved": 0, "loaded": 0, "intervals": [], "now": 0.0}
     lua.execute("""
       car = { splinePosition = 0, speedKmh = 180, absMode = 3, absModes = 12,
-              tractionControlMode = 2, tractionControlModes = 8, brakeBias = 0.57 }
+              tractionControlMode = 2, tractionControlModes = 8, brakeBias = 0.57,
+              mgukDelivery = 1, mgukDeliveryCount = 4, mgukRecovery = 5, kersPresent = true,
+              currentEngineBrakeSetting = 2, engineBrakeSettingsCount = 5 }
       sim = { isReplayActive = false, isPaused = false }
       jumped = {}
       ac = {
@@ -61,6 +63,12 @@ def main() -> int:
         getCar = function () return car end,
         isCarResetAllowed = function () return true end,
         onCarJumped = function (i, fn) jumped[#jumped + 1] = fn end,
+        setABS = function (v) car.absMode = v end,
+        setTC = function (v) car.tractionControlMode = v end,
+        setBrakeBias = function (v) car.brakeBias = v end,
+        setMGUKDelivery = function (v) car.mgukDelivery = v end,
+        setMGUKRecovery = function (v) car.mgukRecovery = v end,
+        setEngineBrakeSetting = function (v) car.currentEngineBrakeSetting = v end,
       }
       vec2 = function (x, y) return { x = x, y = y } end
       rgbm = function (r, g, b, a) return { r = r, g = g, b = b, mult = a } end
@@ -217,6 +225,14 @@ def main() -> int:
     check("car back at the run-up point", abs(g.car.splinePosition - run_up) < 0.002,
           f"{g.car.splinePosition} vs {run_up}")
     http("DELETE", RIG + "/api/drill")
+
+    # Wheel buttons bound in Pitwall change the car's systems through the app.
+    for a in ("deploy_up", "deploy_up", "deploy_up", "deploy_up", "bb_forward", "abs_down", "engine_brake_down"):
+        http("POST", RIG + "/api/action/" + a)
+    tick(3)
+    check("deploy goes up and stops at the top mode", g.car.mgukDelivery == 3, str(g.car.mgukDelivery))
+    check("brake bias moves forward 0.5 %", abs(g.car.brakeBias - 0.575) < 1e-6, str(g.car.brakeBias))
+    check("ABS and engine braking step down", g.car.absMode == 2 and g.car.currentEngineBrakeSetting == 1)
     print("ALL PASS" if ok else "SOME CHECKS FAILED")
     return 0 if ok else 1
 

@@ -9,13 +9,14 @@ from typing import Any
 
 from .adapters.base import GameAdapter
 from .adapters.replay import Recorder
-from .config import ACTIONS, Config
+from .config import ACTIONS, CAR_ACTIONS, Config
+from . import car_profile
 from .csp import CspLink
 from .input import InputEvent
 from .laps import LapRecorder
 from .models import Frame, GameStatus, Lap, Mode, SessionInfo, mode_for
 from .reference import ReferenceLap, downsample
-from .analysis import analyse_lap, compare_notes, corner_mastery, width_advice
+from .analysis import analyse_lap, analyse_systems, compare_notes, corner_mastery, width_advice
 from .storage import Store
 from .tracks.live import Drill, TrackState
 from .tracks.loader import from_lap_trace
@@ -90,6 +91,7 @@ class Rig:
         self.keys = KeyHolder()
         self._retry: dict[str, Any] | None = None
         self.csp = CspLink(clock)  # the in-game CSP app, when it's running
+        self.car_profile: dict[str, Any] | None = None  # which systems the current car has
         # rates for the lag meter: rig ticks/s and new game packets/s
         self._rate_t0 = time.perf_counter()
         self._ticks = 0
@@ -122,6 +124,7 @@ class Rig:
 
         if self._session_changed(session):
             self.session = session
+            self._load_car_profile()
             if session is not None:
                 log.info("Session: %s on %s (%s)", session.car, session.track_key, session.session_type.value)
             else:
@@ -149,6 +152,8 @@ class Rig:
             self._rate_t0, self._ticks, self._packets = now, 0, 0
 
         self.frame = frame
+        if self.car_profile is not None and frame.status == GameStatus.LIVE and car_profile.note_frame(self.car_profile, frame):
+            self._save_car_profile()
         self.laps.max_tyres_out = self.config["laps"]["max_tyres_out"]
         self.laps.feed(frame, session)
         if self.recorder is not None and frame.status != GameStatus.OFF:
@@ -428,6 +433,9 @@ class Rig:
                         data["notes"] = compare_notes(data, other, compare_label)
         chapters = self._chapter_times(lap_id, ctx)
         practice = self._practice_times(lap_id, ctx)
+        profile = self.car_profile if ctx.live else self.store.car_profile(ctx.game, ctx.car)
+        lap_trace = self.store.trace(lap_id) if lap_id is not None else None
+        systems = analyse_systems(lap_trace, track.model, profile) if lap_trace else None
         secs = self.store.best_sectors(ctx.game, ctx.track_key, ctx.car)
         return {
             "game": ctx.game,
@@ -435,6 +443,8 @@ class Rig:
             "track_key": ctx.track_key,
             "live": ctx.live,
             "theoretical_best_ms": sum(secs) if secs else None,
+            "systems": systems,
+            "car_systems": car_profile.summary(profile) if profile else [],
             "compare": compare,
             "compare_lap_id": compare_id if compare else None,
             "compare_label": compare_label,
@@ -612,6 +622,23 @@ class Rig:
             "run_up_p": (d.start_p - lead / self.track.model.length_m) % 1.0,
         }
 
+    # -- car profile ----------------------------------------------------------
+
+    def _load_car_profile(self) -> None:
+        s = self.session
+        if s is None:
+            self.car_profile = None
+            return
+        self.car_profile = car_profile.from_session(s, self.store.car_profile(s.game, s.car))
+        self._save_car_profile()
+
+    def _save_car_profile(self) -> None:
+        s, p = self.session, self.car_profile
+        if s is None or p is None:
+            return
+        self.store.set_car_profile(s.game, s.car, p)
+        self.emit({"type": "car_profile", "car_profile": p, "summary": car_profile.summary(p)})
+
     @_locked
     def csp_sync(self, body: dict[str, Any]) -> dict[str, Any]:
         """The in-game app checking in (about 10 times a second)."""
@@ -625,6 +652,8 @@ class Rig:
                     self._retry_with_time_shift()  # e.g. no saved state yet
         if not was:
             self.emit({"type": "csp", "connected": True})
+        if self.car_profile is not None and car_profile.note_csp(self.car_profile, self.csp.state):
+            self._save_car_profile()
         return {
             "track_version": self.csp.version if self.track is not None else -1,
             "drill": self._csp_drill(),
@@ -702,6 +731,8 @@ class Rig:
             "game": self.adapter.game_id,
             "session": s.to_dict() if s else None,
             "mode": self.mode.value,
+            "car_profile": self.car_profile,
+            "car_systems": car_profile.summary(self.car_profile) if self.car_profile else [],
             "started_at": self.started_at,
             "recent_laps": self.recent_laps(),
             "track": self.track.model.geometry() if self.track else None,
@@ -753,6 +784,13 @@ class Rig:
                 self.keys.up()
             return
         if not pressed:
+            return
+        if name in CAR_ACTIONS:
+            what, step = CAR_ACTIONS[name]
+            if self.csp.connected:
+                self.csp.send({"cmd": "adjust", "what": what, "step": step})
+            else:
+                self.emit({"type": "notice", "text": "Car settings from Pitwall need the in-game app running."})
             return
         if name == "mark_corner":
             s, f = self.session, self.frame

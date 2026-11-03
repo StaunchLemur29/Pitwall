@@ -258,3 +258,73 @@ def width_advice(corner: Any, data: dict[str, Any], next_entry_gap_m: float | No
 
 def pct(f: float) -> str:
     return f"{round(max(0.0, min(1.0, f)) * 100)}%"
+
+
+# -- car systems: battery and DRS along the lap ---------------------------------
+
+DRS_MISSED_M = 150.0  # flat out, DRS available, not opened for this long = worth a note
+BATTERY_EMPTY_M = 80.0  # wanting power with an empty battery for this long
+EMPTY = 0.02
+
+
+def _runs(trace: dict[str, list[float]], idx: list[int], length_m: float, inside) -> list[tuple[int, int, float]]:
+    """Stretches (first index, last index, metres) where ``inside(i)`` holds."""
+    out: list[tuple[int, int, float]] = []
+    start, metres = None, 0.0
+    for a, b in zip(idx, idx[1:], strict=False):
+        if inside(a):
+            if start is None:
+                start, metres = a, 0.0
+            metres += max(0.0, trace["p"][b] - trace["p"][a]) * length_m
+        elif start is not None:
+            out.append((start, a, metres))
+            start = None
+    if start is not None:
+        out.append((start, idx[-1], metres))
+    return out
+
+
+def _before(model: TrackModel, p: float) -> str:
+    nxt = model.next_corner(p)
+    return f"before {nxt[0].label}" if nxt else ""
+
+
+def analyse_systems(trace: dict[str, list[float]], model: TrackModel, profile: dict[str, Any] | None) -> dict[str, Any]:
+    """Battery and DRS use on one lap, with plain-English notes. Only for
+    systems the car has (``profile``) and the trace recorded."""
+    out: dict[str, Any] = {"drs": None, "battery": None, "notes": []}
+    view = LapView(trace)
+    if not view or not profile:
+        return out
+    idx, L = view.idx, model.length_m or 1.0
+    tr = trace
+
+    if profile.get("drs") and "drs" in tr and any(v >= 1 for v in tr["drs"]):
+        open_m = sum(m for _, _, m in _runs(tr, idx, L, lambda i: tr["drs"][i] >= 2))
+        missed = []
+        for a, b, m in _runs(tr, idx, L, lambda i: tr["drs"][i] == 1 and tr["gas"][i] >= 0.95):
+            if m >= DRS_MISSED_M:
+                missed.append({"start_p": tr["p"][a], "end_p": tr["p"][b], "metres": round(m), "near": _before(model, tr["p"][b])})
+        out["drs"] = {"open_m": round(open_m), "missed": missed}
+        for x in missed:
+            out["notes"].append(f"DRS was available but not opened for {x['metres']} m {x['near']}.".replace("  ", " "))
+
+    if profile.get("battery") and "batt" in tr and max(tr["batt"][i] for i in idx) > 0:
+        empty = []
+        for a, b, m in _runs(tr, idx, L, lambda i: tr["batt"][i] <= EMPTY and tr["gas"][i] >= 0.9):
+            if m >= BATTERY_EMPTY_M:
+                empty.append({"start_p": tr["p"][a], "end_p": tr["p"][b], "metres": round(m), "near": _before(model, tr["p"][b])})
+        start, end = tr["batt"][idx[0]], tr["batt"][idx[-1]]
+        out["battery"] = {
+            "start": round(start, 3),
+            "end": round(end, 3),
+            "min": round(min(tr["batt"][i] for i in idx), 3),
+            "empty": empty,
+        }
+        for x in empty:
+            out["notes"].append(
+                f"Battery ran out for {x['metres']} m {x['near']}: nothing left to deploy there.".replace("  ", " ")
+            )
+        if not empty and end >= 0.5 and start - end < 0.1:
+            out["notes"].append(f"Finished the lap with {round(end * 100)}% battery: there's energy left to deploy.")
+    return out

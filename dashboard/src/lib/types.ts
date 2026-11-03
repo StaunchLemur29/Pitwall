@@ -225,6 +225,37 @@ export interface CornerReport {
   track_key: string | null;
   live: boolean;
   theoretical_best_ms: number | null;
+  /** Battery and DRS use on this lap (cars that have them). */
+  systems: Systems | null;
+  /** e.g. ["ABS (12)", "TC (8)", "DRS", "ERS (4 deploy modes)"] */
+  car_systems: string[];
+}
+
+export interface SystemsRun {
+  start_p: number;
+  end_p: number;
+  metres: number;
+  near: string;
+}
+
+export interface Systems {
+  drs: { open_m: number; missed: SystemsRun[] } | null;
+  battery: { start: number; end: number; min: number; empty: SystemsRun[] } | null;
+  notes: string[];
+}
+
+/** Which systems the current car has. */
+export interface CarProfile {
+  abs: boolean;
+  abs_levels: number | null;
+  tc: boolean;
+  tc_levels: number | null;
+  brake_bias: boolean;
+  drs: boolean;
+  battery: boolean;
+  ers: boolean;
+  deploy_modes: number | null;
+  engine_brake_maps: number | null;
 }
 
 export type WidgetId =
@@ -327,7 +358,11 @@ export type ServerEvent =
       track: TrackGeometry | null;
       corners: CornerReport | null;
       drill: Drill | null;
+      car_profile: CarProfile | null;
+      car_systems: string[];
     }
+  | { type: "car_profile"; car_profile: CarProfile; summary: string[] }
+  | { type: "notice"; text: string }
   | { type: "session"; session: SessionInfo | null }
   | { type: "mode"; mode: Mode }
   | { type: "lap"; lap: LapSummary; new_best: boolean }

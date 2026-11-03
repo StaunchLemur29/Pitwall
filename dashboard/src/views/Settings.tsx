@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { cancelBinding, inputDevices, resetConfig, saveConfig, startBinding, useRig } from "../lib/rig";
 import type { Binding, Config, WidgetId, WidgetSlot } from "../lib/types";
 import { WIDGETS } from "../widgets";
@@ -101,6 +101,20 @@ export function Settings() {
       )}
       </div>
     </div>
+  );
+}
+
+function CarSystemsHeading() {
+  const systems = useRig((s) => s.carSystems);
+  return (
+    <>
+      <h2>Car systems</h2>
+      <p className="field__hint">
+        Bind these to SF1000 encoders or buttons. Pitwall applies them through the in-game app, so it needs to be running.
+        Each one only does something if the car has that system.
+        {systems.length ? ` This car: ${systems.join(" · ")}.` : ""}
+      </p>
+    </>
   );
 }
 
@@ -469,7 +483,9 @@ function Controls({
         const binds = draft.bindings[action] ?? [];
         const waiting = bindingAction === action;
         return (
-          <div key={action} className="bind">
+          <Fragment key={action}>
+          {action === "abs_up" && <CarSystemsHeading />}
+          <div className="bind">
             <div className="bind__label">{label}</div>
             <ul className="bind__list">
               {binds.map((b, i) => (
@@ -508,6 +524,7 @@ function Controls({
               />
             </div>
           </div>
+          </Fragment>
         );
       })}
     </div>

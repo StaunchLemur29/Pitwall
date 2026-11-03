@@ -2230,3 +2230,23 @@ select {
 .brakebar--now .brakebar__fill {
   background: var(--bad);
 }
+
+/* car systems notes in the analysis */
+.sysnotes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sysnotes__car {
+  color: var(--muted);
+  font-size: max(12px, calc(var(--u) * 1.7));
+}
+
+.sysnotes__note {
+  background: var(--card-2);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: max(13px, calc(var(--u) * 1.8));
+  line-height: 1.4;
+}

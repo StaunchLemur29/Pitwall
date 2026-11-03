@@ -36,6 +36,8 @@ export interface RigState {
   lastAttempt: (Attempt & { at: number }) | null;
   stopped: boolean;
   retry: { state: string; at: number } | null;
+  carSystems: string[];
+  notice: { text: string; at: number } | null;
 }
 
 const initial: RigState = {
@@ -59,6 +61,8 @@ const initial: RigState = {
   lastAttempt: null,
   stopped: false,
   retry: null,
+  carSystems: [],
+  notice: null,
 };
 
 type Listener = () => void;
@@ -150,8 +154,15 @@ class RigStore {
           startedAt: e.started_at,
           laps: e.recent_laps,
           track: e.track,
+          carSystems: e.car_systems ?? [],
         });
         if (e.corners) this.setCorners(e.corners);
+        break;
+      case "car_profile":
+        this.set({ carSystems: e.summary });
+        break;
+      case "notice":
+        this.set({ notice: { text: e.text, at: Date.now() } });
         break;
       case "track":
         this.set({ track: e.track });

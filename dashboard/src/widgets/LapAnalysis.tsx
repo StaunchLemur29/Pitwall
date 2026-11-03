@@ -9,7 +9,7 @@ import type { CornerLap, CornerReport, LapSummary, TrackGeometry } from "../lib/
 import { CornerDetail } from "./CornerDetail";
 import { Card, useSize } from "./common";
 
-type Mode = "phase" | "speed" | "delta" | "grade";
+type Mode = "phase" | "speed" | "delta" | "grade" | "systems";
 const MODES: [Mode, string][] = [
   ["delta", "Gain / loss"],
   ["phase", "Brake / coast / throttle"],
@@ -219,15 +219,29 @@ export function LapAnalysis({
     );
   };
 
+  const hasSystems = !!(report?.systems?.drs || report?.systems?.battery);
+  const modeList: [Mode, string][] = hasSystems ? [...MODES, ["systems", "Battery & DRS"]] : MODES;
   const modes = (
     <div className="la__modes" role="tablist">
-      {MODES.map(([m, l]) => (
+      {modeList.map(([m, l]) => (
         <button key={m} className={`chipbtn ${mode === m ? "chipbtn--on" : ""}`} onClick={() => setMode(m)}>
           {l}
         </button>
       ))}
     </div>
   );
+
+  const systemNotes = report?.systems?.notes ?? [];
+  const systemsBlock =
+    report && (systemNotes.length > 0 || report.car_systems?.length) ? (
+      <div className="sysnotes">
+        <div className="chapters__title">Car systems</div>
+        {report.car_systems?.length ? <div className="sysnotes__car">{report.car_systems.join(" · ")}</div> : null}
+        {systemNotes.map((n) => (
+          <div key={n} className="sysnotes__note">{n}</div>
+        ))}
+      </div>
+    ) : null;
 
   const list = (
     <div className="la__list">
@@ -261,6 +275,7 @@ export function LapAnalysis({
           {losses.map(({ c }) => chip(c!.number, true))}
         </>
       )}
+      {!wide && systemsBlock}
       <div className="chapters__title">Sections{wide ? " · click a corner for the detail" : ""}</div>
       {(report?.practice?.length ? report.practice : g.practice).map((ps) => {
         const d = ps.time_s != null && ps.ref_s != null ? ps.time_s - ps.ref_s : null;
@@ -322,6 +337,7 @@ export function LapAnalysis({
         <div className="la la--wide">
           <div className="la__left">
             {summary}
+            {systemsBlock}
             {modes}
             <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />
             <Legend mode={mode} label={label} />
@@ -391,6 +407,11 @@ function Legend({ mode, label }: { mode: Mode; label: string | null }) {
       ["#3ddc84", `gaining on ${label ?? "the other lap"}`],
       ["#8b94a1", "even"],
       ["#ff5252", "losing"],
+    ],
+    systems: [
+      ["#3ddc84", "DRS open"],
+      ["#ff5252", "battery empty on the power"],
+      ["hsl(212 70% 60%)", "battery (darker = lower)"],
     ],
     grade: [
       ["#3ddc84", "within 0.05 s of your best ever"],
@@ -486,6 +507,14 @@ function colourSegments(tr: Trace, ref: Trace | null, mode: Mode, g: TrackGeomet
         const j = Math.min(n - 1, i + 45); // ~1.5 s ahead at 30 Hz
         const rate = d[j] - d[i];
         return rate < -0.03 ? "#3ddc84" : rate > 0.03 ? "#ff5252" : "#8b94a1";
+      }
+      case "systems": {
+        // DRS open in green, an empty battery while on the power in red,
+        // otherwise blue that's darker the lower the battery.
+        if ((tr.drs?.[i] ?? 0) >= 2) return "#3ddc84";
+        const b = tr.batt?.[i] ?? 0;
+        if (b <= 0.02 && tr.gas[i] >= 0.9) return "#ff5252";
+        return `hsl(212 70% ${Math.round(22 + 46 * b)}%)`;
       }
       case "grade": {
         const p = tr.p[i];

@@ -216,6 +216,12 @@ class AssettoCorsaAdapter(GameAdapter):
             world=self._note_world(gfx, now),
             world_t=self._world_t,
             session_time_left_s=left / 1000.0 if left > 0 else None,
+            drs_available=bool(phys.drsAvailable),
+            drs_open=bool(phys.drsEnabled) or float(phys.drs) > 0.5,
+            battery=float(phys.kersCharge),
+            ers_deploy=int(phys.ersPowerLevel),
+            ers_recovery=int(phys.ersRecoveryLevel),
+            engine_brake=int(phys.engineBrake),
             position=int(gfx.position),
         )
 
@@ -243,6 +249,11 @@ class AssettoCorsaAdapter(GameAdapter):
                     max_fuel_l=float(st.maxFuel),
                     sector_count=int(st.sectorCount),
                     player_name=_player_name(decode_wstr(st.playerName), decode_wstr(st.playerSurname)),
+                    has_drs=bool(st.hasDRS),
+                    has_ers=bool(st.hasERS),
+                    has_kers=bool(st.hasKERS),
+                    engine_brake_maps=int(st.engineBrakeSettingsCount),
+                    ers_power_modes=int(st.ersPowerControllerCount),
                 )
         if self._static is not None:
             self._static.session_type = self._session_type

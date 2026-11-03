@@ -137,6 +137,8 @@ class DemoAdapter(GameAdapter):
         self._packet = 0
         self._fuel = 60.0
         self._bb = 0.58
+        self._batt = 1.0  # the demo car is a hybrid with DRS, to exercise those features
+        self._drs_open = False
         self._new_lap_variation()
 
     # -- simulation ---------------------------------------------------------
@@ -145,6 +147,7 @@ class DemoAdapter(GameAdapter):
         # Driver pace for this lap (0.97..1.0 of the limit), plus a few "mistakes".
         self._pace = self._rng.uniform(0.95, 0.995)
         self._cut_at = self._rng.uniform(0.2, 0.9) if self._rng.random() < 0.15 else None
+        self._skip_drs = self._rng.random() < 0.3  # some laps "forget" to open DRS
 
     def _step(self, dt: float) -> None:
         if self._pit_left > 0:
@@ -156,8 +159,10 @@ class DemoAdapter(GameAdapter):
         target = min(target, ahead + 3)
         if self._v < target:
             self._v = min(target, self._v + A_ACCEL * dt)
+            self._batt = max(0.0, self._batt - 0.075 * dt)  # deploying
         else:
             self._v = max(target, self._v - A_BRAKE * dt)
+            self._batt = min(1.0, self._batt + 0.08 * dt)  # harvesting under braking
         self._dist += self._v * dt
         self._lap_t += dt
         self._fuel = max(0.0, self._fuel - self._v * dt * 0.0003)
@@ -193,6 +198,8 @@ class DemoAdapter(GameAdapter):
         )
         gas = 0.0 if braking else (1.0 if self._v < target - 0.5 else 0.6)
         brake = min(1.0, 0.4 + (self._v - target) / 15) if braking else 0.0
+        if self._drs_zone(progress := self._dist / self.track.length) and not braking:
+            gas = 1.0  # flat out down the straight
         if self._pit_left > 0:
             gas = brake = 0.0
         gear = next((g for g, top in enumerate(GEAR_TOP_SPEEDS) if g and self._v <= top), 6)
@@ -235,7 +242,16 @@ class DemoAdapter(GameAdapter):
             world=(x, 0.0, z),
             velocity=self._velocity(idx),
             position=1,
+            drs_available=self._drs_zone(progress),
+            drs_open=self._drs_zone(progress) and gas >= 1.0 and not braking and not self._skip_drs,
+            battery=round(self._batt, 3),
+            ers_deploy=2,
+            ers_recovery=5,
+            engine_brake=3,
         )
+
+    def _drs_zone(self, progress: float) -> bool:
+        return self._pit_left <= 0 and 0.02 <= progress <= 0.2
 
     def track_model(self, session: SessionInfo):
         from ..tracks.ac_files import Section, TrackLine
@@ -272,4 +288,8 @@ class DemoAdapter(GameAdapter):
             max_fuel_l=100.0,
             sector_count=3,
             player_name="Demo Driver",
+            has_drs=True,
+            has_ers=True,
+            engine_brake_maps=5,
+            ers_power_modes=4,
         )

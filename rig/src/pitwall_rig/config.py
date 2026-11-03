@@ -39,6 +39,29 @@ ACTIONS: dict[str, str] = {
     "open_analysis": "Open analysis on the main screen",
     "rewind": "Rewind (hold) — during a drill: back to the section start",
     "retry_drill": "Retry the drill (rewinds to just before the section)",
+    # The car's systems (applied by the in-game app; only does something if the car has it).
+    "abs_up": "ABS up",
+    "abs_down": "ABS down",
+    "tc_up": "TC up",
+    "tc_down": "TC down",
+    "bb_forward": "Brake bias forward (+0.5 %)",
+    "bb_back": "Brake bias back (-0.5 %)",
+    "deploy_up": "ERS deploy mode up",
+    "deploy_down": "ERS deploy mode down",
+    "recovery_up": "ERS recovery up",
+    "recovery_down": "ERS recovery down",
+    "engine_brake_up": "Engine braking map up",
+    "engine_brake_down": "Engine braking map down",
+}
+
+#: Car-system actions -> (what the in-game app adjusts, step).
+CAR_ACTIONS: dict[str, tuple[str, int]] = {
+    "abs_up": ("abs", 1), "abs_down": ("abs", -1),
+    "tc_up": ("tc", 1), "tc_down": ("tc", -1),
+    "bb_forward": ("bb", 1), "bb_back": ("bb", -1),
+    "deploy_up": ("deploy", 1), "deploy_down": ("deploy", -1),
+    "recovery_up": ("recovery", 1), "recovery_down": ("recovery", -1),
+    "engine_brake_up": ("engine_brake", 1), "engine_brake_down": ("engine_brake", -1),
 }
 
 

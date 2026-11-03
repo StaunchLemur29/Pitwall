@@ -21,6 +21,8 @@ TRACE_CHANNELS = (
     "steer",
     "gear",
     "rpm",
+    "batt",  # battery charge 0..1 (0 for cars without one)
+    "drs",  # 0 = closed / not available, 1 = available, 2 = open
 )
 
 
@@ -55,6 +57,8 @@ class _LapBuffer:
         tr["steer"].append(round(f.steer, 4))
         tr["gear"].append(f.gear)
         tr["rpm"].append(f.rpm)
+        tr["batt"].append(round(f.battery, 3) if f.battery is not None else 0.0)
+        tr["drs"].append(2 if f.drs_open else 1 if f.drs_available else 0)
         self.max_tyres_out = max(self.max_tyres_out, f.tyres_out)
         if f.sector != self.last_sector:
             # crossed into a new sector: time of the previous ones so far

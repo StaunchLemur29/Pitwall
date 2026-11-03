@@ -134,6 +134,19 @@ class Store:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    # -- car profiles (which systems each car has), kept in the meta table --
+
+    def car_profile(self, game: str, car: str) -> dict[str, Any] | None:
+        row = self._db.execute("SELECT value FROM meta WHERE key=?", (f"car_profile:{game}:{car}",)).fetchone()
+        return json.loads(row["value"]) if row else None
+
+    def set_car_profile(self, game: str, car: str, profile: dict[str, Any]) -> None:
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                (f"car_profile:{game}:{car}", json.dumps(profile)),
+            )
+
     def lap(self, lap_id: int) -> dict[str, Any] | None:
         row = self._db.execute(
             """SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap,

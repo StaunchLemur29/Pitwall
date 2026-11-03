@@ -64,6 +64,12 @@ class SessionInfo:
     max_fuel_l: float = 0.0
     sector_count: int = 0
     player_name: str = ""
+    # The car's systems, as the game reports them (see car_profile.py).
+    has_drs: bool = False
+    has_ers: bool = False  # hybrid energy recovery (MGU-K / MGU-H)
+    has_kers: bool = False  # simple KERS boost button
+    engine_brake_maps: int = 0
+    ers_power_modes: int = 0
 
     @property
     def track_key(self) -> str:
@@ -124,6 +130,14 @@ class Frame:
     world_t: float | None = None  # rig-clock time the game last moved ``world`` (for precise prediction)
     session_time_left_s: float | None = None
     position: int = 0
+
+    # car systems (None when the game doesn't report them)
+    drs_available: bool = False  # in a DRS zone and allowed to open it
+    drs_open: bool = False
+    battery: float | None = None  # hybrid / KERS charge, 0..1
+    ers_deploy: int | None = None  # ERS power (deploy) mode
+    ers_recovery: int | None = None
+    engine_brake: int | None = None
 
     def to_wire(self) -> dict[str, Any]:
         """Compact dict for the dashboard websocket."""

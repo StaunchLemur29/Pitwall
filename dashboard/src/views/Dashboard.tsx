@@ -16,6 +16,13 @@ export function Dashboard() {
   const session = useRig((s) => s.session);
   const status = useRig((s) => s.live.frame?.status ?? "off");
   const stopped = useRig((s) => s.stopped);
+  const notice = useRig((s) => s.notice);
+  const [, rerender] = useState(0);
+  useEffect(() => {
+    if (!notice) return;
+    const id = setTimeout(() => rerender((n) => n + 1), 4100); // let it expire
+    return () => clearTimeout(id);
+  }, [notice]);
   // The drill card shrinks to a slim strip while no drill is running.
   const drilling = useRig((s) => !!s.live.track?.drill);
   const layoutMode: Exclude<Mode, "idle"> = mode === "driving" ? "driving" : "analysis";
@@ -55,7 +62,9 @@ export function Dashboard() {
         ? "Paused"
         : status === "replay"
           ? "Replay"
-          : null;
+          : notice && Date.now() - notice.at < 4000
+            ? notice.text
+            : null;
 
   return (
     <div className={`dash dash--${mode}`}>
