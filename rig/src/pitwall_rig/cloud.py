@@ -238,7 +238,8 @@ class CloudSync:
         except CloudError as e:
             msg = str(e)
             if ("column" in msg and "schema cache" in msg) or "no unique or exclusion constraint" in msg:
-                msg = "Your Supabase tables are out of date: run cloud/schema.sql again in the SQL Editor."
+                msg = ("Your Supabase tables are out of date: run 'Apply database schema' from GitHub → Actions "
+                       "(or paste cloud/schema.sql into the SQL Editor).")
             self.state, self.error = "error", msg
             log.warning("Cloud sync: %s", e)
         return sent

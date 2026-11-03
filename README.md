@@ -117,8 +117,20 @@ Vercel. One-time setup:
 It redeploys by itself whenever `main` changes on GitHub. Run it locally with
 `npm run dev:hub` (in `dashboard`, with the two variables set).
 
-If Pitwall's Settings → Cloud ever says the tables are out of date, run
-`cloud/schema.sql` again in the SQL Editor (safe to repeat).
+**Database updates apply themselves.** When a change to `cloud/schema.sql`
+reaches `main`, a GitHub Action applies it to your Supabase database. One-time
+setup:
+
+1. In Supabase, click **Connect** (top of the project), choose **Session
+   pooler** and copy the URI. Put your database password in place of
+   `[YOUR-PASSWORD]` (forgotten it? **Project Settings → Database → Reset
+   database password**).
+2. On GitHub: the Pitwall repository → **Settings → Secrets and variables →
+   Actions → New repository secret**. Name `SUPABASE_DB_URL`, value the URI.
+3. **Actions → Apply database schema → Run workflow** once, to check it works.
+
+If Pitwall's Settings → Cloud ever says the tables are out of date, check
+that the Action ran (GitHub → Actions), or run it again from there.
 
 ### AI debrief
 
