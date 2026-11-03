@@ -202,3 +202,28 @@ def test_corner_report_compares_with_the_best_lap(demo, clock, config, store):
     best = rig.reference.lap_id
     rep = rig.corner_report(best)
     assert rep["compare_lap_id"] not in (None, best)
+
+
+def test_braking_point_moves_with_approach_speed(demo):
+    m = demo_model(demo)
+    ts = TrackState(m)
+    # Reference: 200 km/h everywhere on the approach, braking 100 m before the
+    # slowest point (100 km/h).
+    n = 4000
+    trace = {"p": [i / n for i in range(n)], "t": [i / n * 60 for i in range(n)], "speed": [200.0] * n}
+    ts.ref_view = __import__("pitwall_rig.analysis", fromlist=["LapView"]).LapView(trace)
+    L = m.length_m
+    ref = {"brake_p": 0.5, "min_speed_p": 0.5 + 100 / L, "entry_kmh": 200.0, "min_speed_kmh": 100.0}
+
+    def settle(speed):
+        ts._shift_corner = None
+        for _ in range(60):
+            s = ts._speed_shift(1, ref, 0.45, speed)
+        return s
+
+    assert abs(settle(200)) < 0.5  # same speed: same braking point
+    faster = settle(210)  # 10 km/h quicker: brake earlier
+    slower = settle(185)
+    assert 10 < faster < 20  # (210²-100²)/(200²-100²) × 100 m ≈ 114 m
+    assert -30 < slower < -15
+    assert abs(settle(300) - 50) < 0.01  # capped at half the braking distance

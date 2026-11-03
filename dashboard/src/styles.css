@@ -1277,7 +1277,8 @@ select {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-right: 4px;
+  /* room for the selected corner's outline, which the scroll area would clip */
+  padding: 2px 4px 2px 2px;
 }
 
 .crow {

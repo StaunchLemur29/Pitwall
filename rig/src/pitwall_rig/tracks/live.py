@@ -115,6 +115,8 @@ class TrackState:
         self._prev_t: float | None = None
         self._prev_lap: tuple[int, int] | None = None  # (lap, lap_time_ms)
         self.yaw = YawCalibrator()
+        self._shift_corner: int | None = None  # corner the braking-point shift belongs to
+        self._shift = 0.0  # metres earlier (+) than the reference braking point
         self.on_attempt = lambda attempt: None  # set by the rig to persist attempts
 
     # -- references -----------------------------------------------------------
@@ -226,6 +228,8 @@ class TrackState:
                 brake_in = ((ref["brake_p"] - p) % 1.0) * m.length_m
                 if brake_in > dist + 400:  # already past the braking point
                     brake_in = None
+                else:
+                    brake_in -= self._speed_shift(c.number, ref, p, f.speed_kmh)
             mast = self.mastery.get(c.number, {})
             out["corner"] = {
                 **c.to_dict(),
@@ -243,6 +247,33 @@ class TrackState:
         self._prev_p, self._prev_t = p, f.t
         self._prev_lap = (f.lap, f.lap_time_ms)
         return out
+
+    def _speed_shift(self, corner: int, ref: dict[str, Any], p: float, speed_kmh: float) -> float:
+        """How much earlier (+) or later (-) to brake than on your reference lap,
+        given how fast you're arriving.
+
+        Takes the reference lap's braking (from its speed at the brake point
+        down to its slowest point, over the distance it used) as how hard the
+        car can brake, then works out the distance your speed needs. Your speed
+        at the braking point is predicted as the reference's plus the gap you
+        have to it right now, so it settles as you get closer.
+        """
+        if self._shift_corner != corner:
+            self._shift_corner, self._shift = corner, 0.0
+        v = self.ref_view
+        ve, vmin, bp, mp = ref.get("entry_kmh"), ref.get("min_speed_kmh"), ref.get("brake_p"), ref.get("min_speed_p")
+        if not v or ve is None or vmin is None or bp is None or mp is None or ve - vmin < 15:
+            return self._shift
+        d_ref = ((mp - bp) % 1.0) * self.model.length_m
+        if not 5 < d_ref < 600:
+            return self._shift
+        ref_now = v.trace["speed"][v.at(p)]
+        vb = max(vmin + 1, ve + (speed_kmh - ref_now))  # your predicted speed at the brake point
+        d_you = d_ref * (vb**2 - vmin**2) / (ve**2 - vmin**2)
+        limit = min(80.0, 0.5 * d_ref)
+        target = max(-limit, min(limit, d_you - d_ref))
+        self._shift += (target - self._shift) * 0.2  # smooth out pedal/speed noise
+        return self._shift
 
     def _game_dt(self, f: Frame) -> float:
         """Time since the last frame by the game's own lap clock (so pauses and
