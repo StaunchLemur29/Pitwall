@@ -174,57 +174,97 @@ function script.update(dt)
 end
 
 -- -- the window ----------------------------------------------------------------
+-- Transparent and empty most of the time: the brake point (and the corner it's
+-- for) fade in as you approach, then disappear once you're past it.
 
-local WHITE = rgbm(0.93, 0.94, 0.95, 1)
-local GREY = rgbm(0.55, 0.58, 0.63, 1)
+local settings = ac.storage({
+  showBrake = true, -- the brake countdown
+  showCorner = true, -- the upcoming turn
+  showDrill = true, -- short drill messages ("retry ready", "Go!")
+  showFromM = 300, -- how far before the braking point it appears
+})
+local preview = false -- settings: show sample content to position the window
+
+local WHITE = rgbm(0.95, 0.96, 0.97, 1)
+local GREY = rgbm(0.75, 0.78, 0.82, 1)
 local RED = rgbm(1, 0.32, 0.32, 1)
 local ORANGE = rgbm(1, 0.35, 0.21, 1)
-local TRACK_BG = rgbm(1, 1, 1, 0.08)
+local alpha = 0 -- fades in and out
+local lastShown = { corner = nil, brake = nil }
+local wasReady = false
+
+local function withAlpha(c, a) return rgbm(c.r, c.g, c.b, c.mult * a) end
+
+local function outlined(text, size, colour, bold)
+  if bold then ui.pushDWriteFont('@System;Weight=Bold') end
+  ui.beginOutline()
+  ui.dwriteText(text, size, colour)
+  ui.endOutline(rgbm(0, 0, 0, 0.85 * alpha))
+  if bold then ui.popDWriteFont() end
+end
+
+local function cornerLine(c)
+  local bits = { c.dir .. c.grade .. '  ' .. c.label }
+  if c.gear then bits[#bits + 1] = 'gear ' .. c.gear end
+  if c.min_kmh then bits[#bits + 1] = string.format('%d km/h', math.floor(c.min_kmh + 0.5)) end
+  return table.concat(bits, '  ·  ')
+end
 
 function script.windowMain(dt)
   local w = ui.windowWidth()
-  if not connected then
-    ui.dwriteText('Pitwall isn’t running', 16, GREY)
-    ui.dwriteText('Start it with scripts\\start.bat', 13, GREY)
-    return
-  end
-  if not track then
-    ui.dwriteText('Waiting for the track layout…', 15, GREY)
-    return
-  end
-
-  local p = car.splinePosition
-  local c, dist = nextCorner(p)
-  if c then
-    ui.pushDWriteFont('@System;Weight=Bold')
-    ui.dwriteText(c.dir .. c.grade .. '  ' .. c.label, 24, WHITE)
-    ui.popDWriteFont()
-    local bits = {}
-    if dist and dist > 0 then bits[#bits + 1] = string.format('%d m', math.floor(dist + 0.5)) else bits[#bits + 1] = 'in corner' end
-    if c.gear then bits[#bits + 1] = 'gear ' .. c.gear end
-    if c.min_kmh then bits[#bits + 1] = string.format('%d km/h', math.floor(c.min_kmh + 0.5)) end
-    ui.dwriteText(table.concat(bits, '  ·  '), 15, GREY)
-
-    local b = dist and dist > 0 and brakeIn(c, p, car.speedKmh) or nil
-    if b and b > -5 and b < SHOW_BRAKE_M then
-      local soon = b < 120
-      ui.pushDWriteFont('@System;Weight=Bold')
-      ui.dwriteText(string.format('Brake in %d m', math.max(0, math.floor(b + 0.5))), 20, soon and RED or WHITE)
-      ui.popDWriteFont()
-      local y = ui.getCursorY() + 2
-      local frac = math.max(0, math.min(1, 1 - b / SHOW_BRAKE_M))
-      ui.drawRectFilled(vec2(8, y), vec2(w - 8, y + 8), TRACK_BG, 4)
-      ui.drawRectFilled(vec2(8, y), vec2(8 + (w - 16) * frac, y + 8), soon and RED or GREY, 4)
-      ui.dummy(vec2(w - 16, 12))
+  local show, c, b = false, nil, nil
+  if preview then
+    show, c, b = true, { dir = 'R', grade = 3, label = 'Pouhon', gear = 3, min_kmh = 165 }, 140
+  elseif connected and track then
+    local p = car.splinePosition
+    local cc, dist = nextCorner(p)
+    if cc and dist and dist > 0 then
+      local bb = brakeIn(cc, p, car.speedKmh)
+      if bb and bb > -5 and bb < settings.showFromM then show, c, b = true, cc, bb end
     end
   end
+  if show then lastShown.corner, lastShown.brake = c, b end
+  alpha = math.max(0, math.min(1, alpha + (show and 6 or -3) * dt))
 
-  if drill then
-    local ready = launch and launch.key == drill.key
-    ui.dwriteText('Drill: ' .. drill.name .. (ready and '  ·  retry ready' or '  ·  drive through once'), 13,
-      ready and ORANGE or GREY)
+  -- Drill: say once when the run-up is saved, then keep quiet.
+  local ready = drill and launch and launch.key == drill.key or false
+  if ready and not wasReady and settings.showDrill then say('Retry ready: ' .. drill.name, 2.5) end
+  wasReady = ready
+
+  if alpha > 0 and lastShown.corner then
+    local cc, bb = lastShown.corner, lastShown.brake
+    if settings.showCorner then outlined(cornerLine(cc), 18, withAlpha(GREY, alpha), false) end
+    if settings.showBrake and bb then
+      local soon = bb < 120
+      outlined(string.format('Brake  %d m', math.max(0, math.floor(bb + 0.5))), 30,
+        withAlpha(soon and RED or WHITE, alpha), true)
+      local y = ui.getCursorY() + 2
+      local frac = math.max(0, math.min(1, 1 - bb / settings.showFromM))
+      ui.drawRectFilled(vec2(8, y), vec2(w - 8, y + 6), rgbm(0, 0, 0, 0.45 * alpha), 3)
+      ui.drawRectFilled(vec2(8, y), vec2(8 + (w - 16) * frac, y + 6), withAlpha(soon and RED or WHITE, alpha), 3)
+      ui.dummy(vec2(w - 16, 10))
+    end
   end
-  if flash.text and os.preciseClock() < flash.untilT then
-    ui.dwriteText(flash.text, 15, ORANGE)
+  if settings.showDrill and flash.text and os.preciseClock() < flash.untilT then
+    local a0 = alpha
+    alpha = 1
+    outlined(flash.text, 16, ORANGE, true)
+    alpha = a0
   end
+end
+
+function script.windowSettings(dt)
+  if connected then
+    ui.textColored('Connected to Pitwall', rgbm(0.24, 0.86, 0.52, 1))
+  else
+    ui.textColored('Pitwall isn\'t running: start scripts\\start.bat', RED)
+  end
+  if track == nil and connected then ui.text('Waiting for the track layout…') end
+  ui.separator()
+  if ui.checkbox('Show the brake point', settings.showBrake) then settings.showBrake = not settings.showBrake end
+  if ui.checkbox('Show the upcoming turn', settings.showCorner) then settings.showCorner = not settings.showCorner end
+  if ui.checkbox('Show drill messages', settings.showDrill) then settings.showDrill = not settings.showDrill end
+  settings.showFromM = ui.slider('##from', settings.showFromM, 100, 600, 'Appear %.0f m before braking', 1)
+  ui.separator()
+  if ui.checkbox('Preview (to position the window)', preview) then preview = not preview end
 end

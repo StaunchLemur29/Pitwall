@@ -63,7 +63,8 @@ def main() -> int:
         onCarJumped = function (i, fn) jumped[#jumped + 1] = fn end,
       }
       vec2 = function (x, y) return { x = x, y = y } end
-      rgbm = function (r, g, b, a) return { r, g, b, a } end
+      rgbm = function (r, g, b, a) return { r = r, g = g, b = b, mult = a } end
+      ac.storage = function (defaults) return defaults end
       script = {}
     """)
     g.JSON = to_lua({})
@@ -95,8 +96,12 @@ def main() -> int:
     ui = to_lua({})
     ui.windowWidth = lambda: 360
     ui.getCursorY = lambda: 0
-    for name in ("pushDWriteFont", "popDWriteFont", "drawRectFilled", "dummy"):
+    for name in ("pushDWriteFont", "popDWriteFont", "drawRectFilled", "dummy", "beginOutline", "endOutline",
+                 "separator", "text"):
         ui[name] = lambda *a: None
+    ui.textColored = lambda text, colour: state["texts"].append(text)
+    ui.checkbox = lambda label, value: False
+    ui.slider = lambda label, value, lo, hi, fmt, power: value
     ui.dwriteText = lambda text, size, colour: state["texts"].append(text)
     g.ui = ui
 
@@ -125,6 +130,7 @@ def main() -> int:
 
     # Drive a lap: the overlay should name corners and count down to braking.
     seen_corner = seen_brake = False
+    quiet_frames = 0
     p = 0.0
     while p < 1.0:
         g.car.splinePosition = p
@@ -133,12 +139,17 @@ def main() -> int:
         script.windowMain(1 / 60)
         texts = list(state["texts"])
         seen_corner |= any(t[:2] in ("L1", "L2", "L3", "L4", "L5", "L6", "R1", "R2", "R3", "R4", "R5", "R6") for t in texts)
-        seen_brake |= any(t.startswith("Brake in") for t in texts)
+        seen_brake |= any(t.startswith("Brake ") for t in texts)
+        quiet_frames += not texts
         p += 20 / track["length_m"]
         if int(p * 1000) % 50 == 0:
             tick()
     check("overlay shows the next corner", seen_corner)
     check("overlay shows the brake countdown near braking points", seen_brake)
+    check("overlay stays empty away from braking points", quiet_frames > 10, str(quiet_frames))
+    state["texts"].clear()
+    script.windowSettings(1 / 60)
+    check("settings window says it's connected", "Connected to Pitwall" in state["texts"], str(state["texts"]))
 
     status, live = http("GET", RIG + "/api/corners")
     # Real ABS / TC reached the service.

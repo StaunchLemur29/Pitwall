@@ -2205,8 +2205,17 @@ select {
   justify-content: flex-start;
 }
 
-.la__pickers {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: calc(var(--u) * -0.4);
+/* vertical screen: car + track as a quiet line under the title */
+.la__combo {
+  margin: calc(var(--u) * -0.6) 0 calc(var(--u) * 0.4);
+}
+
+.la__combo .combosel {
+  background: none;
+  border: 0;
+  padding: 0;
+  max-width: 100%;
+  color: var(--muted);
+  font-size: max(13px, calc(var(--u) * 1.8));
+  cursor: pointer;
 }

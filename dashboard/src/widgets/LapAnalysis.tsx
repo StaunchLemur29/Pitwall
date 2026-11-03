@@ -286,17 +286,20 @@ export function LapAnalysis({
     </div>
   );
 
+  const lapPicker = (
+    <select className="lapsel" value={shownId ?? ""} onChange={(e) => setLapId(Number(e.target.value) || null)} aria-label="Lap to analyse">
+      {valid.map((l) => (
+        <option key={l.id} value={l.id}>
+          Lap {l.lap_number} · {lapTime(l.lap_time_ms)}
+          {l.id === report?.reference_lap_id ? " (best)" : ""}
+        </option>
+      ))}
+    </select>
+  );
   const pickers = (
         <span className="lapsels">
           {comboPicker}
-          <select className="lapsel" value={shownId ?? ""} onChange={(e) => setLapId(Number(e.target.value) || null)} aria-label="Lap to analyse">
-            {valid.map((l) => (
-              <option key={l.id} value={l.id}>
-                Lap {l.lap_number} · {lapTime(l.lap_time_ms)}
-                {l.id === report?.reference_lap_id ? " (best)" : ""}
-              </option>
-            ))}
-          </select>
+          {lapPicker}
           <span className="muted">vs</span>
           <select className="lapsel" value={compareId ?? ""} onChange={(e) => setCompareId(Number(e.target.value) || null)} aria-label="Compare with">
             <option value="">{compareId === null && label ? `auto: ${label}` : "auto"}</option>
@@ -313,8 +316,8 @@ export function LapAnalysis({
   );
 
   return (
-    <Card title="Lap analysis" right={wide ? pickers : undefined}>
-      {!wide && <div className="la__pickers">{pickers}</div>}
+    <Card title="Lap analysis" right={wide ? pickers : lapPicker}>
+      {!wide && comboPicker && <div className="la__combo">{comboPicker}</div>}
       {wide ? (
         <div className="la la--wide">
           <div className="la__left">
