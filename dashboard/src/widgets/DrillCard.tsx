@@ -29,7 +29,7 @@ export function DrillCard() {
       <div className="drill">
         <div className="drill__main">
           <div className={`drill__time ${d.running ? "" : "drill__time--idle"}`}>
-            {d.running ? d.elapsed_s.toFixed(1) : last ? secs(last.time_ms) : "ready"}
+            {d.running ? d.elapsed_s.toFixed(1) : last ? secs(last.time_ms) : "drive to it"}
           </div>
           {last && !d.running && (
             <div className={`drill__delta ${last.counted ? "good" : "bad"}`}>

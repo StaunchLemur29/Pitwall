@@ -1544,3 +1544,34 @@ select {
   margin: 4px 0 0 2.4em;
   line-height: 1.4;
 }
+
+.wizcta {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.wiz {
+  background: var(--card);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.wiz h3 {
+  margin: 4px 0 6px;
+  font-size: 20px;
+}
+
+.wiz__step {
+  color: var(--faint);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}

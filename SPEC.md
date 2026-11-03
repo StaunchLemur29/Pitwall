@@ -215,6 +215,7 @@ Standalone tools, recommended during onboarding:
 1. FOV calculator (monitor size/aspect/distance → FOV, seat/camera position)
 2. Wheel/FFB: Thrustmaster Control Panel, AC FFB, CSP FFB tweaks; per-car steering lock & FFB
 3. Controls: deadzones, curves, brake gamma, SF1000 bindings
+   - Hardware walkthroughs per wheel rim / wheelbase / pedal set (e.g. Thrustmaster TS-PC + SF1000), recommended in-game and driver settings
 4. Assists & realism (in guides)
 5. Graphics/performance (CSP + Pure)
 

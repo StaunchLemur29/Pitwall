@@ -380,8 +380,21 @@ function Controls({
   useEffect(() => {
     inputDevices().then(setDevices, () => setDevices(null));
   }, []);
+  const [wizard, setWizard] = useState(false);
   return (
     <div className="panel">
+      {wizard ? (
+        <BindWizard bindingAction={bindingAction} onDone={() => setWizard(false)} />
+      ) : (
+        <div className="wizcta">
+          <div>
+            <b>New here?</b> Bind the most useful actions one by one — press a wheel button for each, or skip it.
+          </div>
+          <button className="btn" disabled={dirty} onClick={() => setWizard(true)}>
+            Set up recommended controls
+          </button>
+        </div>
+      )}
       <p className="muted">
         Bind SF1000 buttons, encoders or a clutch paddle. Keyboard shortcuts work even while the game has focus — handy for
         the rim without spare buttons.
@@ -459,6 +472,83 @@ function Controls({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+const RECOMMENDED: { action: string; title: string; why: string }[] = [
+  { action: "rewind", title: "Rewind", why: "Undo a mistake with Time Shift and try the corner again. The most useful one — a thumb button." },
+  { action: "drill_here", title: "Drill the next corner", why: "Start practising the corner you're approaching, without touching the mouse." },
+  { action: "stop_drill", title: "Stop the drill", why: "Back to normal laps." },
+  { action: "next_page", title: "Next dashboard page", why: "Flip between the driving pages. An encoder click or a spare button." },
+  { action: "open_analysis", title: "Open analysis on the main screen", why: "For when you pull into the pits." },
+  { action: "mark_corner", title: "Mark this spot", why: "Drop a marker where something felt wrong, to look at later." },
+];
+
+/** Steps through RECOMMENDED, waiting for a wheel press on each (or a skip). */
+function BindWizard({ bindingAction, onDone }: { bindingAction: string | null; onDone: () => void }) {
+  const [step, setStep] = useState(0);
+  const [waiting, setWaiting] = useState(false);
+  const [armed, setArmed] = useState(false);
+  const item = RECOMMENDED[step];
+
+  useEffect(() => {
+    if (!item) return;
+    startBinding(item.action).then(() => setWaiting(true));
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The rig sets bindingAction to this action, then clears it once a press
+  // has been captured: only then move on.
+  useEffect(() => {
+    if (!waiting || !item) return;
+    if (bindingAction === item.action) setArmed(true);
+    else if (bindingAction === null && armed) {
+      setWaiting(false);
+      setArmed(false);
+      setStep((s) => s + 1);
+    }
+  }, [bindingAction, waiting, armed, item]);
+
+  if (!item) {
+    return (
+      <div className="wiz">
+        <h3>All set ✓</h3>
+        <p className="muted">You can change any of these below, or add keyboard shortcuts.</p>
+        <button className="btn" onClick={onDone}>
+          Done
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="wiz">
+      <div className="wiz__step">
+        Step {step + 1} of {RECOMMENDED.length}
+      </div>
+      <h3>{item.title}</h3>
+      <p className="muted">{item.why}</p>
+      <p className="pulse">Press the wheel button you want for this…</p>
+      <div className="row">
+        <button
+          className="btn btn--ghost"
+          onClick={async () => {
+            await cancelBinding();
+            setWaiting(false);
+            setArmed(false);
+            setStep((s) => s + 1);
+          }}
+        >
+          Skip
+        </button>
+        <button
+          className="btn btn--ghost"
+          onClick={async () => {
+            await cancelBinding();
+            onDone();
+          }}
+        >
+          Stop
+        </button>
+      </div>
     </div>
   );
 }
