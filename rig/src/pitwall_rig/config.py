@@ -46,9 +46,10 @@ DEFAULTS: dict[str, Any] = {
     "units": {"speed": "kmh", "pressure": "psi", "temperature": "c"},
     "display": {
         "accent": "#ff5a36",
-        "open_browser": False,
-        "browser": "auto",  # auto | edge | chrome
-        "window_x": 1920,  # top-left of the vertical monitor in Windows' desktop coordinates
+        "open_browser": True,
+        "browser": "auto",  # auto (Chrome, then Edge) | chrome | edge
+        "monitor": "auto",  # auto = find the vertical monitor; manual = use window_x/window_y
+        "window_x": 1920,  # manual only: top-left of the monitor in Windows' desktop coordinates
         "window_y": 0,
     },
     "session_timer": {"break_reminder_min": 0},
@@ -99,6 +100,20 @@ def deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def diff_from(base: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for k, v in data.items():
+        if k not in base:
+            out[k] = v
+        elif isinstance(v, dict) and isinstance(base[k], dict) and k != "bindings":
+            sub = diff_from(base[k], v)
+            if sub:
+                out[k] = sub
+        elif v != base[k]:
+            out[k] = v
+    return out
+
+
 class ConfigError(ValueError):
     pass
 
@@ -108,6 +123,8 @@ def validate(cfg: dict[str, Any]) -> list[str]:
     errs: list[str] = []
     if cfg.get("game") not in ("ac", "demo", "replay"):
         errs.append("game must be one of: ac, demo, replay")
+    if cfg.get("display", {}).get("monitor") not in ("auto", "manual"):
+        errs.append("display.monitor must be auto or manual")
     port = cfg.get("server", {}).get("port")
     if not isinstance(port, int) or not 1024 <= port <= 65535:
         errs.append("server.port must be a number between 1024 and 65535")
@@ -151,6 +168,8 @@ class Config:
         errs = validate(self.data)
         if errs:
             raise ConfigError(f"Problems in {path}:\n  - " + "\n  - ".join(errs))
+        if path.exists():
+            self.save()  # tidy older files that stored every default
 
     def __getitem__(self, key: str) -> Any:
         return self.data[key]
@@ -167,7 +186,9 @@ class Config:
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self.data, indent=2), encoding="utf-8")
+        # Only store what differs from the defaults, so improved defaults in
+        # later versions still reach you.
+        tmp.write_text(json.dumps(diff_from(DEFAULTS, self.data), indent=2), encoding="utf-8")
         tmp.replace(self.path)
 
     def reset(self) -> None:

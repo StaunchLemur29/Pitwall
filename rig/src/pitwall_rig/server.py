@@ -160,6 +160,16 @@ async def cancel_bind(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def get_monitors(request: web.Request) -> web.Response:
+    from .monitors import list_monitors, pick_dashboard_monitor
+
+    mons = list_monitors()
+    pick = pick_dashboard_monitor(mons)
+    return web.json_response(
+        {"monitors": [m.to_dict() for m in mons], "auto": pick.to_dict() if pick else None}
+    )
+
+
 async def get_devices(request: web.Request) -> web.Response:
     inp = request.app.get(INPUT_KEY)
     return web.json_response(
@@ -227,6 +237,7 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_post("/api/bind/{action}", post_bind)
     app.router.add_delete("/api/bind", cancel_bind)
     app.router.add_get("/api/input/devices", get_devices)
+    app.router.add_get("/api/monitors", get_monitors)
 
     if static_dir is not None and (static_dir / "index.html").exists():
         index = static_dir / "index.html"

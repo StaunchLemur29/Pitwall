@@ -117,6 +117,7 @@ export interface Config {
     accent: string;
     open_browser: boolean;
     browser: "auto" | "edge" | "chrome";
+    monitor: "auto" | "manual";
     window_x: number;
     window_y: number;
   };

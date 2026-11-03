@@ -143,14 +143,7 @@ function General({ draft, edit }: EditProps) {
           onChange={(e) => edit((c) => (c.display.open_browser = e.target.checked))}
         />
       </Field>
-      <div className="row">
-        <Field label="Monitor left (px)" hint="Its left edge in Windows display settings. Main 1920 wide → 1920.">
-          <input type="number" value={draft.display.window_x} onChange={(e) => edit((c) => (c.display.window_x = Number(e.target.value)))} />
-        </Field>
-        <Field label="Monitor top (px)">
-          <input type="number" value={draft.display.window_y} onChange={(e) => edit((c) => (c.display.window_y = Number(e.target.value)))} />
-        </Field>
-      </div>
+      <MonitorPicker draft={draft} edit={edit} />
       <Field label="Browser">
         <select value={draft.display.browser} onChange={(e) => edit((c) => (c.display.browser = e.target.value as Config["display"]["browser"]))}>
           <option value="auto">Auto (Chrome, then Edge)</option>
@@ -159,6 +152,69 @@ function General({ draft, edit }: EditProps) {
         </select>
       </Field>
     </div>
+  );
+}
+
+interface Mon {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  primary: boolean;
+  portrait: boolean;
+}
+
+function MonitorPicker({ draft, edit }: EditProps) {
+  const [mons, setMons] = useState<{ monitors: Mon[]; auto: Mon | null } | null>(null);
+  useEffect(() => {
+    fetch("/api/monitors")
+      .then((r) => r.json())
+      .then(setMons, () => setMons(null));
+  }, []);
+  const manual = draft.display.monitor === "manual";
+  const label = (m: Mon) =>
+    `${m.width}×${m.height}${m.portrait ? " (vertical)" : ""}${m.primary ? " · main screen" : ""}`;
+  return (
+    <>
+      <Field
+        label="Which monitor"
+        hint={
+          manual
+            ? "Pitwall opens at the position below."
+            : mons?.auto
+              ? `Auto: opens on the ${label(mons.auto)} monitor.`
+              : "Auto: picks your vertical monitor (or any second screen)."
+        }
+      >
+        <select
+          value={manual ? `${draft.display.window_x},${draft.display.window_y}` : "auto"}
+          onChange={(e) =>
+            edit((c) => {
+              if (e.target.value === "auto") {
+                c.display.monitor = "auto";
+              } else {
+                const [x, y] = e.target.value.split(",").map(Number);
+                c.display.monitor = "manual";
+                c.display.window_x = x;
+                c.display.window_y = y;
+              }
+            })
+          }
+        >
+          <option value="auto">Auto (recommended)</option>
+          {mons?.monitors.map((m) => (
+            <option key={`${m.x},${m.y}`} value={`${m.x},${m.y}`}>
+              {label(m)}
+            </option>
+          ))}
+          {manual && !mons?.monitors.some((m) => m.x === draft.display.window_x && m.y === draft.display.window_y) && (
+            <option value={`${draft.display.window_x},${draft.display.window_y}`}>
+              Custom ({draft.display.window_x}, {draft.display.window_y})
+            </option>
+          )}
+        </select>
+      </Field>
+    </>
   );
 }
 

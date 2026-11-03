@@ -399,6 +399,11 @@ select {
   color: var(--bad);
 }
 
+.laps__idle {
+  font-size: calc(var(--u) * 2.4);
+  color: var(--muted);
+}
+
 .laps__grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

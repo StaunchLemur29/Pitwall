@@ -41,7 +41,17 @@ def _make_adapter(game: str, args: argparse.Namespace):
     raise SystemExit(f"Unknown game {game!r}")
 
 
-def _open_browser(url: str, x: int, y: int, which: str) -> None:
+def _open_browser(url: str, display: dict, which: str) -> None:
+    from .monitors import list_monitors, pick_dashboard_monitor
+
+    x, y, w, h = display["window_x"], display["window_y"], 1080, 1920
+    if display.get("monitor", "auto") == "auto":
+        mon = pick_dashboard_monitor(list_monitors())
+        if mon is not None:
+            x, y, w, h = mon.x, mon.y, mon.width, mon.height
+            log.info("Opening the dashboard on the %dx%d monitor at (%d, %d)", w, h, x, y)
+        else:
+            log.info("Only one monitor found; opening the dashboard on it")
     local = Path(os.environ.get("LOCALAPPDATA", ""))
     candidates = {
         "edge": [
@@ -68,6 +78,7 @@ def _open_browser(url: str, x: int, y: int, which: str) -> None:
                         exe,
                         f"--app={url}",
                         f"--window-position={x},{y}",
+                        f"--window-size={w},{h}",
                         "--start-fullscreen",
                         f"--user-data-dir={profile}",
                         "--no-first-run",
@@ -138,7 +149,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     log.info("Laps are saved to %s", store_path)
     if args.open or config["display"]["open_browser"]:
         d = config["display"]
-        _open_browser(url, d["window_x"], d["window_y"], d["browser"])
+        _open_browser(url, d, d["browser"])
     web.run_app(app, host=host, port=port, print=None, access_log=None)
 
 

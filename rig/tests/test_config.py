@@ -37,3 +37,21 @@ def test_update_rejects_invalid_and_keeps_old(config):
 def test_bindings_replace_rather_than_merge():
     out = deep_merge(DEFAULTS, {"bindings": {"next_page": []}})
     assert out["bindings"] == {"next_page": []}
+
+
+def test_saves_only_changes(tmp_path):
+    cfg = Config(tmp_path / "config.json")
+    cfg.update({"display": {"accent": "#00ff00"}})
+    saved = json.loads((tmp_path / "config.json").read_text())
+    assert saved == {"display": {"accent": "#00ff00"}}
+
+
+def test_picks_vertical_secondary_monitor():
+    from pitwall_rig.monitors import Monitor, pick_dashboard_monitor
+
+    main = Monitor(0, 0, 2560, 1440, True)
+    side = Monitor(-1080, -200, 1080, 1920, False)
+    assert pick_dashboard_monitor([main, side]) == side
+    assert pick_dashboard_monitor([main]) is None
+    other = Monitor(2560, 0, 1920, 1080, False)
+    assert pick_dashboard_monitor([main, other]) == other
