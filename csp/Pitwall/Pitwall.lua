@@ -76,6 +76,12 @@ local function sync()
     abs = car.absMode, abs_modes = car.absModes,
     tc = car.tractionControlMode, tc_modes = car.tractionControlModes,
     bb = car.brakeBias,
+    -- the car's other systems (whatever it has)
+    drs_present = car.drsPresent, drs_available = car.drsAvailable, drs_active = car.drsActive,
+    kers_present = car.kersPresent, kers_charge = car.kersCharge,
+    mguk_delivery = car.mgukDelivery, mguk_delivery_count = car.mgukDeliveryCount, mguk_recovery = car.mgukRecovery,
+    engine_brake = car.currentEngineBrakeSetting, engine_brake_count = car.engineBrakeSettingsCount,
+    fuel_map = car.fuelMap,
     reset_allowed = ac.isCarResetAllowed(),
     has_launch = launch ~= nil and drill ~= nil and launch.key == drill.key,
     events = events,
@@ -174,82 +180,89 @@ function script.update(dt)
 end
 
 -- -- the window ----------------------------------------------------------------
--- Transparent and empty most of the time: the brake point (and the corner it's
--- for) fade in as you approach, then disappear once you're past it.
+-- A small centred pill, empty most of the time. Approaching a braking point it
+-- fades in with the turn ahead and a countdown bar; at the braking point it
+-- flashes BRAKE; once you're past, it fades away. Nothing else.
 
 local settings = ac.storage({
-  showBrake = true, -- the brake countdown
+  showBrake = true, -- countdown bar + BRAKE cue
   showCorner = true, -- the upcoming turn
-  showDrill = true, -- short drill messages ("retry ready", "Go!")
-  showFromM = 300, -- how far before the braking point it appears
+  showFromM = 250, -- how far before the braking point it appears
 })
-local preview = false -- settings: show sample content to position the window
+local preview = false -- settings: sample content, to position the window
 
-local WHITE = rgbm(0.95, 0.96, 0.97, 1)
-local GREY = rgbm(0.75, 0.78, 0.82, 1)
-local RED = rgbm(1, 0.32, 0.32, 1)
-local ORANGE = rgbm(1, 0.35, 0.21, 1)
-local alpha = 0 -- fades in and out
-local lastShown = { corner = nil, brake = nil }
-local wasReady = false
+local WHITE = rgbm(0.96, 0.97, 0.98, 1)
+local DIM = rgbm(0.62, 0.66, 0.71, 1)
+local RED = rgbm(1, 0.27, 0.23, 1)
+local PANEL = rgbm(0.03, 0.035, 0.045, 0.72)
+local alpha = 0
+local held = { c = nil, b = nil } -- last thing shown, kept while fading out
+local cueUntil = 0 -- BRAKE flash
 
-local function withAlpha(c, a) return rgbm(c.r, c.g, c.b, c.mult * a) end
-
-local function outlined(text, size, colour, bold)
-  if bold then ui.pushDWriteFont('@System;Weight=Bold') end
-  ui.beginOutline()
-  ui.dwriteText(text, size, colour)
-  ui.endOutline(rgbm(0, 0, 0, 0.85 * alpha))
-  if bold then ui.popDWriteFont() end
-end
-
-local function cornerLine(c)
-  local bits = { c.dir .. c.grade .. '  ' .. c.label }
-  if c.gear then bits[#bits + 1] = 'gear ' .. c.gear end
-  if c.min_kmh then bits[#bits + 1] = string.format('%d km/h', math.floor(c.min_kmh + 0.5)) end
-  return table.concat(bits, '  ·  ')
-end
+local function fade(c, a) return rgbm(c.r, c.g, c.b, c.mult * a) end
 
 function script.windowMain(dt)
-  local w = ui.windowWidth()
+  local W = ui.windowWidth()
+  local now = os.preciseClock()
   local show, c, b = false, nil, nil
   if preview then
-    show, c, b = true, { dir = 'R', grade = 3, label = 'Pouhon', gear = 3, min_kmh = 165 }, 140
+    show, c, b = true, { dir = 'R', grade = 2, label = 'Chicane 1' }, 112
   elseif connected and track then
     local p = car.splinePosition
     local cc, dist = nextCorner(p)
     if cc and dist and dist > 0 then
       local bb = brakeIn(cc, p, car.speedKmh)
-      if bb and bb > -5 and bb < settings.showFromM then show, c, b = true, cc, bb end
+      if bb and bb < settings.showFromM then
+        if bb <= 0 and (held.b or 1) > 0 then cueUntil = now + 0.8 end -- just reached it
+        if bb > -40 then show, c, b = true, cc, bb end
+      end
     end
   end
-  if show then lastShown.corner, lastShown.brake = c, b end
-  alpha = math.max(0, math.min(1, alpha + (show and 6 or -3) * dt))
+  if show then held.c, held.b = c, b end
+  alpha = math.max(0, math.min(1, alpha + (show and 8 or -4) * dt))
+  if alpha <= 0 or not held.c or not (settings.showBrake or settings.showCorner) then return end
+  c, b = held.c, held.b
 
-  -- Drill: say once when the run-up is saved, then keep quiet.
-  local ready = drill and launch and launch.key == drill.key or false
-  if ready and not wasReady and settings.showDrill then say('Retry ready: ' .. drill.name, 2.5) end
-  wasReady = ready
+  local PW = math.min(W - 8, 300)
+  local x0 = (W - PW) / 2
+  local rows = (settings.showCorner and 30 or 0) + (settings.showBrake and 26 or 0)
+  ui.drawRectFilled(vec2(x0, 4), vec2(x0 + PW, 4 + rows + 12), fade(PANEL, alpha), 6)
+  local y = 10
 
-  if alpha > 0 and lastShown.corner then
-    local cc, bb = lastShown.corner, lastShown.brake
-    if settings.showCorner then outlined(cornerLine(cc), 18, withAlpha(GREY, alpha), false) end
-    if settings.showBrake and bb then
-      local soon = bb < 120
-      outlined(string.format('Brake  %d m', math.max(0, math.floor(bb + 0.5))), 30,
-        withAlpha(soon and RED or WHITE, alpha), true)
-      local y = ui.getCursorY() + 2
-      local frac = math.max(0, math.min(1, 1 - bb / settings.showFromM))
-      ui.drawRectFilled(vec2(8, y), vec2(w - 8, y + 6), rgbm(0, 0, 0, 0.45 * alpha), 3)
-      ui.drawRectFilled(vec2(8, y), vec2(8 + (w - 16) * frac, y + 6), withAlpha(soon and RED or WHITE, alpha), 3)
-      ui.dummy(vec2(w - 16, 10))
-    end
+  if settings.showCorner then
+    -- [R2] Chicane 1, centred as one group
+    local tag = c.dir .. c.grade
+    ui.pushDWriteFont('@System;Weight=Bold')
+    local tw = ui.measureDWriteText(tag, 15).x + 10
+    ui.popDWriteFont()
+    local nw = ui.measureDWriteText(c.label, 17).x
+    local gx = (W - (tw + 8 + nw)) / 2
+    ui.drawRectFilled(vec2(gx, y + 3), vec2(gx + tw, y + 23), fade(WHITE, alpha), 3)
+    ui.setCursor(vec2(gx, y + 3))
+    ui.pushDWriteFont('@System;Weight=Bold')
+    ui.dwriteTextAligned(tag, 15, ui.Alignment.Center, ui.Alignment.Center, vec2(tw, 20), false, rgbm(0, 0, 0, alpha))
+    ui.popDWriteFont()
+    ui.setCursor(vec2(gx + tw + 8, y + 1))
+    ui.dwriteText(c.label, 17, fade(WHITE, alpha))
+    y = y + 30
   end
-  if settings.showDrill and flash.text and os.preciseClock() < flash.untilT then
-    local a0 = alpha
-    alpha = 1
-    outlined(flash.text, 16, ORANGE, true)
-    alpha = a0
+
+  if settings.showBrake and b then
+    if now < cueUntil or b <= 0 then
+      ui.setCursor(vec2(x0, y - 4))
+      ui.pushDWriteFont('@System;Weight=Bold')
+      ui.dwriteTextAligned('BRAKE', 22, ui.Alignment.Center, ui.Alignment.Center, vec2(PW, 26), false, fade(RED, alpha))
+      ui.popDWriteFont()
+    else
+      local close = b < 100
+      local frac = math.max(0, math.min(1, 1 - b / settings.showFromM))
+      local bx0, bx1 = x0 + 14, x0 + PW - 56
+      ui.drawRectFilled(vec2(bx0, y + 8), vec2(bx1, y + 13), fade(rgbm(1, 1, 1, 0.14), alpha), 3)
+      ui.drawRectFilled(vec2(bx0, y + 8), vec2(bx0 + (bx1 - bx0) * frac, y + 13), fade(close and RED or WHITE, alpha), 3)
+      ui.setCursor(vec2(bx1 + 6, y))
+      ui.dwriteTextAligned(string.format('%d', math.floor(b + 0.5)), 15, ui.Alignment.End, ui.Alignment.Center,
+        vec2(PW - (bx1 - x0) - 20, 22), false, fade(close and RED or DIM, alpha))
+    end
   end
 end
 
@@ -259,12 +272,12 @@ function script.windowSettings(dt)
   else
     ui.textColored('Pitwall isn\'t running: start scripts\\start.bat', RED)
   end
-  if track == nil and connected then ui.text('Waiting for the track layout…') end
+  if track == nil and connected then ui.text('Waiting for the track layout...') end
   ui.separator()
-  if ui.checkbox('Show the brake point', settings.showBrake) then settings.showBrake = not settings.showBrake end
-  if ui.checkbox('Show the upcoming turn', settings.showCorner) then settings.showCorner = not settings.showCorner end
-  if ui.checkbox('Show drill messages', settings.showDrill) then settings.showDrill = not settings.showDrill end
-  settings.showFromM = ui.slider('##from', settings.showFromM, 100, 600, 'Appear %.0f m before braking', 1)
+  if ui.checkbox('Brake countdown and BRAKE cue', settings.showBrake) then settings.showBrake = not settings.showBrake end
+  if ui.checkbox('Upcoming turn', settings.showCorner) then settings.showCorner = not settings.showCorner end
+  settings.showFromM = ui.slider('##from', settings.showFromM, 100, 500, 'Appear %.0f m before braking', 1)
   ui.separator()
   if ui.checkbox('Preview (to position the window)', preview) then preview = not preview end
+  ui.textWrapped('Tip: place the window centred, just above your car.')
 end

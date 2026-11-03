@@ -103,7 +103,12 @@ def main() -> int:
     ui.checkbox = lambda label, value: False
     ui.slider = lambda label, value, lo, hi, fmt, power: value
     ui.dwriteText = lambda text, size, colour: state["texts"].append(text)
+    ui.dwriteTextAligned = lambda text, size, h, v, box, wrap, colour: state["texts"].append(text)
+    ui.measureDWriteText = lambda text, size: lua.eval("function(n) return { x = n, y = 20 } end")(len(text) * size * 0.55)
+    ui.setCursor = lambda *a: None
+    ui.textWrapped = lambda *a: None
     g.ui = ui
+    lua.execute("ui.Alignment = { Start = 0, Center = 1, End = 2 }")
 
     lua.execute(APP.read_text(encoding="utf-8"))
     script = g.script
@@ -138,8 +143,8 @@ def main() -> int:
         state["texts"].clear()
         script.windowMain(1 / 60)
         texts = list(state["texts"])
-        seen_corner |= any(t[:2] in ("L1", "L2", "L3", "L4", "L5", "L6", "R1", "R2", "R3", "R4", "R5", "R6") for t in texts)
-        seen_brake |= any(t.startswith("Brake ") for t in texts)
+        seen_corner |= any(t in ("L1", "L2", "L3", "L4", "L5", "L6", "R1", "R2", "R3", "R4", "R5", "R6") for t in texts)
+        seen_brake |= any(t == "BRAKE" or t.isdigit() for t in texts)
         quiet_frames += not texts
         p += 20 / track["length_m"]
         if int(p * 1000) % 50 == 0:

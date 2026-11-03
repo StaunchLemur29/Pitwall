@@ -19,6 +19,15 @@ from typing import Any
 
 FRESH_S = 2.0  # the app counts as connected if it synced this recently
 
+#: What the app reports about the car's systems (each only if the car has it).
+ELECTRONICS = (
+    "abs", "abs_modes", "tc", "tc_modes", "bb",
+    "drs_present", "drs_available", "drs_active",
+    "kers_present", "kers_charge",
+    "mguk_delivery", "mguk_delivery_count", "mguk_recovery",
+    "engine_brake", "engine_brake_count", "fuel_map",
+)
+
 
 class CspLink:
     def __init__(self, clock: Callable[[], float] = time.perf_counter) -> None:
@@ -33,8 +42,7 @@ class CspLink:
     def sync(self, body: dict[str, Any]) -> list[dict[str, Any]]:
         """Store what the app reports; return its events and hand over pending commands."""
         self.synced_at = self._clock()
-        self.state = {k: body.get(k) for k in ("abs", "abs_modes", "tc", "tc_modes", "bb", "reset_allowed",
-                                               "has_launch", "app_version")}
+        self.state = {k: body.get(k) for k in (*ELECTRONICS, "reset_allowed", "has_launch", "app_version")}
         events = [e for e in body.get("events") or [] if isinstance(e, dict)]
         return events
 
@@ -63,14 +71,7 @@ class CspLink:
         """Real ABS / TC levels and brake bias from CSP, while the app is connected."""
         if not self.connected:
             return None
-        s = self.state
-        return {
-            "abs": s.get("abs"),
-            "abs_modes": s.get("abs_modes"),
-            "tc": s.get("tc"),
-            "tc_modes": s.get("tc_modes"),
-            "bb": s.get("bb"),
-        }
+        return {k: self.state.get(k) for k in ELECTRONICS}
 
 
 # -- installing the app into Assetto Corsa ---------------------------------------

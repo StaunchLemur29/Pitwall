@@ -278,12 +278,32 @@ export interface Config {
   bindings: Record<string, Binding[]>;
 }
 
+/** The car's systems as the in-game app reports them; each field only if the car has it. */
+export interface Electronics {
+  abs: number | null;
+  abs_modes: number | null;
+  tc: number | null;
+  tc_modes: number | null;
+  bb: number | null;
+  drs_present?: boolean | null;
+  drs_available?: boolean | null;
+  drs_active?: boolean | null;
+  kers_present?: boolean | null;
+  kers_charge?: number | null; // 0..1
+  mguk_delivery?: number | null;
+  mguk_delivery_count?: number | null;
+  mguk_recovery?: number | null;
+  engine_brake?: number | null;
+  engine_brake_count?: number | null;
+  fuel_map?: number | null;
+}
+
 export interface Live {
   frame: Frame | null;
   /** How old the car position was when this update was sent (ms), if known. */
   pos_age_ms?: number | null;
   /** Real ABS / TC levels and brake bias from the in-game CSP app (null without it). */
-  electronics?: { abs: number | null; abs_modes: number | null; tc: number | null; tc_modes: number | null; bb: number | null } | null;
+  electronics?: Electronics | null;
   delta_s: number | null;
   ref_lap_ms: number | null;
   theoretical_best_ms: number | null;

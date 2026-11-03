@@ -21,7 +21,10 @@ def test_app_gets_track_drill_and_runs_the_retry(demo, clock, config, store):
 
     out = rig.csp_sync({"abs": 3, "abs_modes": 12, "tc": 0, "tc_modes": 8, "bb": 0.56, "reset_allowed": True})
     assert out["track_version"] == tr["version"] and out["drill"] is None
-    assert rig.live()["electronics"] == {"abs": 3, "abs_modes": 12, "tc": 0, "tc_modes": 8, "bb": 0.56}
+    el = rig.live()["electronics"]
+    assert {k: el[k] for k in ("abs", "abs_modes", "tc", "tc_modes", "bb")} == {
+        "abs": 3, "abs_modes": 12, "tc": 0, "tc_modes": 8, "bb": 0.56}
+    assert el["drs_present"] is None  # not reported: the car doesn't have it
 
     assert rig.drill_corner(1)
     drill = rig.csp_sync({"reset_allowed": True})["drill"]

@@ -228,6 +228,10 @@ Reads AC `cfg/*.ini`; writes only after one-click confirm, with automatic backup
 - **Music**: now playing + play/pause/skip via Windows media session (Spotify, Apple Music) and wheel buttons.
 - **Session timer**: compact — race time/laps remaining when relevant, rig-session timer, optional break reminder.
 - **Discord** (low priority): Rich Presence status ("Nordschleife · 911 GT3 · PB 7:12.4 · learning Fuchsröhre") via local IPC.
+- **Car systems & hardware** (from docs/research/car-and-hardware.md):
+  - car systems strip (DRS, battery, deploy, engine brake; done in app v0.3), energy/DRS along the lap in analysis, car systems on wheel encoders via the app, car profile auto-detect
+  - FFB clipping meter from AC's `finalFF` (per lap, per car, with a gain suggestion) for the TS-PC
+  - T-LCM pedal check: peak brake per stop vs 100 %, consistency, release smoothness; calibration advice
 - **SF1000 wheel screen** (big feature): Pitwall drives the SF1000's built-in display with its own data, so key info sits on the wheel in your eyeline.
   - Two possible routes:
     - **USB ("Native" mode)**: the wheel's screen and LEDs are driven through the wheelbase's USB link (Wi-Fi off). Games with Thrustmaster's SDK built in use this, and Thrustmaster's "SDK Test" PC app drives the screen this way, so a PC-side library exists. Preferred if it's usable by other apps (no Wi-Fi, no re-enabling after power-up), but no public documentation was found: research spike needed.
