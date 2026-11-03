@@ -9,7 +9,9 @@ import { Card, useSize } from "./common";
 const MIN_AHEAD = 90;
 const MAX_AHEAD = 320;
 const BEHIND_M = 120; // road drawn behind the car
-const EXTRAP_MAX_S = 0.12; // how far ahead we predict between updates
+const EXTRAP_MAX_S = 0.15; // how far ahead we predict between updates
+const BLEND_S = 0.07; // corrections from a new update fade in over this long instead of snapping
+const SNAP_M = 4; // bigger corrections than this (a reset, a rewind) jump straight there
 
 interface Scene {
   left: P[];
@@ -50,7 +52,8 @@ export function TurnByTurn() {
 
   const anim = useRef({
     x: 0, z: 0, vx: 0, vz: 0, at: 0,
-    view: 0, viewSet: false, idx: -1,
+    ox: 0, oz: 0, oAt: 0, // correction still being blended in
+    view: 0, viewSet: false, idx: -1, u: -1,
     car: null as number | null, carRate: 0, carAt: 0,
     ahead: 150, aheadTarget: 150, live: false,
   });
@@ -64,18 +67,42 @@ export function TurnByTurn() {
       const fr = lv.frame;
       const t = lv.track;
       const a = anim.current;
+      const wasLive = a.live;
       a.live = !!gg && !!fr?.world && !!t && fr.status === "live";
       if (!gg || !fr?.world || !t || !a.live) return;
-      a.x = fr.world[0];
-      a.z = fr.world[2];
-      a.vx = fr.velocity ? fr.velocity[0] : 0;
-      a.vz = fr.velocity ? fr.velocity[2] : 0;
       const now = performance.now();
-      a.at = now;
+      const vx = fr.velocity ? fr.velocity[0] : 0;
+      const vz = fr.velocity ? fr.velocity[2] : 0;
+      if (fr.world[0] !== a.x || fr.world[2] !== a.z || !wasLive) {
+        // Where we're drawing the car right now, before taking the new sample.
+        const shown = predict(a, now);
+        a.x = fr.world[0];
+        a.z = fr.world[2];
+        a.vx = vx;
+        a.vz = vz;
+        // Predict from when the game actually moved the car, not when we heard.
+        a.at = now - Math.max(0, Math.min(100, lv.pos_age_ms ?? 0));
+        const fresh = predict({ ...a, ox: 0, oz: 0 }, now);
+        const ex = shown[0] - fresh[0];
+        const ez = shown[1] - fresh[1];
+        if (wasLive && ex * ex + ez * ez < SNAP_M * SNAP_M) {
+          a.ox = ex;
+          a.oz = ez;
+        } else a.ox = a.oz = 0;
+        a.oAt = now;
+      } else {
+        // Same position as last time (the game hasn't drawn a new frame yet):
+        // keep predicting from the old sample rather than restarting it.
+        a.vx = vx;
+        a.vz = vz;
+      }
       const c0 = a.idx >= 0 && a.idx < gg.center.length ? gg.center[a.idx] : null;
       if (!c0 || (c0[0] - a.x) ** 2 + (c0[1] - a.z) ** 2 > 40 * 40) a.idx = indexAt(gg, t.p);
       const car = t.car_heading ?? null;
-      if (car !== null && a.car !== null && now > a.carAt) a.carRate = angDiff(car, a.car) / ((now - a.carAt) / 1000);
+      if (car !== null && a.car !== null && now - a.carAt > 4) {
+        const rate = angDiff(car, a.car) / ((now - a.carAt) / 1000);
+        a.carRate = Math.abs(rate) > 400 ? 0 : a.carRate * 0.5 + rate * 0.5;
+      }
       a.car = car;
       a.carAt = now;
       const k = t.corner;
@@ -115,18 +142,19 @@ export function TurnByTurn() {
       const gg = geo.current;
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
-      const lead = Math.min(EXTRAP_MAX_S, (now - a.at) / 1000);
-      const x = a.x + a.vx * lead;
-      const z = a.z + a.vz * lead;
+      const [x, z] = predict(a, now);
       let frac: number | null = null;
       if (gg && a.idx >= 0) {
         a.idx = nearestIndex(gg, x, z, a.idx);
-        const roadDir = roadHeading(gg, a.idx);
+        // Position along the road between centre-line points (continuous, so
+        // direction and L/R glide instead of stepping every few metres).
+        a.u = projectIndex(gg, x, z, a.idx);
+        const roadDir = roadHeading(gg, a.u);
         if (!a.viewSet) {
           a.view = roadDir;
           a.viewSet = true;
-        } else a.view += angDiff(roadDir, a.view) * Math.min(1, dt * 25);
-        frac = gg.has_edges ? acrossTrack(gg, a.idx, x, z) : null;
+        } else a.view += angDiff(roadDir, a.view) * Math.min(1, dt * 20);
+        frac = gg.has_edges ? acrossTrack(gg, a.u, x, z) : null;
       }
       a.ahead += (a.aheadTarget - a.ahead) * Math.min(1, dt * 3);
 
@@ -314,16 +342,60 @@ function nearestIndex(g: TrackGeometry, x: number, z: number, hint: number): num
   return best;
 }
 
-function roadHeading(g: TrackGeometry, i: number): number {
+interface Motion {
+  x: number; z: number; vx: number; vz: number; at: number;
+  ox: number; oz: number; oAt: number;
+}
+
+/** Where the car is at `now`: last sample moved on by its velocity, plus any correction still fading out. */
+function predict(a: Motion, now: number): [number, number] {
+  const lead = Math.min(EXTRAP_MAX_S, Math.max(0, (now - a.at) / 1000));
+  const fade = Math.exp(-Math.max(0, now - a.oAt) / 1000 / BLEND_S);
+  return [a.x + a.vx * lead + a.ox * fade, a.z + a.vz * lead + a.oz * fade];
+}
+
+/** Point on a polyline at a fractional index (wraps around the lap). */
+function pointAt(pts: number[][], u: number): P {
+  const n = pts.length;
+  const i = Math.floor(u);
+  const t = u - i;
+  const a = pts[((i % n) + n) % n];
+  const b = pts[(((i + 1) % n) + n) % n];
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
+
+/** Fractional centre-line index of the car, from the nearest point and its two neighbouring segments. */
+function projectIndex(g: TrackGeometry, x: number, z: number, i: number): number {
   const n = g.center.length;
-  const a = g.center[(((i - 4) % n) + n) % n];
-  const b = g.center[(i + 4) % n];
+  let best = i;
+  let bestD = Infinity;
+  for (const s of [i - 1, i]) {
+    const a = g.center[((s % n) + n) % n];
+    const b = g.center[(((s + 1) % n) + n) % n];
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const l2 = dx * dx + dz * dz;
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / l2)) : 0;
+    const px = a[0] + dx * t - x;
+    const pz = a[1] + dz * t - z;
+    const d = px * px + pz * pz;
+    if (d < bestD) {
+      bestD = d;
+      best = s + t;
+    }
+  }
+  return ((best % n) + n) % n;
+}
+
+function roadHeading(g: TrackGeometry, u: number): number {
+  const a = pointAt(g.center, u - 4);
+  const b = pointAt(g.center, u + 4);
   return (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
 }
 
-function acrossTrack(g: TrackGeometry, i: number, x: number, z: number): number {
-  const l = g.left[i];
-  const r = g.right[i];
+function acrossTrack(g: TrackGeometry, u: number, x: number, z: number): number {
+  const l = pointAt(g.left, u);
+  const r = pointAt(g.right, u);
   const wx = r[0] - l[0];
   const wz = r[1] - l[1];
   const w2 = wx * wx + wz * wz;

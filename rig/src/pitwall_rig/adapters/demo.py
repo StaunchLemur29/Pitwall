@@ -112,7 +112,7 @@ class DemoAdapter(GameAdapter):
 
     def __init__(
         self,
-        clock: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] = time.perf_counter,
         time_scale: float = 1.0,
         seed: int | None = None,
         pit_every_laps: int = 5,

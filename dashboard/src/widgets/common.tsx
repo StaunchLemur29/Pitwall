@@ -7,7 +7,7 @@ export function Card({
   className = "",
   dim = false,
 }: {
-  title?: string;
+  title?: ReactNode;
   right?: ReactNode;
   children: ReactNode;
   className?: string;

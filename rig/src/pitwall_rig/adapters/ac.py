@@ -116,7 +116,7 @@ class AssettoCorsaAdapter(GameAdapter):
     def __init__(
         self,
         reader: PageReader | None = None,
-        clock: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] = time.perf_counter,
         static_refresh_s: float = 2.0,
         stale_after_s: float = 3.0,
         install_dir: str = "",
@@ -137,8 +137,24 @@ class AssettoCorsaAdapter(GameAdapter):
         self._tracks = TrackLoader(install_dir)
         self._last_packet = -1
         self._packet_changed_at = clock()
+        # AC moves carCoordinates once per rendered frame, out of step with our
+        # polls. Remember exactly when it last changed so the dashboard can
+        # predict from the right moment instead of guessing.
+        self._world: tuple[float, float, float] | None = None
+        self._world_t: float | None = None
 
     # -- public -------------------------------------------------------------
+
+    def _note_world(self, gfx: SPageFileGraphic, now: float) -> tuple[float, float, float]:
+        w = (float(gfx.carCoordinates[0]), float(gfx.carCoordinates[1]), float(gfx.carCoordinates[2]))
+        if w != self._world:
+            self._world, self._world_t = w, now
+        return w
+
+    def watch(self) -> None:
+        raw = self._reader.read(GRAPHICS_TAG, C.sizeof(SPageFileGraphic))
+        if raw is not None:
+            self._note_world(_parse(SPageFileGraphic, raw), self._clock())
 
     def poll(self) -> Frame | None:
         now = self._clock()
@@ -197,11 +213,8 @@ class AssettoCorsaAdapter(GameAdapter):
             in_pit_lane=bool(gfx.isInPitLane),
             velocity=(float(phys.velocity[0]), float(phys.velocity[1]), float(phys.velocity[2])),
             yaw=float(phys.heading),
-            world=(
-                float(gfx.carCoordinates[0]),
-                float(gfx.carCoordinates[1]),
-                float(gfx.carCoordinates[2]),
-            ),
+            world=self._note_world(gfx, now),
+            world_t=self._world_t,
             session_time_left_s=left / 1000.0 if left > 0 else None,
             position=int(gfx.position),
         )

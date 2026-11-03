@@ -37,7 +37,7 @@ class Recorder:
         game: str,
         capabilities: Capabilities,
         flush_every_s: float = 1.0,
-        clock: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         self._f = gzip.open(path, "wb")
         self._clock = clock
@@ -113,7 +113,7 @@ class ReplayAdapter(GameAdapter):
     def __init__(
         self,
         path: Path | str,
-        clock: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] = time.perf_counter,
         time_scale: float = 1.0,
         loop: bool = True,
         install_dir: str = "",

@@ -81,7 +81,7 @@ class SessionInfo:
 class Frame:
     """One telemetry sample. Units: metric, seconds, km/h, psi, °C."""
 
-    t: float  # monotonic seconds, from the rig clock
+    t: float  # seconds (perf_counter), from the rig clock
     status: GameStatus = GameStatus.OFF
     packet_id: int = 0
 
@@ -121,6 +121,7 @@ class Frame:
     world: tuple[float, float, float] | None = None  # x, y(up), z in metres
     velocity: tuple[float, float, float] | None = None  # world-space m/s, same axes as world
     yaw: float | None = None  # the game's raw heading angle (radians); calibrated downstream
+    world_t: float | None = None  # rig-clock time the game last moved ``world`` (for precise prediction)
     session_time_left_s: float | None = None
     position: int = 0
 
@@ -128,6 +129,7 @@ class Frame:
         """Compact dict for the dashboard websocket."""
         d = asdict(self)
         d["status"] = self.status.value
+        d.pop("world_t", None)
         return d
 
 

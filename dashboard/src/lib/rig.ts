@@ -64,8 +64,12 @@ const initial: RigState = {
 type Listener = () => void;
 type ActionListener = (action: string) => void;
 
-/** How often the general dashboard redraws with live data (the road view runs at full rate). */
-const LIVE_UI_HZ = 15;
+/**
+ * How often the general dashboard redraws with live data. The road view, the
+ * L/R gauge and the brake countdown run at full display rate on their own.
+ * (Was 15 while AC was starving the GPU; 30 now that there's headroom.)
+ */
+const LIVE_UI_HZ = 30;
 
 class RigStore {
   state: RigState = initial;

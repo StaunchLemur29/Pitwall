@@ -127,3 +127,28 @@ def test_frozen_live_page_is_treated_as_closed(clock):
     pages.phys.packetId = 11  # AC is back
     clock.advance(0.1)
     assert ac.poll().status == GameStatus.LIVE
+
+
+def test_position_timestamp_comes_from_when_it_changed(clock):
+    pages = FakePages()
+    pages.gfx.status = AC_LIVE
+    pages.phys.packetId = 1
+    pages.gfx.carCoordinates[0] = 10.0
+    ac = AssettoCorsaAdapter(reader=pages, clock=clock)
+    clock.advance(1.0)
+    ac.watch()  # sees the first position at t=1
+    clock.advance(0.010)
+    pages.phys.packetId = 2
+    f = ac.poll()
+    assert f.world_t == clock() - 0.010
+    # AC draws a new frame between our reads: the watch catches the moment.
+    clock.advance(0.004)
+    pages.gfx.carCoordinates[0] = 11.0
+    ac.watch()
+    t_moved = clock()
+    clock.advance(0.012)
+    pages.phys.packetId = 3
+    f = ac.poll()
+    assert f.world == (11.0, 0.0, 0.0)
+    assert f.world_t == t_moved
+    assert "world_t" not in f.to_wire()

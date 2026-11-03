@@ -292,6 +292,7 @@ def _rig_thread(app: web.Application, loop: asyncio.AbstractEventLoop, stop: thr
     rig, hub = app[RIG_KEY], app[HUB_KEY]
     gaps = app[LOOP_GAPS_KEY]
     clock = time.perf_counter
+    watch_every = 0.002  # cheap position checks between full reads
     next_poll = next_send = last = clock()
     while not stop.is_set():
         now = clock()
@@ -304,12 +305,21 @@ def _rig_thread(app: web.Application, loop: asyncio.AbstractEventLoop, stop: thr
             except Exception:  # noqa: BLE001 - never let one bad frame kill the loop
                 log.exception("Error while reading telemetry")
             next_poll = max(next_poll + 1.0 / rig.config["rates"]["poll_hz"], now)
-        if now >= next_send:
-            with rig.lock:
-                payload = rig.live()
-            asyncio.run_coroutine_threadsafe(hub.broadcast(payload), loop)
-            next_send = max(next_send + 1.0 / rig.config["rates"]["broadcast_hz"], now)
-        wait = min(next_poll, next_send) - clock()
+            # Send straight after a fresh read. (Separate schedules at the same
+            # rate drift against each other, so some frames went out twice and
+            # others never, which showed as jitter.)
+            if now >= next_send - 0.004:
+                with rig.lock:
+                    payload = rig.live()
+                asyncio.run_coroutine_threadsafe(hub.broadcast(payload), loop)
+                next_send = max(next_send + 1.0 / rig.config["rates"]["broadcast_hz"], now)
+        else:
+            try:
+                with rig.lock:
+                    rig.adapter.watch()
+            except Exception:  # noqa: BLE001
+                pass
+        wait = min(next_poll - clock(), watch_every)
         if wait > 0:
             time.sleep(wait)
 

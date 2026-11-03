@@ -258,6 +258,8 @@ export interface Config {
 
 export interface Live {
   frame: Frame | null;
+  /** How old the car position was when this update was sent (ms), if known. */
+  pos_age_ms?: number | null;
   delta_s: number | null;
   ref_lap_ms: number | null;
   theoretical_best_ms: number | null;

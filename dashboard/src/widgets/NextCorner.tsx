@@ -1,4 +1,5 @@
-import { useRig } from "../lib/rig";
+import { useEffect, useRef } from "react";
+import { rig, useRig } from "../lib/rig";
 import { GRADE_COLORS } from "../lib/track";
 import { Card } from "./common";
 
@@ -28,7 +29,7 @@ export function NextCorner() {
   const brakeSoon = brakeIn !== null && brakeIn < 250;
   return (
     <Card
-      title={inCorner ? "In corner" : `Next · ${c.distance_m} m`}
+      title={inCorner ? "In corner" : <>Next · <LiveMetres field="distance_m" initial={c.distance_m} /> m</>}
       right={
         c.grade_mastery && c.grade_mastery !== "new" ? (
           <span className="mdot" style={{ background: GRADE_COLORS[c.grade_mastery] }} title={`Mastery: ${c.grade_mastery}`} />
@@ -52,15 +53,7 @@ export function NextCorner() {
           </div>
         </div>
       </div>
-      {brakeIn !== null && !inCorner && (
-        <div className={`brakebar ${brakeSoon ? "brakebar--soon" : ""}`}>
-          <span className="brakebar__label">Brake in</span>
-          <span className="brakebar__value">{brakeIn} m</span>
-          <div className="brakebar__track">
-            <div className="brakebar__fill" style={{ width: `${Math.max(0, Math.min(100, 100 - brakeIn / 3))}%` }} />
-          </div>
-        </div>
-      )}
+      {brakeIn !== null && !inCorner && <BrakeBar initial={brakeIn} soon={brakeSoon} />}
     </Card>
   );
 }
@@ -87,5 +80,71 @@ function Arrow({ dir, grade }: { dir: "L" | "R"; grade: number }) {
       <path d={`M50,98 L50,${cy} A${r},${r} 0 0 ${s > 0 ? 1 : 0} ${ex.toFixed(1)},${ey.toFixed(1)}`} />
       <path className="corner__head" d={`M${tip.join(",")} L${b1.join(",")} L${b2.join(",")} Z`} />
     </svg>
+  );
+}
+
+type CornerField = "distance_m" | "brake_in_m";
+
+/**
+ * Follows a corner distance every display frame: takes each telemetry update
+ * as it arrives and counts down by the car's speed in between, writing straight
+ * to the page (no React redraw), so the number and bar move smoothly.
+ */
+function useCountdown(field: CornerField, onValue: (m: number) => void) {
+  const cb = useRef(onValue);
+  cb.current = onValue;
+  useEffect(() => {
+    const s = { m: null as number | null, v: 0, at: 0 };
+    const feed = () => {
+      const lv = rig.latest;
+      const m = lv?.track?.corner?.[field];
+      const fresh = typeof m === "number" ? m : null;
+      if (fresh !== s.m || fresh === null) {
+        s.m = fresh;
+        s.at = performance.now() - Math.max(0, Math.min(100, lv?.pos_age_ms ?? 0));
+      }
+      s.v = (lv?.frame?.speed_kmh ?? 0) / 3.6;
+    };
+    feed();
+    const off = rig.onFrame(feed);
+    let raf = 0;
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick);
+      if (s.m === null) return;
+      const lead = Math.min(0.15, Math.max(0, (now - s.at) / 1000));
+      cb.current(Math.max(0, s.m - s.v * lead));
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      off();
+      cancelAnimationFrame(raf);
+    };
+  }, [field]);
+}
+
+function LiveMetres({ field, initial }: { field: CornerField; initial: number }) {
+  const el = useRef<HTMLSpanElement>(null);
+  useCountdown(field, (m) => {
+    if (el.current) el.current.textContent = String(Math.round(m));
+  });
+  return <span ref={el}>{initial}</span>;
+}
+
+function BrakeBar({ initial, soon }: { initial: number; soon: boolean }) {
+  const fill = useRef<HTMLDivElement>(null);
+  const value = useRef<HTMLSpanElement>(null);
+  const width = (m: number) => `${Math.max(0, Math.min(100, 100 - m / 3))}%`;
+  useCountdown("brake_in_m", (m) => {
+    if (value.current) value.current.textContent = `${Math.round(m)} m`;
+    if (fill.current) fill.current.style.width = width(m);
+  });
+  return (
+    <div className={`brakebar ${soon ? "brakebar--soon" : ""}`}>
+      <span className="brakebar__label">Brake in</span>
+      <span ref={value} className="brakebar__value">{initial} m</span>
+      <div className="brakebar__track">
+        <div ref={fill} className="brakebar__fill" style={{ width: width(initial) }} />
+      </div>
+    </div>
   );
 }

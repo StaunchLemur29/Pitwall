@@ -45,7 +45,7 @@ class Rig:
         config: Config,
         emit: Callable[[Event], None] = lambda e: None,
         recorder: Recorder | None = None,
-        clock: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         import threading
 
@@ -75,7 +75,7 @@ class Rig:
         self.keys = KeyHolder()
         self._retry: dict[str, float] | None = None
         # rates for the lag meter: rig ticks/s and new game packets/s
-        self._rate_t0 = time.monotonic()
+        self._rate_t0 = time.perf_counter()
         self._ticks = 0
         self._packets = 0
         self._last_packet = -1
@@ -440,12 +440,18 @@ class Rig:
 
     def live(self) -> Event:
         f = self.frame
+        # How old the position is right now: lets the dashboard predict the car
+        # from the moment the game actually moved it.
+        pos_age = None
+        if f is not None and f.world_t is not None:
+            pos_age = round(max(0.0, min(0.5, self._clock() - f.world_t)) * 1000, 2)
         return {
             "type": "frame",
             "ts": time.time(),
             "tick_hz": round(self.tick_hz, 1),
             "game_hz": round(self.game_hz, 1),
             "frame": f.to_wire() if f else None,
+            "pos_age_ms": pos_age,
             "delta_s": self.delta_s,
             "ref_lap_ms": self.reference.lap_time_ms if self.reference else None,
             "theoretical_best_ms": self.theoretical_best_ms,
