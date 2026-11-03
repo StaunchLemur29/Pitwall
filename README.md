@@ -64,6 +64,23 @@ held. During a drill, one press rewinds to a run-up before the section
 (**Drill run-up**, 4 s by default). Time Shift only works offline, in
 single-car practice.
 
+### In-game app (CSP)
+
+`scripts\start.bat` copies Pitwall's in-game app into Assetto Corsa
+(`apps\lua\Pitwall`) and keeps it up to date. In AC, open it from the app
+bar (the Pitwall icon). It adds:
+
+- **Next corner and Brake in** inside the game, worked out every frame with
+  no lag (the brake point adjusts to how fast you're arriving).
+- **Instant drill retry.** As you pass a drill's run-up point the app saves
+  the car exactly as it is; Rewind during the drill puts you straight back
+  there at full speed (offline practice only, like Time Shift; Time Shift is
+  the fallback).
+- **Real ABS / TC levels and brake bias** on the dashboard instead of ON/OFF.
+
+The app needs the Pitwall service running. If it says "Pitwall isn't
+running", start `scripts\start.bat`.
+
 ### Recording a session (helps development)
 
 ```bat

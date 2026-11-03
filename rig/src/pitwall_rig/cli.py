@@ -54,6 +54,23 @@ def _fine_timers() -> None:
             pass
 
 
+def _install_csp_app(config: Config) -> None:
+    """Keep the in-game CSP app in Assetto Corsa up to date (it's in csp/Pitwall)."""
+    from .csp import install_app
+    from .tracks.ac_install import find_ac_root
+
+    try:
+        root = find_ac_root(config["games"]["ac"]["install_dir"])
+        if root is None:
+            log.info("In-game app: Assetto Corsa folder not found, so it wasn't installed")
+            return
+        result = install_app(root)
+        if result in ("installed", "updated"):
+            log.info("In-game app %s in %s (open it from the app bar in AC)", result, root / "apps" / "lua" / "Pitwall")
+    except OSError as e:
+        log.warning("Couldn't install the in-game app: %s", e)
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     _fine_timers()
     data_dir = Path(args.data_dir) if args.data_dir else default_data_dir()
@@ -65,6 +82,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         config.save()  # write defaults so they're easy to find and edit
 
     game = args.game or ("replay" if args.replay else config["game"])
+    if game == "ac":
+        _install_csp_app(config)
     adapter = _make_adapter(game, args, config)
     store_path = data_dir / ("demo.sqlite" if game == "demo" else "pitwall.sqlite")
     store = Store(store_path)

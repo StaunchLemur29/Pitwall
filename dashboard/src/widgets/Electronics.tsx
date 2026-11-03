@@ -1,4 +1,5 @@
 import { useRig } from "../lib/rig";
+import { level as dialLevel } from "./StatusLine";
 import { Card } from "./common";
 
 /** BB / ABS / TC as the car currently has them. Suggestions arrive in phase 3. */
@@ -12,15 +13,20 @@ export function Electronics() {
       </Card>
     );
   }
-  const bb = f?.brake_bias;
+  const el = useRig((s) => s.live.electronics);
+  const bb = el?.bb ?? f?.brake_bias;
   return (
     <Card title="Electronics">
       <div className="elec">
         {caps.reports_brake_bias && (
           <Item label="Brake bias" value={bb ? (bb * 100).toFixed(1) : "–"} unit={bb ? "% F" : ""} />
         )}
-        {caps.reports_abs_level && <Item label="ABS" value={level(f?.abs)} active={f?.abs_active} />}
-        {caps.reports_tc_level && <Item label="TC" value={level(f?.tc)} active={f?.tc_active} />}
+        {caps.reports_abs_level && (
+          <Item label="ABS" value={el ? dialLevel(el.abs, el.abs_modes) : level(f?.abs)} active={f?.abs_active} />
+        )}
+        {caps.reports_tc_level && (
+          <Item label="TC" value={el ? dialLevel(el.tc, el.tc_modes) : level(f?.tc)} active={f?.tc_active} />
+        )}
       </div>
     </Card>
   );

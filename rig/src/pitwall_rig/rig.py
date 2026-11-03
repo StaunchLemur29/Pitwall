@@ -10,6 +10,7 @@ from typing import Any
 from .adapters.base import GameAdapter
 from .adapters.replay import Recorder
 from .config import ACTIONS, Config
+from .csp import CspLink
 from .input import InputEvent
 from .laps import LapRecorder
 from .models import Frame, GameStatus, Lap, Mode, SessionInfo, mode_for
@@ -87,7 +88,8 @@ class Rig:
         from .input import KeyHolder
 
         self.keys = KeyHolder()
-        self._retry: dict[str, float] | None = None
+        self._retry: dict[str, Any] | None = None
+        self.csp = CspLink(clock)  # the in-game CSP app, when it's running
         # rates for the lag meter: rig ticks/s and new game packets/s
         self._rate_t0 = time.perf_counter()
         self._ticks = 0
@@ -199,6 +201,7 @@ class Rig:
         elif self.track is not None:
             if new_best:
                 self.track.set_reference(lap.trace)
+                self.csp.touch()
             if lap.valid and lap.id is not None:
                 self._analyse(lap.id, lap.trace)
             self._emit_corners(lap.id)
@@ -246,6 +249,7 @@ class Rig:
                 if tr:
                     self._analyse(lap_id, tr)
         self.track.mastery = self._mastery()
+        self.csp.touch()
         self.emit({"type": "track", "track": model.geometry()})
         self._emit_corners(None)
 
@@ -540,6 +544,18 @@ class Rig:
     def start_retry(self) -> bool:
         if self.track is None or self.track.drill is None or self.frame is None:
             return False
+        if self.csp.can_reset and self.csp.state.get("has_launch"):
+            # The in-game app saved the car at the run-up point: it puts you
+            # straight back there, at speed.
+            self.csp.send({"cmd": "retry", "key": self._drill_key()})
+            self._retry = {"t0": self._clock(), "csp": True}
+            self.emit({"type": "retry", "state": "rewinding"})
+            return True
+        return self._retry_with_time_shift()
+
+    def _retry_with_time_shift(self) -> bool:
+        if self.track is None or self.track.drill is None or self.frame is None:
+            return False
         if not self.keys.down(self.config["games"]["ac"]["rewind_key"]):
             return False
         lead_s = float(self.config["drills"]["lead_in_s"])
@@ -551,6 +567,11 @@ class Rig:
     def _retry_step(self, f: Frame, now: float) -> None:
         r = self._retry
         assert r is not None and self.track is not None
+        if r.get("csp"):
+            if now - r["t0"] > 2.0:  # the app didn't answer: rewind with Time Shift instead
+                self._retry = None
+                self._retry_with_time_shift()
+            return
         drill = self.track.drill
         length = self.track.model.length_m
         done = None
@@ -571,6 +592,65 @@ class Rig:
             self.keys.up()
             self._retry = None
             self.emit({"type": "retry", "state": done})
+
+    # -- in-game CSP app ------------------------------------------------------
+
+    def _drill_key(self) -> str | None:
+        d = self.track.drill.drill if self.track and self.track.drill else None
+        return f"{d.start_p:.5f}-{d.end_p:.5f}" if d else None
+
+    def _csp_drill(self) -> dict[str, Any] | None:
+        if self.track is None or self.track.drill is None:
+            return None
+        d = self.track.drill.drill
+        lead = self.track.lead_in_m(d, float(self.config["drills"]["lead_in_s"]))
+        return {
+            "key": self._drill_key(),
+            "name": d.name,
+            "start_p": d.start_p,
+            "end_p": d.end_p,
+            "run_up_p": (d.start_p - lead / self.track.model.length_m) % 1.0,
+        }
+
+    @_locked
+    def csp_sync(self, body: dict[str, Any]) -> dict[str, Any]:
+        """The in-game app checking in (about 10 times a second)."""
+        was = self.csp.connected
+        for e in self.csp.sync(body):
+            if e.get("type") == "retry" and self._retry is not None and self._retry.get("csp"):
+                self._retry = None
+                if e.get("ok"):
+                    self.emit({"type": "retry", "state": "ready"})
+                else:
+                    self._retry_with_time_shift()  # e.g. no saved state yet
+        if not was:
+            self.emit({"type": "csp", "connected": True})
+        return {
+            "track_version": self.csp.version if self.track is not None else -1,
+            "drill": self._csp_drill(),
+            "commands": self.csp.take_commands(),
+        }
+
+    @_locked
+    def csp_track(self) -> dict[str, Any] | None:
+        """What the app needs to work out the next corner and brake point by itself."""
+        if self.track is None:
+            return None
+        m = self.track.model
+        ref = self.track.ref_corners
+        corners = []
+        for c in m.corners:
+            r = ref.get(c.number, {})
+            corners.append({
+                "n": c.number, "label": c.label, "dir": c.direction, "grade": c.grade,
+                "entry": c.entry, "apex": c.apex, "exit": c.exit,
+                "brake_p": r.get("brake_p"), "entry_kmh": r.get("entry_kmh"),
+                "min_kmh": r.get("min_speed_kmh"), "min_p": r.get("min_speed_p"), "gear": r.get("apex_gear"),
+            })
+        # The reference lap's speed every 1/1000th of the lap, for the speed-adjusted brake point.
+        v = self.track.ref_view
+        speed = [round(v.trace["speed"][v.at(i / 1000)], 1) for i in range(1000)] if v else []
+        return {"version": self.csp.version, "length_m": m.length_m, "corners": corners, "ref_speed": speed}
 
     @_locked
     def stop_drill(self) -> None:
@@ -601,6 +681,8 @@ class Rig:
             "game_hz": round(self.game_hz, 1),
             "frame": f.to_wire() if f else None,
             "pos_age_ms": pos_age,
+            # Real ABS / TC levels and brake bias from the in-game app (None without it).
+            "electronics": self.csp.electronics(),
             "delta_s": self.delta_s,
             "ref_lap_ms": self.reference.lap_time_ms if self.reference else None,
             "theoretical_best_ms": self.theoretical_best_ms,

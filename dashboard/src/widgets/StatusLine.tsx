@@ -19,7 +19,8 @@ export function StatusLine() {
   const f = live.frame;
   const running = !!f && f.status !== "off" && !f.in_pit_box && f.lap_time_ms > 0;
   const d = live.delta_s;
-  const bb = f?.brake_bias;
+  const el = live.electronics; // real levels when the in-game app is running
+  const bb = el?.bb ?? f?.brake_bias;
   const breakDue = breakMin > 0 && live.driving_s >= breakMin * 60;
   const flash = lastLap && Date.now() - lastLap.at < 6000 ? lastLap : null;
 
@@ -37,12 +38,22 @@ export function StatusLine() {
       </div>
       <div className="status__row">
         {caps?.reports_brake_bias && <Item label="BB" value={bb ? (bb * 100).toFixed(1) : "–"} />}
-        {caps?.reports_abs_level && <Item label="ABS" value={onOff(f?.abs)} tone={f?.abs_active ? "warn" : ""} />}
-        {caps?.reports_tc_level && <Item label="TC" value={onOff(f?.tc)} tone={f?.tc_active ? "warn" : ""} />}
+        {caps?.reports_abs_level && (
+          <Item label="ABS" value={el ? level(el.abs, el.abs_modes) : onOff(f?.abs)} tone={f?.abs_active ? "warn" : ""} />
+        )}
+        {caps?.reports_tc_level && (
+          <Item label="TC" value={el ? level(el.tc, el.tc_modes) : onOff(f?.tc)} tone={f?.tc_active ? "warn" : ""} />
+        )}
         <Item label={breakDue ? "Break" : "Driving"} value={clock(live.driving_s)} tone={breakDue ? "warn" : ""} />
       </div>
     </section>
   );
+}
+
+/** The level on your dial, from the in-game app: "3", or "OFF". */
+export function level(v: number | null | undefined, modes: number | null | undefined): string {
+  if (v === null || v === undefined || !modes) return "–";
+  return v <= 0 ? "OFF" : String(v);
 }
 
 // AC only reports a raw slip setting, so on/off until the CSP app sends real levels.

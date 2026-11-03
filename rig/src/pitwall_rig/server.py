@@ -174,6 +174,18 @@ async def get_track(request: web.Request) -> web.Response:
     return web.json_response(rig.track.model.geometry() if rig.track else None)
 
 
+async def csp_sync(request: web.Request) -> web.Response:
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        body = {}
+    return web.json_response(request.app[RIG_KEY].csp_sync(body if isinstance(body, dict) else {}))
+
+
+async def csp_track(request: web.Request) -> web.Response:
+    return web.json_response(request.app[RIG_KEY].csp_track())
+
+
 async def get_combos(request: web.Request) -> web.Response:
     return web.json_response(request.app[RIG_KEY].combos())
 
@@ -389,6 +401,8 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_get("/api/track", get_track)
     app.router.add_get("/api/corners", get_corners)
     app.router.add_get("/api/combos", get_combos)
+    app.router.add_post("/api/csp/sync", csp_sync)
+    app.router.add_get("/api/csp/track", csp_track)
     app.router.add_post("/api/drill", post_drill)
     app.router.add_delete("/api/drill", delete_drill)
 

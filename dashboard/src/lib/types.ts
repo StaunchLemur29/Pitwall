@@ -282,6 +282,8 @@ export interface Live {
   frame: Frame | null;
   /** How old the car position was when this update was sent (ms), if known. */
   pos_age_ms?: number | null;
+  /** Real ABS / TC levels and brake bias from the in-game CSP app (null without it). */
+  electronics?: { abs: number | null; abs_modes: number | null; tc: number | null; tc_modes: number | null; bb: number | null } | null;
   delta_s: number | null;
   ref_lap_ms: number | null;
   theoretical_best_ms: number | null;
