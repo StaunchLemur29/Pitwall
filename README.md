@@ -120,6 +120,18 @@ It redeploys by itself whenever `main` changes on GitHub. Run it locally with
 If Pitwall's Settings → Cloud ever says the tables are out of date, run
 `cloud/schema.sql` again in the SQL Editor (safe to repeat).
 
+### AI debrief
+
+After a session with at least 3 clean laps, Claude writes a short
+race-engineer debrief: the one change worth the most time (where, what to do,
+a target), a couple of smaller notes, what's going well, and a section to
+drill. It shows in the analysis (PC and hub). Setup: create an API key at
+[console.anthropic.com](https://console.anthropic.com) (API Keys, and add some
+credit under Billing), then paste it into **Settings → AI**. It's checked,
+then kept on the PC only (`%APPDATA%\Pitwall\ai.json`). Each debrief costs
+roughly 10 cents. Turn automatic debriefs off in the same tab; the
+**Write debrief** button in the analysis still works.
+
 ### Recording a session (helps development)
 
 ```bat

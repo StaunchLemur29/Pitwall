@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Trace } from "../lib/profile";
 import type { Combo } from "../lib/rig";
 import type { AnalysisSource } from "../lib/source";
-import type { CarProfile, CornerReport, LapSummary, TrackGeometry } from "../lib/types";
+import type { CarProfile, CornerReport, Debrief, LapSummary, TrackGeometry } from "../lib/types";
 import { buildReport, type HubLap } from "./report";
 
 const key = (c: { game: string; car: string; track_key: string }) => `${c.game}|${c.car}|${c.track_key}`;
@@ -129,5 +129,13 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     },
 
     trace: (id) => trace(id),
+
+    async debriefs(c) {
+      const { data } = await sb.from("debriefs").select("game,car,track_key,session_start,created_at,model,body")
+        .eq("game", c.game).eq("car", c.car).eq("track_key", c.track_key)
+        .order("session_start", { ascending: false }).range(0, 49);
+      return ((data ?? []) as (Omit<Debrief, "session_start" | "created_at"> & { session_start: string; created_at: string })[])
+        .map((d) => ({ ...d, session_start: unix(d.session_start), created_at: unix(d.created_at) }));
+    },
   };
 }

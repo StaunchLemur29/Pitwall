@@ -8,6 +8,7 @@ import { useSource } from "../lib/source";
 import { GRADE_COLORS, indexAt, pathOf, type P } from "../lib/track";
 import type { CornerLap, CornerReport, LapSummary, TrackGeometry } from "../lib/types";
 import { CornerDetail } from "./CornerDetail";
+import { DebriefCard } from "./DebriefCard";
 import { Card, useSize } from "./common";
 
 type Mode = "phase" | "speed" | "delta" | "grade" | "systems";
@@ -342,6 +343,7 @@ export function LapAnalysis({
         <div className="la la--wide">
           <div className="la__left">
             {summary}
+            <DebriefCard combo={report?.game && report.car && report.track_key ? { game: report.game, car: report.car, track_key: report.track_key } : null} />
             {systemsBlock}
             {modes}
             <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />

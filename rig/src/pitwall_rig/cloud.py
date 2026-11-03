@@ -229,6 +229,7 @@ class CloudSync:
                 client.upsert("laps", laps, "user_id,rig_id,local_id")
                 self.store.mark_synced(ids, time.time())
                 sent += len(ids)
+            self._send_debriefs(client)
             if client.refresh_token != self.settings.get("refresh_token"):
                 with self._lock:  # tokens rotate on refresh: keep the new one
                     self.settings["refresh_token"] = client.refresh_token
@@ -236,7 +237,7 @@ class CloudSync:
             self.state, self.error, self.last_sync = "idle", None, time.time()
         except CloudError as e:
             msg = str(e)
-            if "column" in msg and "schema cache" in msg:
+            if ("column" in msg and "schema cache" in msg) or "no unique or exclusion constraint" in msg:
                 msg = "Your Supabase tables are out of date: run cloud/schema.sql again in the SQL Editor."
             self.state, self.error = "error", msg
             log.warning("Cloud sync: %s", e)
@@ -269,6 +270,18 @@ class CloudSync:
             "systems": extras.get("systems"),
             "trace": downsample(trace, TRACE_HZ) if trace else None,
         }
+
+    def _send_debriefs(self, client: Supabase) -> None:
+        while True:
+            rows = self.store.unsynced_debriefs(20)
+            if not rows:
+                return
+            client.upsert("debriefs", [{
+                "user_id": client.user_id, "game": r["game"], "car": r["car"], "track_key": r["track_key"],
+                "session_start": _iso(r["session_start"]), "body": r["body"], "model": r["model"],
+                "created_at": _iso(r["created_at"]),
+            } for r in rows], "user_id,game,car,track_key,session_start")
+            self.store.mark_debriefs_synced([r["id"] for r in rows], time.time())
 
     def _send_context(self, client: Supabase, laps: list[dict[str, Any]]) -> None:
         """Track layouts and car profiles the hub needs for these laps (once per run)."""
