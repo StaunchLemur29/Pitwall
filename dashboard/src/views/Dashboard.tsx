@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { prettyName } from "../lib/format";
-import { rig, useRig } from "../lib/rig";
+import { closeWindow, rig, useRig } from "../lib/rig";
+import { LagMeter } from "../widgets/LagMeter";
 import type { Mode } from "../lib/types";
 import { WIDGETS } from "../widgets";
 
@@ -68,7 +69,11 @@ export function Dashboard() {
         <a className="dash__gear" href="#/settings" title="Settings" aria-label="Settings">
           ⚙
         </a>
+        <button className="dash__close" onClick={() => closeWindow("dashboard")} title="Close this window" aria-label="Close">
+          ✕
+        </button>
       </header>
+      <LagMeter />
       {banner && <div className={`banner ${connected ? "" : "banner--warn"}`}>{banner}</div>}
       <main className="dash__stack">
         {slots.map((slot, i) => {

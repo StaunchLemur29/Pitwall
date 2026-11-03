@@ -253,7 +253,7 @@ export interface Live {
 }
 
 export type ServerEvent =
-  | ({ type: "frame" } & Live)
+  | ({ type: "frame"; ts: number; tick_hz: number; game_hz: number } & Live)
   | {
       type: "hello";
       config: Config;

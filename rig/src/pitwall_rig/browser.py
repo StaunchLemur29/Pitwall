@@ -14,6 +14,8 @@ from .monitors import Monitor, list_monitors, pick_dashboard_monitor
 
 log = logging.getLogger(__name__)
 
+_windows: dict[str, subprocess.Popen] = {}
+
 
 def _browser(which: str) -> str | None:
     local = Path(os.environ.get("LOCALAPPDATA", ""))
@@ -39,14 +41,17 @@ def _browser(which: str) -> str | None:
     return None
 
 
-def _launch(url: str, display: dict[str, Any], x: int, y: int, w: int, h: int, profile: str, extra: list[str]) -> bool:
+def _launch(
+    url: str, display: dict[str, Any], x: int, y: int, w: int, h: int, profile: str, extra: list[str], kind: str
+) -> bool:
     exe = _browser(display.get("browser", "auto"))
     if exe is None:
         log.warning("Couldn't find Chrome or Edge; open %s yourself.", url)
         return False
     # Each window type gets its own browser profile, so Chrome honours the
     # position flags instead of handing the URL to an already-open window.
-    subprocess.Popen(
+    close_window(kind)
+    _windows[kind] = subprocess.Popen(
         [
             exe,
             f"--app={url}",
@@ -75,7 +80,7 @@ def open_dashboard(url: str, display: dict[str, Any]) -> bool:
             log.info("Opening the dashboard on the %dx%d monitor at (%d, %d)", w, h, x, y)
         else:
             log.info("Only one monitor found; opening the dashboard on it")
-    return _launch(url, display, x, y, w, h, "browser-profile", ["--start-fullscreen"])
+    return _launch(url, display, x, y, w, h, "browser-profile", ["--start-fullscreen"], "dashboard")
 
 
 def main_monitor(monitors: list[Monitor]) -> Monitor | None:
@@ -88,4 +93,13 @@ def open_analysis(base_url: str, display: dict[str, Any]) -> bool:
     x, y, w, h = (mon.x, mon.y, mon.width, mon.height) if mon else (0, 0, 1600, 900)
     log.info("Opening analysis on the main screen")
     return _launch(base_url + "#/analysis", display, x + 40, y + 40, w - 80, h - 120, "browser-profile-analysis",
-                   ["--start-maximized"])
+                   ["--start-maximized"], "analysis")
+
+
+def close_window(kind: str) -> bool:
+    """Close a window Pitwall opened ("dashboard" or "analysis")."""
+    proc = _windows.pop(kind, None)
+    if proc is None or proc.poll() is not None:
+        return False
+    proc.terminate()
+    return True

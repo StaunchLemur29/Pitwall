@@ -52,6 +52,14 @@ class Rig:
         self._last_tick: float | None = None
         self.pending_bind: str | None = None
         self.on_open_analysis: Callable[[], object] = lambda: None
+        self.on_close_window: Callable[[str], object] = lambda which: None
+        # rates for the lag meter: rig ticks/s and new game packets/s
+        self._rate_t0 = time.monotonic()
+        self._ticks = 0
+        self._packets = 0
+        self._last_packet = -1
+        self.tick_hz = 0.0
+        self.game_hz = 0.0
         self.track: TrackState | None = None
         self.track_live: dict[str, Any] | None = None
         self.laps = LapRecorder(self._on_lap, max_tyres_out=config["laps"]["max_tyres_out"])
@@ -83,6 +91,15 @@ class Rig:
         if self._last_tick is not None and mode == Mode.DRIVING:
             self.driving_s += now - self._last_tick
         self._last_tick = now
+
+        self._ticks += 1
+        if frame.packet_id != self._last_packet:
+            self._packets += 1
+            self._last_packet = frame.packet_id
+        span = now - self._rate_t0
+        if span >= 1.0:
+            self.tick_hz, self.game_hz = self._ticks / span, self._packets / span
+            self._rate_t0, self._ticks, self._packets = now, 0, 0
 
         self.frame = frame
         self.laps.max_tyres_out = self.config["laps"]["max_tyres_out"]
@@ -315,6 +332,9 @@ class Rig:
         f = self.frame
         return {
             "type": "frame",
+            "ts": time.time(),
+            "tick_hz": round(self.tick_hz, 1),
+            "game_hz": round(self.game_hz, 1),
             "frame": f.to_wire() if f else None,
             "delta_s": self.delta_s,
             "ref_lap_ms": self.reference.lap_time_ms if self.reference else None,

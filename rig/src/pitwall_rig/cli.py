@@ -13,7 +13,7 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .browser import open_analysis, open_dashboard
+from .browser import close_window, open_analysis, open_dashboard
 from .config import Config, ConfigError, default_data_dir
 from .input import InputService
 from .rig import Rig
@@ -44,7 +44,20 @@ def _make_adapter(game: str, args: argparse.Namespace, config: Config):
     raise SystemExit(f"Unknown game {game!r}")
 
 
+def _fine_timers() -> None:
+    """Windows ticks timers every ~15.6 ms by default, which turns a 60 Hz loop
+    into an uneven ~30 Hz. Ask for 1 ms resolution while Pitwall runs."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.winmm.timeBeginPeriod(1)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def cmd_run(args: argparse.Namespace) -> None:
+    _fine_timers()
     data_dir = Path(args.data_dir) if args.data_dir else default_data_dir()
     try:
         config = Config(data_dir / "config.json")
@@ -104,6 +117,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     log.info("Pitwall (%s) on %s", game, url)
     log.info("Laps are saved to %s", store_path)
     rig.on_open_analysis = lambda: open_analysis(url, config["display"])
+    rig.on_close_window = close_window
     if args.open or config["display"]["open_browser"]:
 
         async def open_when_ready(_app: web.Application) -> None:

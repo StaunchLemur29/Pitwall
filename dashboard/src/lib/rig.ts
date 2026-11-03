@@ -99,7 +99,8 @@ class RigStore {
   private handle(e: ServerEvent): void {
     switch (e.type) {
       case "frame": {
-        const { type: _t, ...live } = e;
+        const { type: _t, ts, tick_hz, game_hz, ...live } = e;
+        lag.record(Date.now() - ts * 1000, tick_hz, game_hz);
         this.set({ live });
         break;
       }
@@ -207,7 +208,51 @@ class RigStore {
   get = (): RigState => this.state;
 }
 
+/** Numbers for the lag meter: how old data is when it arrives, and how often. */
+class LagStats {
+  ages: number[] = [];
+  arrivals: number[] = [];
+  tickHz = 0;
+  gameHz = 0;
+
+  record(ageMs: number, tickHz: number, gameHz: number): void {
+    const now = performance.now();
+    this.ages.push(ageMs);
+    this.arrivals.push(now);
+    while (this.arrivals.length && now - this.arrivals[0] > 2000) {
+      this.arrivals.shift();
+      this.ages.shift();
+    }
+    this.tickHz = tickHz;
+    this.gameHz = gameHz;
+  }
+
+  summary() {
+    const a = this.ages;
+    const gaps = this.arrivals.slice(1).map((t, i) => t - this.arrivals[i]);
+    return {
+      msgsPerS: this.arrivals.length / 2,
+      ageAvg: a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0,
+      ageMax: a.length ? Math.max(...a) : 0,
+      gapMax: gaps.length ? Math.max(...gaps) : 0,
+      tickHz: this.tickHz,
+      gameHz: this.gameHz,
+    };
+  }
+}
+
+export const lag = new LagStats();
+
 export const rig = new RigStore();
+
+export async function closeWindow(which: "dashboard" | "analysis"): Promise<void> {
+  try {
+    window.close(); // works when the browser allows it
+  } catch {
+    /* ignore */
+  }
+  await fetch(`/api/window/${which}/close`, { method: "POST" }).catch(() => undefined);
+}
 
 export function useRig<T>(select: (s: RigState) => T): T {
   return useSyncExternalStore(rig.subscribe, () => select(rig.get()));

@@ -51,7 +51,7 @@ DEFAULTS: dict[str, Any] = {
     # (bind the same key inside Time Shift). rewind_hold_ms: hold it this long.
     "games": {"ac": {"install_dir": "", "rewind_key": "insert", "rewind_hold_ms": 120}},
     "server": {"host": "127.0.0.1", "port": 8765},
-    "rates": {"poll_hz": 60, "broadcast_hz": 30},
+    "rates": {"poll_hz": 60, "broadcast_hz": 60},
     "laps": {"max_tyres_out": 2},
     "units": {"speed": "kmh", "pressure": "psi", "temperature": "c"},
     "display": {

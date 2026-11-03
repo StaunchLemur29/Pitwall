@@ -1,5 +1,5 @@
 import { prettyName } from "../lib/format";
-import { useRig } from "../lib/rig";
+import { closeWindow, useRig } from "../lib/rig";
 import { LapAnalysis } from "../widgets/LapAnalysis";
 import { LapTimes } from "../widgets/LapTimes";
 import { RecentLaps } from "../widgets/RecentLaps";
@@ -19,6 +19,9 @@ export function AnalysisPage() {
         <a className="dash__gear" href="#/settings" title="Settings">
           ⚙
         </a>
+        <button className="dash__close" onClick={() => closeWindow("analysis")} title="Close this window" aria-label="Close">
+          ✕
+        </button>
       </header>
       <div className="apage__grid">
         <div className="apage__main">

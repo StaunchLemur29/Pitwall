@@ -194,6 +194,14 @@ async def delete_drill(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def close_window(request: web.Request) -> web.Response:
+    which = request.match_info["which"]
+    if which not in ("dashboard", "analysis"):
+        raise web.HTTPNotFound()
+    request.app[RIG_KEY].on_close_window(which)
+    return web.json_response({"ok": True})
+
+
 async def get_monitors(request: web.Request) -> web.Response:
     from .monitors import list_monitors, pick_dashboard_monitor
 
@@ -272,6 +280,7 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_delete("/api/bind", cancel_bind)
     app.router.add_get("/api/input/devices", get_devices)
     app.router.add_get("/api/monitors", get_monitors)
+    app.router.add_post("/api/window/{which}/close", close_window)
     app.router.add_get("/api/track", get_track)
     app.router.add_get("/api/corners", get_corners)
     app.router.add_post("/api/drill", post_drill)
