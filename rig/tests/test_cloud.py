@@ -78,3 +78,21 @@ def test_sync_survives_a_restart_with_the_saved_token(demo, clock, config, store
     assert again.sync_once() > 0  # signs in again with the stored refresh token
     again.disconnect()
     assert CloudSync(store, tmp_path).status()["connected"] is False
+
+
+def test_laps_from_an_older_upload_go_up_again_once(demo, clock, config, store, tmp_path, supa):
+    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
+    drive(rig, clock, laps=1)
+    sync = CloudSync(store, tmp_path, geometry_for=rig.track_geometry, extras_for=rig.cloud_extras)
+    sync.connect(supa.url, "anon", "me@example.com", "pw")
+    sync.sync_once()
+    assert store.unsynced_count() == 0
+    # Pretend these went up with the first version of the sync.
+    saved = json.loads((tmp_path / "cloud.json").read_text())
+    saved.pop("upload_version")
+    (tmp_path / "cloud.json").write_text(json.dumps(saved))
+    restarted = CloudSync(store, tmp_path, geometry_for=rig.track_geometry, extras_for=rig.cloud_extras)
+    assert store.unsynced_count() == len(store.laps(limit=100))  # all queued again
+    assert restarted.sync_once() == len(store.laps(limit=100))
+    CloudSync(store, tmp_path)  # and only once
+    assert store.unsynced_count() == 0

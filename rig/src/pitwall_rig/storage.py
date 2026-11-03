@@ -190,6 +190,10 @@ class Store:
         ).fetchall()
         return [int(r["id"]) for r in rows]
 
+    def mark_all_unsynced(self) -> None:
+        with self._lock, self._db:
+            self._db.execute("UPDATE laps SET synced_at=NULL")
+
     def unsynced_count(self) -> int:
         return int(self._db.execute("SELECT COUNT(*) FROM laps WHERE synced_at IS NULL").fetchone()[0])
 
