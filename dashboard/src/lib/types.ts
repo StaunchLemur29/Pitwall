@@ -238,6 +238,7 @@ export type WidgetId =
   | "lap_times"
   | "tyres"
   | "session_bar"
+  | "status_line"
   | "recent_laps";
 
 export interface WidgetSlot {

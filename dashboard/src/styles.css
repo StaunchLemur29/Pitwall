@@ -3,10 +3,10 @@
    1080×1920 vertical monitor and a laptop window. */
 
 :root {
-  --bg: #0b0d10;
-  --card: #14171c;
-  --card-2: #1a1e25;
-  --line: #262b33;
+  --bg: #07090b;
+  --card: #0e1115;
+  --card-2: #151a20;
+  --line: #1f252c;
   --text: #eef0f3;
   --muted: #8b94a1;
   --faint: #5a626e;
@@ -16,7 +16,7 @@
   --warn: #ffc542;
   --accent: #ff5a36;
   --u: min(1vw, 0.56vh);
-  --radius: calc(var(--u) * 1.6);
+  --radius: 8px;
   color-scheme: dark;
 }
 
@@ -2140,4 +2140,56 @@ select {
 
 .even {
   color: var(--muted);
+}
+
+/* ---------------------------------------------------------------- page 1 status line etc. */
+
+.status {
+  justify-content: center;
+  gap: calc(var(--u) * 0.6);
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: calc(var(--u) * 2.2);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.status__row {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(var(--u) * 2);
+}
+
+.status--break {
+  border-color: var(--warn);
+}
+
+.status__item b {
+  color: var(--faint);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.72em;
+  letter-spacing: 0.1em;
+  margin-right: 0.45em;
+}
+
+.status__item--good { color: var(--good); }
+.status__item--bad { color: var(--bad); }
+.status__item--best { color: var(--best); }
+.status__item--warn { color: var(--warn); }
+
+.brakeslot--hidden {
+  visibility: hidden;
+}
+
+.upcoming--left {
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.la__pickers {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: calc(var(--u) * -0.4);
 }

@@ -12,13 +12,14 @@ export function DrillCard() {
   const retry = useRig((s) => s.retry);
 
   if (!d) {
+    // No drill running: this strip is where coaching tips will appear (phase 3).
     return (
-      <Card title="Drill" dim>
-        <div className="upcoming">
+      <Card title="Coach" dim>
+        <div className="upcoming upcoming--left">
           {hasTrack
             ? bound
-              ? "Press your “drill” button before a corner to practise it, or pick one in analysis."
-              : "Pick a corner to practise in analysis, or bind a “drill” button in Settings."
+              ? "Press your drill button before a section to practise it, or pick one in analysis."
+              : "Pick a section to practise in analysis, or bind a drill button in Settings."
             : "Drills need the track layout."}
         </div>
       </Card>

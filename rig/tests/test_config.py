@@ -65,3 +65,14 @@ def test_old_default_layouts_are_upgraded(tmp_path):
     cfg = Config(path)
     assert "turn_by_turn" in json.dumps(cfg["layouts"])
     assert cfg["display"]["accent"] == "#111111"
+
+
+def test_old_default_layout_upgrades_to_the_new_page_one(tmp_path):
+    import json
+
+    from pitwall_rig.config import _OLD_DEFAULT_LAYOUTS, Config
+
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"layouts": _OLD_DEFAULT_LAYOUTS[0]}))
+    cfg = Config(p)
+    assert cfg["layouts"]["driving"][0][-1]["widget"] == "status_line"

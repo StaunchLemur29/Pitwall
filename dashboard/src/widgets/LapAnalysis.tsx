@@ -20,7 +20,10 @@ const MODES: [Mode, string][] = [
 /** Post-session view: a lap summary, your line on the map, and any corner in detail against another lap. */
 const comboKey = (c: Combo | null) => (c ? `${c.game}|${c.car}|${c.track_key}` : "live");
 
-export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
+export function LapAnalysis({
+  wide = false,
+  onShowing,
+}: { wide?: boolean; onShowing?: (c: { car: string; track_key: string } | null) => void } = {}) {
   const liveG = useRig((s) => s.track);
   const latest = useRig((s) => s.corners);
   const liveLaps = useRig((s) => s.laps);
@@ -75,6 +78,9 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
     };
   }, [shownId]);
   const theo = active ? report?.theoretical_best_ms ?? null : liveTheo;
+  useEffect(() => {
+    onShowing?.(report?.car && report.track_key ? { car: report.car, track_key: report.track_key } : null);
+  }, [report?.car, report?.track_key]); // eslint-disable-line react-hooks/exhaustive-deps
   const canDrill = !active; // drills run on the car + track you're driving
   const pickCombo = (key: string) => {
     const c = combos.find((x) => comboKey(x) === key) ?? null;
@@ -280,10 +286,7 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
     </div>
   );
 
-  return (
-    <Card
-      title="Lap analysis"
-      right={
+  const pickers = (
         <span className="lapsels">
           {comboPicker}
           <select className="lapsel" value={shownId ?? ""} onChange={(e) => setLapId(Number(e.target.value) || null)} aria-label="Lap to analyse">
@@ -307,8 +310,11 @@ export function LapAnalysis({ wide = false }: { wide?: boolean } = {}) {
               ))}
           </select>
         </span>
-      }
-    >
+  );
+
+  return (
+    <Card title="Lap analysis" right={wide ? pickers : undefined}>
+      {!wide && <div className="la__pickers">{pickers}</div>}
       {wide ? (
         <div className="la la--wide">
           <div className="la__left">

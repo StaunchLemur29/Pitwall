@@ -31,7 +31,7 @@ async def test_websocket_streams_hello_and_frames(config, store):
         ws = await client.ws_connect("/ws")
         hello = await next_of(ws, "hello")
         assert hello["game"] == "demo"
-        assert "electronics" in str(hello["config"]["layouts"])
+        assert "status_line" in str(hello["config"]["layouts"])
         frame = await next_of(ws, "frame")
         assert frame["frame"]["status"] == "live"
         await ws.close()

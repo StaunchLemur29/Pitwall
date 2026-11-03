@@ -80,7 +80,10 @@ def open_dashboard(url: str, display: dict[str, Any]) -> bool:
             log.info("Opening the dashboard on the %dx%d monitor at (%d, %d)", w, h, x, y)
         else:
             log.info("Only one monitor found; opening the dashboard on it")
-    return _launch(url, display, x, y, w, h, "browser-profile", ["--start-fullscreen"], "dashboard")
+    # --disable-lcd-text: Windows' ClearType assumes the screen's colour
+    # sub-pixels run sideways; on a monitor turned to portrait they don't, which
+    # makes text fuzzy with coloured edges. Plain greyscale smoothing is crisp.
+    return _launch(url, display, x, y, w, h, "browser-profile", ["--start-fullscreen", "--disable-lcd-text"], "dashboard")
 
 
 def main_monitor(monitors: list[Monitor]) -> Monitor | None:

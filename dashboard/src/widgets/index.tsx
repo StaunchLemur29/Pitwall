@@ -8,6 +8,7 @@ import { LapTimes } from "./LapTimes";
 import { NextCorner } from "./NextCorner";
 import { RecentLaps } from "./RecentLaps";
 import { SessionBar } from "./SessionBar";
+import { StatusLine } from "./StatusLine";
 import { TrackMap } from "./TrackMap";
 import { TurnByTurn } from "./TurnByTurn";
 import { Tyres } from "./Tyres";
@@ -25,6 +26,7 @@ export const WIDGETS: Record<WidgetId, { label: string; component: ComponentType
   lap_times: { label: "Lap times & delta", component: LapTimes },
   tyres: { label: "Tyres", component: Tyres },
   session_bar: { label: "Session timer", component: SessionBar },
+  status_line: { label: "Status line", component: StatusLine },
   recent_laps: { label: "Recent laps", component: RecentLaps },
   lap_analysis: { label: "Lap analysis (map + corners)", component: LapAnalysis },
 };

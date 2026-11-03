@@ -27,6 +27,7 @@ export function NextCorner() {
   const inCorner = c.distance_m === 0;
   const brakeIn = c.brake_in_m;
   const brakeSoon = brakeIn !== null && brakeIn < 250;
+  const brakeNear = brakeIn !== null && brakeIn < 300; // shown only when it matters
   return (
     <Card
       title={inCorner ? "In corner" : <>Next · <LiveMetres field="distance_m" initial={c.distance_m} /> m</>}
@@ -53,7 +54,9 @@ export function NextCorner() {
           </div>
         </div>
       </div>
-      {brakeIn !== null && !inCorner && <BrakeBar initial={brakeIn} soon={brakeSoon} />}
+      <div className={`brakeslot ${brakeNear && !inCorner ? "" : "brakeslot--hidden"}`}>
+        {brakeIn !== null && !inCorner && <BrakeBar initial={brakeIn} soon={brakeSoon} />}
+      </div>
     </Card>
   );
 }

@@ -25,6 +25,7 @@ WIDGETS: dict[str, dict[str, Any]] = {
     "lap_times": {"label": "Lap times & delta", "phase": 0},
     "tyres": {"label": "Tyre pressures & temps", "phase": 0},
     "session_bar": {"label": "Session timer & music", "phase": 0},
+    "status_line": {"label": "Status line (lap times, BB/ABS/TC, timer)", "phase": 0},
     "recent_laps": {"label": "Recent laps", "phase": 0},
 }
 
@@ -71,14 +72,9 @@ DEFAULTS: dict[str, Any] = {
     # "size" is the relative height share.
     "layouts": {
         "driving": [
-            [
-                _w("next_corner", 3),
-                _w("turn_by_turn", 6),
-                _w("drill", 2),
-                _w("coach_tip", 1),
-                _w("electronics", 2),
-                _w("session_bar", 1),
-            ],
+            # Most of the screen for the corner and the road; the things that
+            # rarely change live in one thin status line.
+            [_w("next_corner", 3), _w("turn_by_turn", 8), _w("drill", 2), _w("status_line", 1)],
             [_w("lap_times", 3), _w("track_map", 5), _w("tyres", 2), _w("session_bar", 1)],
         ],
         "analysis": [
@@ -97,9 +93,20 @@ DEFAULTS: dict[str, Any] = {
 }
 
 
-# Layouts shipped before phase 1. A saved config still holding exactly these
+# Layouts shipped before. A saved config still holding exactly one of these
 # gets the new defaults instead (so new widgets show up without a reset).
 _OLD_DEFAULT_LAYOUTS = [
+    {
+        "driving": [
+            [_w("next_corner", 3), _w("turn_by_turn", 6), _w("drill", 2), _w("coach_tip", 1),
+             _w("electronics", 2), _w("session_bar", 1)],
+            [_w("lap_times", 3), _w("track_map", 5), _w("tyres", 2), _w("session_bar", 1)],
+        ],
+        "analysis": [
+            [_w("lap_times", 2), _w("lap_analysis", 10), _w("session_bar", 1)],
+            [_w("recent_laps", 6), _w("track_map", 4), _w("session_bar", 1)],
+        ],
+    },
     {
         "driving": [
             [_w("next_corner", 3), _w("track_map", 4), _w("drill", 2), _w("coach_tip", 1),
