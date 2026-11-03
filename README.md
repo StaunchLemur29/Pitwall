@@ -42,6 +42,9 @@ preferred, Edge as a fallback). If it picks the wrong screen, choose one under
 **Settings → General** (the gear icon, or `http://localhost:8765/#/settings`).
 
 - **Analysis ↗** (top bar) opens the full lap analysis on your main screen.
+  Each corner's close-up shows an **optimal racing line** (dotted), worked
+  out from the track's edges; **+ Optimal line** adds it to the lap map. The
+  track-width tips say how far you were from it at turn-in, apex and exit.
 - The **–** button minimises the dashboard; **⏻** stops Pitwall.
 - Press **L** on the dashboard for the lag meter and **Record performance**
   (saves a report to `%APPDATA%\Pitwall\perf`).

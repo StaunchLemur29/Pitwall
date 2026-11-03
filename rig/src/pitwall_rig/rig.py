@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -16,7 +17,7 @@ from .input import InputEvent
 from .laps import LapRecorder
 from .models import Frame, GameStatus, Lap, Mode, SessionInfo, mode_for
 from .reference import ReferenceLap, downsample
-from .analysis import analyse_lap, analyse_systems, compare_notes, corner_mastery, width_advice
+from .analysis import analyse_lap, analyse_systems, compare_notes, corner_mastery, line_vs_optimal, width_advice
 from .storage import Store
 from .tracks.live import Drill, TrackState
 from .tracks.loader import from_lap_trace
@@ -61,8 +62,6 @@ class Rig:
         recorder: Recorder | None = None,
         clock: Callable[[], float] = time.perf_counter,
     ) -> None:
-        import threading
-
         self.lock = threading.RLock()
         self.adapter = adapter
         self.store = store
@@ -257,8 +256,23 @@ class Rig:
                     self._analyse(lap_id, tr)
         self.track.mastery = self._mastery()
         self.csp.touch()
-        self.emit({"type": "track", "track": model.geometry()})
+        self.emit({"type": "track", "track": model.geometry(compute_optimal=False)})
         self._emit_corners(None)
+        if not model.optimal_ready():
+            # A few seconds on a long track: work it out off the telemetry thread,
+            # then send the map (and the corner tips that use it) again.
+            threading.Thread(target=self._optimal_line, args=(model,), daemon=True, name="optimal-line").start()
+
+    def _optimal_line(self, model: TrackModel) -> None:
+        try:
+            model.optimal()
+        except Exception:  # noqa: BLE001 - the analysis works without it
+            log.exception("Couldn't work out the optimal line for %s", model.track_key)
+            return
+        with self.lock:
+            if self.track is not None and self.track.model is model:
+                self.emit({"type": "track", "track": model.geometry()})
+                self._emit_corners(None)
 
     def _model_sig(self, track: TrackState | None = None) -> str:
         track = track or self.track
@@ -319,6 +333,11 @@ class Rig:
             trace = self.store.trace(lap_id) if lap_id is not None else None
             if trace:
                 model = from_lap_trace(track_key, trace, 0.0)
+        if model is not None:
+            try:
+                model.optimal()  # outside the lock too: seconds on a long track, once
+            except Exception:  # noqa: BLE001 - the analysis works without it
+                log.exception("Couldn't work out the optimal line for %s", track_key)
         return model
 
     def analysis_ctx(self, game: str | None = None, car: str | None = None, track_key: str | None = None,
@@ -412,6 +431,9 @@ class Rig:
                     continue
                 nxt = m.corners[(i + 1) % len(m.corners)]
                 gap = ((nxt.entry - c.exit) % 1.0) * m.length_m
+                line = line_vs_optimal(c, data, m)
+                if line:
+                    data["line"] = line
                 data["advice"] = width_advice(c, data, gap)
                 # Time lost against your best ever through this corner (any lap).
                 best = track.mastery.get(c.number, {}).get("best_s")
@@ -438,6 +460,11 @@ class Rig:
                 compare_label = "your best lap" if is_best else f"lap {info['lap_number']}" if info else "the other lap"
             if compare:
                 by_num = {c["corner"]: c for c in compare}
+                for other in compare:
+                    k = other["corner"] - 1
+                    line = line_vs_optimal(m.corners[k], other, m) if 0 <= k < len(m.corners) else None
+                    if line:
+                        other["line"] = line
                 for data in lap:
                     other = by_num.get(data["corner"])
                     if other:
@@ -747,7 +774,7 @@ class Rig:
             "car_systems": car_profile.summary(self.car_profile) if self.car_profile else [],
             "started_at": self.started_at,
             "recent_laps": self.recent_laps(),
-            "track": self.track.model.geometry() if self.track else None,
+            "track": self.track.model.geometry(compute_optimal=False) if self.track else None,
             "corners": self.corner_report() if self.track else None,
             "drill": self.track.drill.to_wire() if self.track and self.track.drill else None,
         }

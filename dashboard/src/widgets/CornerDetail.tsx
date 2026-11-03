@@ -113,6 +113,7 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
       <div className="cd__legend">
         <span><Key c={YOU} />You (this lap)</span>
         {them && <span><Key c={OTHER} dash />{cap(label)}</span>}
+        {g.optimal?.length ? <span title="The smoothest path the track's edges allow: a guide for where to place the car"><Key c="var(--opt-line)" dot />Optimal line</span> : null}
         <span className="muted">● braking starts · numbers = slowest speed</span>
       </div>
 
@@ -134,11 +135,11 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
   );
 }
 
-/** Line sample for legends: solid for you, dashed for the other lap (not colour alone). */
-function Key({ c, dash }: { c: string; dash?: boolean }) {
+/** Line sample for legends: solid for you, dashed for the other lap, dotted for the optimal line (not colour alone). */
+function Key({ c, dash, dot }: { c: string; dash?: boolean; dot?: boolean }) {
   return (
     <svg width="18" height="8" className="key" aria-hidden>
-      <line x1="1" x2="17" y1="4" y2="4" stroke={c} strokeWidth="3" strokeLinecap="round" strokeDasharray={dash ? "4 3" : undefined} />
+      <line x1="2" x2="17" y1="4" y2="4" stroke={c} strokeWidth="3" strokeLinecap="round" strokeDasharray={dot ? "0.1 5" : dash ? "4 3" : undefined} />
     </svg>
   );
 }
@@ -227,6 +228,7 @@ function CloseUp(props: {
             </>
           )}
           {!g.has_edges && <path d={path(idx.map((i) => g.center[i] as P))} className="cd__edge" />}
+          {g.optimal?.length ? <path d={path(idx.map((i) => g.optimal![i] as P))} className="cd__opt" /> : null}
           <text x={apexPt[0]} y={apexPt[1]} className="cd__apex" textAnchor="middle" dy="0.35em">apex</text>
           {me && <path d={line(me)} className="cd__line" stroke={YOU} />}
           {/* dashed on top, so both show where the lines overlap */}
@@ -416,6 +418,15 @@ function Table({ mine, other, label }: { mine: CornerLap; other: CornerLap | nul
   cmp("Full throttle again", mine.throttle_m, other?.throttle_m, " m", "low", ["later", "sooner"], 0, 3);
   cmp("Speed at the exit", mine.exit_kmh, other?.exit_kmh, " km/h", "high", ["faster", "slower"], 0, 1);
   cmp("Coasting (no pedals)", mine.coast_s, other?.coast_s, " s", "low", ["more", "less"], 1, 0.1);
+  // Where you were across the track compared with the optimal line.
+  const place = (v: number | undefined) =>
+    v == null ? "–" : Math.abs(v) < 0.5 ? "on it" : v > 0 ? `${v.toFixed(1)} m inside` : `${(-v).toFixed(1)} m wide`;
+  if (mine.line) {
+    const ks: ["entry" | "apex" | "exit", string][] = [["entry", "Turn-in"], ["apex", "Apex"], ["exit", "Exit"]];
+    for (const [k, name] of ks) {
+      rows.push({ name: `${name} vs the optimal line`, a: place(mine.line[k]), b: other ? place(other.line?.[k]) : "", diff: "", tone: "" });
+    }
+  }
   return (
     <table className="cd__table">
       <thead>

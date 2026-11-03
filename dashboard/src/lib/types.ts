@@ -104,6 +104,8 @@ export interface TrackGeometry {
   center: [number, number][];
   left: [number, number][];
   right: [number, number][];
+  /** optimal racing line (smoothest path the edges allow), same points as center; empty without edges */
+  optimal?: [number, number][];
   corners: Corner[];
   sections: { name: string; start: number; end: number }[];
   chapters: Chapter[];
@@ -206,6 +208,8 @@ export interface CornerLap {
   vs_s?: number;
   /** what you did differently from the comparison lap, biggest first */
   notes?: string[];
+  /** metres towards the inside of the corner vs the optimal line (negative = wider) */
+  line?: { entry: number; apex: number; exit: number };
 }
 
 export interface CornerReport {

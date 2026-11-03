@@ -216,38 +216,84 @@ def corner_mastery(history: list[list[dict[str, Any]]], recent: int = 10) -> dic
 # -- track-width advice ---------------------------------------------------------
 
 
+def line_vs_optimal(corner: Any, data: dict[str, Any], model: TrackModel) -> dict[str, float] | None:
+    """How far you were from the optimal line at turn-in, apex and exit, in
+    metres towards the inside of the corner (negative = wider than it).
+    None if the track has no optimal line (yet) or the lap has no positions."""
+    out = {}
+    for key, p in (("entry", corner.entry), ("apex", corner.apex), ("exit", corner.exit)):
+        mine = data.get(f"{key}_off_m")  # metres left of the AI line
+        opt = model.optimal_at(p)
+        if mine is None or opt is None:
+            return None
+        towards_left = mine - opt
+        out[key] = round(towards_left if corner.direction == "L" else -towards_left, 1)
+    return out
+
+
+# Closer to the optimal line than this counts as on it (a car is ~2 m wide).
+LINE_TOLERANCE_M = 1.5
+
+
 def width_advice(corner: Any, data: dict[str, Any], next_entry_gap_m: float | None) -> list[str]:
     """Plain-English notes on using the track width through one corner.
 
-    Classic line: turn in from the outside, clip the inside at the apex, let the
-    car run out to the outside on exit. ``frac`` is 0 at the left edge, 1 at the
-    right edge. Exit advice is skipped when another corner follows immediately
-    (chicanes, esses), where the exit is really the next entry.
+    Against the optimal line (``data["line"]``, from ``line_vs_optimal``) when
+    the track has one: that's right for chicanes and linked corners too.
+    Otherwise the classic rule of thumb: turn in from the outside, clip the
+    inside at the apex, run out to the outside on exit (``frac`` is 0 at the
+    left edge, 1 at the right edge). Exit advice is skipped when another corner
+    follows immediately (chicanes, esses), where the exit is really the next entry.
     """
     if "apex_frac" not in data or getattr(corner, "grade", 1) >= 5:
-        return []  # flat-out kinks: the "classic line" advice doesn't apply
+        return []  # flat-out kinks: line advice isn't worth the distraction
     right = corner.direction == "R"
-    outside = (lambda f: f) if right else (lambda f: 1 - f)  # 0 = at the outside edge
-    inside = (lambda f: 1 - f) if right else (lambda f: f)  # 0 = at the inside edge
     side_out = "left" if right else "right"
     side_in = "right" if right else "left"
+    check_exit = next_entry_gap_m is None or next_entry_gap_m > 80
+    line = data.get("line")
     tips: list[str] = []
-    entry, apex, exit_ = outside(data["entry_frac"]), inside(data["apex_frac"]), outside(data["exit_frac"])
-    if entry > 0.35:
-        tips.append(
-            f"Turn in from further {side_out}: you started the corner {pct(entry)} of the way across. "
-            "A wider entry opens the corner up so you can carry more speed."
-        )
-    if apex > 0.3:
-        tips.append(
-            f"Get closer to the {side_in} at the apex ({pct(apex)} of the track away from it). "
-            "Missing the apex makes the corner tighter and costs exit speed."
-        )
-    if (next_entry_gap_m is None or next_entry_gap_m > 80) and exit_ > 0.35:
-        tips.append(
-            f"Use all the road on exit: let the car run out to the {side_out} edge "
-            f"(you finished {pct(exit_)} away from it). If you can't, you can get on the power earlier."
-        )
+    if line:
+        tol = LINE_TOLERANCE_M
+        if line["entry"] > tol:
+            tips.append(
+                f"Turn in from further {side_out}: the optimal line starts this corner "
+                f"{line['entry']:.1f} m wider than you did, which opens it up."
+            )
+        if line["apex"] < -tol:
+            tips.append(
+                f"Get closer to the {side_in} at the apex: the optimal line is {-line['apex']:.1f} m nearer it. "
+                "Missing the apex makes the corner tighter and costs exit speed."
+            )
+        elif line["apex"] > tol:
+            tips.append(
+                f"You were {line['apex']:.1f} m inside the optimal line at the apex: usually a sign of turning in "
+                "too early, which pinches the exit."
+            )
+        if check_exit and line["exit"] > tol:
+            tips.append(
+                f"Use more road on exit: the optimal line runs {line['exit']:.1f} m further {side_out}. "
+                "If you don't need it, you can get on the power earlier."
+            )
+    else:
+        outside = (lambda f: f) if right else (lambda f: 1 - f)  # 0 = at the outside edge
+        inside = (lambda f: 1 - f) if right else (lambda f: f)  # 0 = at the inside edge
+        entry, apex, exit_ = outside(data["entry_frac"]), inside(data["apex_frac"]), outside(data["exit_frac"])
+        if entry > 0.35:
+            tips.append(
+                f"Turn in from further {side_out}: you started the corner {pct(entry)} of the way across. "
+                "A wider entry opens the corner up so you can carry more speed."
+            )
+        if apex > 0.3:
+            tips.append(
+                f"Get closer to the {side_in} at the apex ({pct(apex)} of the track away from it). "
+                "Missing the apex makes the corner tighter and costs exit speed."
+            )
+        if check_exit and exit_ > 0.35:
+            tips.append(
+                f"Use all the road on exit: let the car run out to the {side_out} edge "
+                f"(you finished {pct(exit_)} away from it). If you can't, you can get on the power earlier."
+            )
     if data.get("coast_s", 0) > 0.4:
         tips.append(
             f"You coasted for {data['coast_s']:.1f} s here (no brake or throttle). "

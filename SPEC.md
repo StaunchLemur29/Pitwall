@@ -138,6 +138,7 @@ Selectable / combinable:
 - Online lap times as *targets* (via RSR / SRS / CM leaderboards — times only, no telemetry), labelled elite / average / your level
 - Imported laps (own older laps, friend's file, exports from paid tools where permitted)
 - AC AI line (for line drawing on the map)
+- **Optimal racing line** (done, 2026-11-03): worked out from the track's edges in AC's `fast_lane.ai` as the *minimum-curvature* line (the smoothest path the edges allow, car centre kept 1.2 m inside each edge; kerbs not assumed usable). Geometric only, so it's a placement guide, not a lap-time prediction. Shown dotted on each corner's close-up and as a toggle on the lap map; turn-in/apex/exit distance from it per corner; the track-width tips measure against it (the outside-inside-outside rule of thumb stays as the fallback for tracks without edges). Worked out once per track in the background (a few seconds on the Nordschleife). Later: a speed-aware minimum-time line using the car profile's learnt grip.
 - **Famous times**: real records and well-known laps per track pack, **compared within car class**; where official timing with sector splits exists (e.g. Nürburgring 24h, Spa), use it as a sector-level reference
 - Future: Garage61 full-telemetry references (iRacing)
 

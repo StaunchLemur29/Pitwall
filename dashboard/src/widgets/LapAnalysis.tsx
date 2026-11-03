@@ -63,6 +63,7 @@ export function LapAnalysis({
   const [otherTrace, setOtherTrace] = useState<Trace | null>(null);
   const [focus, setFocus] = useState<number | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
+  const [showOpt, setShowOpt] = useState(false);
 
   const requested = lapId ?? (active ? null : latest?.lap_id ?? null);
   useEffect(() => {
@@ -233,6 +234,16 @@ export function LapAnalysis({
           {l}
         </button>
       ))}
+      {g.optimal?.length ? (
+        <button
+          className={`chipbtn chipbtn--toggle ${showOpt ? "chipbtn--on" : ""}`}
+          onClick={() => setShowOpt((v) => !v)}
+          aria-pressed={showOpt}
+          title="The smoothest path the track's edges allow: a guide for where to place the car"
+        >
+          {showOpt ? "✓ " : "+ "}Optimal line
+        </button>
+      ) : null}
     </div>
   );
 
@@ -344,8 +355,8 @@ export function LapAnalysis({
             {summary}
             {systemsBlock}
             {modes}
-            <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />
-            <Legend mode={mode} label={label} />
+            <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} />
+            <Legend mode={mode} label={label} showOpt={showOpt} />
             {list}
           </div>
           <div className="la__right">
@@ -376,8 +387,8 @@ export function LapAnalysis({
             {theo ? <span className="nsum__theo" title="best sectors combined">optimal {lapTime(theo)}</span> : null}
           </div>
           {modes}
-          <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />
-          <Legend mode={mode} label={label} />
+          <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} />
+          <Legend mode={mode} label={label} showOpt={showOpt} />
           {list}
         </div>
       )}
@@ -396,7 +407,7 @@ function gradeColour(loss: number | null | undefined): string {
   return loss <= 0.05 ? "#3ddc84" : loss <= 0.2 ? "#ffc542" : "#ff5252";
 }
 
-function Legend({ mode, label }: { mode: Mode; label: string | null }) {
+function Legend({ mode, label, showOpt }: { mode: Mode; label: string | null; showOpt: boolean }) {
   const items: Record<Mode, [string, string][]> = {
     phase: [
       ["#ff5252", "braking"],
@@ -432,6 +443,14 @@ function Legend({ mode, label }: { mode: Mode; label: string | null }) {
           {l}
         </span>
       ))}
+      {showOpt && (
+        <span>
+          <svg width="16" height="6" className="key" aria-hidden>
+            <line x1="2" x2="15" y1="3" y2="3" className="la__opt" />
+          </svg>
+          optimal line
+        </span>
+      )}
     </div>
   );
 }
@@ -445,8 +464,9 @@ function ColouredMap(props: {
   focus: number | null;
   onPick: (n: number | null) => void;
   onSelect: (n: number) => void;
+  showOpt: boolean;
 }) {
-  const { g, trace, ref_, mode, rows, focus } = props;
+  const { g, trace, ref_, mode, rows, focus, showOpt } = props;
   const [box, { w, h }] = useSize<HTMLDivElement>();
   const fit = useMemo(() => fitTrack(g.center as Pt[], w, h, 18), [g, w, h]);
   const proj = (p: P): P => fit.project(p[0], p[1]);
@@ -456,6 +476,11 @@ function ColouredMap(props: {
     [g, fit],
   );
   const segments = useMemo(() => (trace ? colourSegments(trace, ref_, mode, g, rows) : []), [trace, ref_, mode, g, rows]);
+  const optimal = useMemo(
+    () => (g.optimal?.length ? pathOf(g.optimal.map((p) => proj(p as P)), true) : ""),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [g, fit],
+  );
 
   return (
     <div ref={box} className="la__map">
@@ -465,6 +490,7 @@ function ColouredMap(props: {
           {segments.map(([colour, pts], i) => (
             <path key={i} d={pathOf(pts.map(proj))} stroke={colour} className="la__seg" />
           ))}
+          {showOpt && optimal && <path d={optimal} className="la__opt" />}
           {g.corners.map((c) => {
             const at = proj(g.center[indexAt(g, c.apex)] as P);
             return (
