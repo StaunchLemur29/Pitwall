@@ -2850,3 +2850,33 @@ select {
   font-size: 15px;
   font-weight: 500;
 }
+
+/* -- what's new ---------------------------------------------------------------- */
+.news__list {
+  display: grid;
+  gap: 16px;
+}
+
+.news__date {
+  font-size: 13px;
+}
+
+.news__title {
+  font-size: 20px;
+  margin: 2px 0 8px;
+}
+
+.news__todo {
+  border-left: 3px solid var(--warn);
+  padding-left: 10px;
+}
+
+.news__dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
