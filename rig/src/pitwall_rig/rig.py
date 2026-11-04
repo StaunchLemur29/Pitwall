@@ -24,6 +24,7 @@ from .analysis import (
     analyse_systems,
     compare_notes,
     corner_mastery,
+    lap_review,
     line_vs_optimal,
     time_to_beat,
     width_advice,
@@ -414,7 +415,7 @@ class Rig:
 
     def cloud_extras(self, lap_id: int) -> dict[str, Any] | None:
         """What the hub can't work out by itself: each corner with its track-width
-        advice, and battery & DRS on the lap. (Comparisons with other laps the hub
+        advice, battery & DRS on the lap, and the lap's good and bad. (Comparisons with other laps the hub
         does itself, against whichever lap you pick.)"""
         rep = self.corner_report(lap_id)
         if not rep.get("lap"):
@@ -424,7 +425,8 @@ class Rig:
         if tb:  # as it stands after this lap, with the practice sections' targets
             tb = {**tb, "sections": [{"number": ps["number"], "to_beat_s": ps.get("to_beat_s")}
                                      for ps in rep.get("practice", [])]}
-        return {"corners": corners, "systems": rep.get("systems"), "time_to_beat": tb}
+        return {"corners": corners, "systems": rep.get("systems"), "time_to_beat": tb,
+                "review": rep.get("review")}
 
     SESSION_GAP_S = 3600  # laps more than an hour apart belong to different sessions
 
@@ -605,6 +607,13 @@ class Rig:
         profile = self.car_profile if ctx.live else self.store.car_profile(ctx.game, ctx.car)
         lap_trace = self.store.trace(lap_id) if lap_id is not None else None
         systems = analyse_systems(lap_trace, track.model, profile) if lap_trace else None
+        review = None
+        if lap:
+            # Your usual: your recent clean laps, not counting this one.
+            history = [d for d in (self.store.lap_corners(i, sig)
+                                   for i in self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=31)
+                                   if i != lap_id) if d][:30]
+            review = lap_review(lap, history, lap_trace, track.model, self.config["laps"]["max_tyres_out"])
         secs = self.store.best_sectors(ctx.game, ctx.track_key, ctx.car)
         tb = self._time_to_beat(ctx)
         if lap and tb:
@@ -619,6 +628,7 @@ class Rig:
             "live": ctx.live,
             "theoretical_best_ms": sum(secs) if secs else None,
             "systems": systems,
+            "review": review,
             "car_systems": car_profile.summary(profile) if profile else [],
             "compare": compare,
             "compare_lap_id": compare_id if compare else None,

@@ -410,3 +410,143 @@ def time_to_beat(mastery: dict[int, dict[str, Any]], optimal_rows: dict[int, dic
         out[num] = {"corner": num, "target_s": round(target, 2), "usual_s": round(usual, 2), "best_s": round(best, 2),
                     "gain_s": round(usual - target, 2), "why": why}
     return out
+
+
+# -- the good and the bad of one lap ---------------------------------------------
+
+_TYPICAL_KEYS = ("time_s", "min_speed_kmh", "exit_kmh", "entry_kmh", "brake_m", "throttle_m", "coast_s")
+
+
+def typical_corners(history: list[list[dict[str, Any]]], recent: int = 10) -> dict[int, dict[str, Any]]:
+    """Your usual way through each corner: the median of each number over your
+    recent clean laps (``history`` newest first), plus how much the time varies."""
+    by_corner: dict[int, list[dict[str, Any]]] = {}
+    for lap in history:
+        for c in lap:
+            runs = by_corner.setdefault(c["corner"], [])
+            if len(runs) < recent:
+                runs.append(c)
+    out: dict[int, dict[str, Any]] = {}
+    for num, runs in by_corner.items():
+        t: dict[str, Any] = {"corner": num, "laps": len(runs)}
+        for k in _TYPICAL_KEYS:
+            vals = [r[k] for r in runs if r.get(k) is not None]
+            # Braking or not: go with what you usually do.
+            med = statistics.median(vals) if len(vals) * 2 > len(runs) else None
+            t[k] = None if med is None else round(med) if k in ("brake_m", "throttle_m") else round(med, 2)
+        gears = [r["apex_gear"] for r in runs if r.get("apex_gear")]
+        t["apex_gear"] = statistics.mode(gears) if gears else None
+        times = [r["time_s"] for r in runs]
+        t["spread_s"] = statistics.pstdev(times) if len(times) > 1 else 0.0
+        t["best_s"] = min(times)
+        out[num] = t
+    return out
+
+
+def off_track_runs(trace: dict[str, list[float]], max_tyres_out: int = 2) -> list[dict[str, Any]]:
+    """Where too many wheels left the track: start/end (lap progress), how long
+    and how many wheels at worst. Empty for laps recorded before this was kept."""
+    off = trace.get("off")
+    if not off:
+        return []
+    idx = _monotonic(trace)
+    runs: list[dict[str, Any]] = []
+    cur: dict[str, Any] | None = None
+    for i in idx:
+        if off[i] > max_tyres_out:
+            if cur is None:
+                cur = {"start_p": trace["p"][i], "t0": trace["t"][i], "wheels": 0}
+                runs.append(cur)
+            cur["end_p"], cur["t1"] = trace["p"][i], trace["t"][i]
+            cur["wheels"] = max(cur["wheels"], int(off[i]))
+        else:
+            cur = None
+    return [{"start_p": r["start_p"], "end_p": r["end_p"], "seconds": round(max(0.0, r["t1"] - r["t0"]), 1),
+             "wheels": r["wheels"]} for r in runs]
+
+
+def lap_review(
+    lap: list[dict[str, Any]],
+    history: list[list[dict[str, Any]]],
+    trace: dict[str, list[float]] | None,
+    model: TrackModel,
+    max_tyres_out: int = 2,
+) -> dict[str, list[dict[str, Any]]]:
+    """The good and the bad of one lap against your usual (``history``: your
+    recent clean laps' corners, newest first, without this lap).
+
+    ``wrong``: where it went wrong, worst first: going off, spins, and corners
+    where you lost clearly more than your usual lap-to-lap variation, with the
+    likely cause. ``well``: corners quicker than usual, or your best ever.
+    Each item: corner number (None off a corner), label, kind, time lost (s,
+    against your usual; negative = gained) and a sentence.
+    """
+    typical = typical_corners(history)
+    corners = {c.number: c for c in model.corners}
+    length = model.length_m or 1.0
+    wrong: list[dict[str, Any]] = []
+    well: list[dict[str, Any]] = []
+
+    def label(num: int | None) -> str:
+        c = corners.get(num) if num is not None else None
+        return c.label if c else f"Corner {num}"
+
+    # Going off: put each excursion with the corner it happened in (or the one after it).
+    offs = off_track_runs(trace, max_tyres_out) if trace else []
+    off_corner: dict[int, dict[str, Any]] = {}
+    for run in offs:
+        p = run["start_p"]
+        near = next((c for c in model.corners
+                     if (p - (c.entry - 60 / length)) % 1.0 <= ((c.exit + 80 / length) - (c.entry - 60 / length)) % 1.0),
+                    None)
+        wheels = "all four wheels" if run["wheels"] >= 4 else f"{run['wheels']} wheels"
+        if near is not None:
+            off_corner.setdefault(near.number, run)
+        else:
+            after = model.next_corner(p)
+            where = f"before {after[0].label}" if after else "on a straight"
+            wrong.append({"corner": None, "label": where[0].upper() + where[1:], "kind": "off", "lost_s": None,
+                          "text": f"Went off {where} ({wheels}, {run['seconds']:.1f} s)."})
+
+    for c in lap:
+        num = c["corner"]
+        t = typical.get(num)
+        run = off_corner.get(num)
+        lost = round(c["time_s"] - t["time_s"], 2) if t and t["laps"] >= 3 else None
+        if run is not None:
+            wheels = "all four wheels" if run["wheels"] >= 4 else f"{run['wheels']} wheels"
+            text = f"Went off ({wheels}, {run['seconds']:.1f} s)"
+            if lost is not None and lost > 0.05:
+                text += f" and lost {lost:.1f} s on your usual lap."
+            elif lost is not None and lost < -0.05:
+                text += f": {-lost:.1f} s quicker than usual, but only by cutting it."
+            else:
+                text += "."
+            wrong.append({"corner": num, "label": label(num), "kind": "off", "lost_s": lost, "text": text})
+            continue
+        if lost is None or t is None:
+            continue
+        threshold = max(0.25, 2.5 * t["spread_s"])
+        usual_min = t.get("min_speed_kmh")
+        if usual_min and usual_min > 40 and c["min_speed_kmh"] < 0.55 * usual_min and lost > 0.3:
+            wrong.append({"corner": num, "label": label(num), "kind": "spin", "lost_s": lost,
+                          "text": f"Spun or nearly stopped: down to {c['min_speed_kmh']:.0f} km/h "
+                                  f"(usually {usual_min:.0f}). Lost {lost:.1f} s."})
+        elif lost >= threshold:
+            notes = compare_notes(c, t, "your usual lap")[:2]
+            why = " ".join(notes) if notes else "Small losses all the way through."
+            wrong.append({"corner": num, "label": label(num), "kind": "slow", "lost_s": lost,
+                          "text": f"Lost {lost:.1f} s on your usual lap. {why}"})
+        elif lost <= -max(0.1, 2 * t["spread_s"]) or (c["time_s"] < t["best_s"] - 0.005 and t["laps"] >= 3):
+            # Only the differences that helped: why it was quicker.
+            helped = ("faster at the slowest point", "faster on the exit", "later than", "throttle")
+            notes = [n for n in compare_notes(c, t, "your usual lap")
+                     if any(h in n for h in helped) and not ("throttle" in n and "later" in n)
+                     and not (n.startswith("Braked") and "earlier" in n)][:1]
+            head = "Your best ever here" if c["time_s"] < t["best_s"] - 0.005 else f"{-lost:.2f} s quicker than usual"
+            well.append({"corner": num, "label": label(num), "kind": "good", "lost_s": lost,
+                         "text": f"{head}." + (f" {notes[0]}" if notes else "")})
+
+    wrong.sort(key=lambda w: (w["kind"] != "off" and w["kind"] != "spin", -(w["lost_s"] or 0)))
+    well.sort(key=lambda w: w["lost_s"] or 0)
+    return {"wrong": wrong[:5], "well": well[:3]}

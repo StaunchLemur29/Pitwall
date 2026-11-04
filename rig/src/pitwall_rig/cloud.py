@@ -36,7 +36,7 @@ TRACE_HZ = 20
 BATCH = 10  # laps per upload request
 # Bump when uploads gain something the hub needs from laps already uploaded:
 # every lap then goes up once more on the next start.
-UPLOAD_VERSION = 3  # 2: track-width advice and battery & DRS with each lap; 3: optimal racing line
+UPLOAD_VERSION = 4  # 2: track-width advice and battery & DRS with each lap; 3: optimal racing line; 4: the lap review
 
 
 class CloudError(Exception):
@@ -271,6 +271,7 @@ class CloudSync:
             "corners": extras.get("corners") or self.store.latest_lap_corners(lap_id),
             "systems": extras.get("systems"),
             "time_to_beat": extras.get("time_to_beat"),
+            "review": extras.get("review"),
             "trace": downsample(trace, TRACE_HZ) if trace else None,
         }
 

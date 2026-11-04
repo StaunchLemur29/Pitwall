@@ -7,7 +7,7 @@
  * test checks both give the same answers on the same laps.
  */
 import { timeLookup, type Trace } from "../lib/profile";
-import type { CarProfile, CornerLap, CornerReport, Mastery, TimeToBeat, TrackGeometry } from "../lib/types";
+import type { CarProfile, CornerLap, CornerReport, LapReview, Mastery, TimeToBeat, TrackGeometry } from "../lib/types";
 
 /** A lap as uploaded (the columns the report needs). */
 export interface HubLap {
@@ -22,6 +22,7 @@ export interface HubLap {
   corners: CornerLap[] | null;
   systems: CornerReport["systems"];
   time_to_beat?: TimeToBeat | null; // the PC's targets as they stood after this lap
+  review?: LapReview | null; // the PC's review of this lap, uploaded with it
 }
 
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
@@ -211,6 +212,7 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
     theoretical_best_ms: sectors.length ? sectors.reduce((a, b) => a + b, 0) : null,
     time_to_beat: tb,
     systems: shown?.systems ?? null,
+    review: shown?.review ?? null,
     car_systems: carSummary(inp.profile),
     compare: cmp?.corners ?? null,
     compare_lap_id: cmp ? cmp.id : null,

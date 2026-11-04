@@ -211,6 +211,51 @@ export function LapAnalysis({
     </div>
   );
 
+  // The good and the bad of this lap, against your usual (worked out on the PC).
+  const review = report?.review ?? null;
+  const KIND: Record<string, string> = { off: "went off", spin: "spin", slow: "slow", good: "" };
+  const reviewItem = (w: NonNullable<typeof review>["wrong"][number], good: boolean) => (
+    <button
+      key={`${w.kind}${w.corner ?? w.label}`}
+      className={`lossbtn revi ${w.corner !== null && corner?.number === w.corner ? "lossbtn--on" : ""}`}
+      onClick={() => w.corner !== null && setPicked(w.corner)}
+      disabled={w.corner === null}
+    >
+      <span className="lossbtn__name">
+        {w.label}
+        {KIND[w.kind] && <span className={`tag ${w.kind === "slow" ? "" : "tag--bad"}`}>{KIND[w.kind]}</span>}
+      </span>
+      <span className={good ? "good" : "bad"}>{w.lost_s !== null && Math.abs(w.lost_s) >= 0.05 ? delta(w.lost_s, 2) : ""}</span>
+      <span className="lossbtn__why">{w.text}</span>
+    </button>
+  );
+  const reviewBlock = (
+    <div className="rev">
+      {!review ? (
+        <div className="muted">Drive a few clean laps so Pitwall knows your usual, then every lap gets its good and bad here.</div>
+      ) : (
+        <>
+          <div className="rev__col">
+            <div className="cd__sub">Where it went wrong</div>
+            {review.wrong.length ? (
+              review.wrong.map((w) => reviewItem(w, false))
+            ) : (
+              <div className="muted rev__none">No mistakes: every corner was within your usual.</div>
+            )}
+          </div>
+          <div className="rev__col">
+            <div className="cd__sub">What went well</div>
+            {review.well.length ? (
+              review.well.map((w) => reviewItem(w, true))
+            ) : (
+              <div className="muted rev__none">Nothing quicker than your usual this lap.</div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   const chip = (num: number, why = false) => {
     const i = g.corners.findIndex((k) => k.number === num);
     if (i < 0) return null;
@@ -371,10 +416,10 @@ export function LapAnalysis({
 
   const lapPicker = (
     <select className="lapsel" value={shownId ?? ""} onChange={(e) => setLapId(Number(e.target.value) || null)} aria-label="Lap to analyse">
-      {valid.map((l) => (
+      {laps.map((l) => (
         <option key={l.id} value={l.id}>
           Lap {l.lap_number} · {lapTime(l.lap_time_ms)}
-          {l.id === report?.reference_lap_id ? " (best)" : l.rewound ? " (rewind)" : ""}
+          {l.id === report?.reference_lap_id ? " (best)" : l.out_lap ? " (out)" : !l.valid ? " (cut)" : l.rewound ? " (rewind)" : ""}
         </option>
       ))}
     </select>
@@ -405,6 +450,9 @@ export function LapAnalysis({
         <div className="la la--wide" style={{ gridTemplateColumns: `minmax(0, ${split}%) 12px minmax(340px, 1fr)` }}>
           <div className="la__left">
             <Panel id="summary" title="Lap summary">{summary}</Panel>
+            <Panel id="review" title="Good and bad" right={<span className="muted pnl__hint">against your usual lap</span>}>
+              {reviewBlock}
+            </Panel>
             <DebriefCard panel combo={report?.game && report.car && report.track_key ? { game: report.game, car: report.car, track_key: report.track_key } : null} />
             {systemsBlock && <Panel id="systems" title="Car systems">{systemsBlock}</Panel>}
             <Panel id="map" title="Map" height={420} minHeight={220}>

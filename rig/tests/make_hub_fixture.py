@@ -45,7 +45,7 @@ def main() -> None:
         rows.append({
             "id": info["id"], "lap_number": r["lap_number"], "lap_time_ms": r["lap_time_ms"], "valid": r["valid"], "out_lap": r["out_lap"], "rewound": r["rewound"],
             "started_at": info["started_at"], "sector_ms": r["sector_ms"], "corners": r["corners"],
-            "systems": r["systems"], "time_to_beat": r["time_to_beat"],
+            "systems": r["systems"], "time_to_beat": r["time_to_beat"], "review": r["review"],
             "trace": {"t": r["trace"]["t"], "p": r["trace"]["p"]} if r["trace"] else None,
         })
     valid = [r["id"] for r in rows if r["valid"]]

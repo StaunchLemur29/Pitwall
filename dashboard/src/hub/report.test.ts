@@ -25,6 +25,7 @@ describe("hub report matches the rig's", () => {
       expect(ts.time_to_beat ?? null).toEqual(py.time_to_beat ?? null);
       py.lap?.forEach((pc, i) => expect(ts.lap![i].to_beat_s ?? null).toBe(pc.to_beat_s ?? null));
       py.practice.forEach((pp, i) => expect(ts.practice[i].to_beat_s ?? null).toBe(pp.to_beat_s ?? null));
+      expect(ts.review ?? null).toEqual(py.review ?? null);
       expect(ts.lap?.length).toBe(py.lap?.length);
       py.lap?.forEach((pc, i) => {
         const tc = ts.lap![i];
