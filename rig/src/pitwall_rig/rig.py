@@ -962,12 +962,18 @@ class Rig:
             return None
         d = self.track.drill.drill
         lead = self.track.lead_in_m(d, float(self.config["drills"]["lead_in_s"]))
+        st = self.track.drill
+        # The in-game timer's target: the time to beat while it's quicker than
+        # your best run, else your best (same as the side screen).
+        target = st.target_ms if st.target_ms and (not st.best_ms or st.target_ms < st.best_ms) else st.best_ms
         return {
             "key": self._drill_key(),
             "name": d.name,
             "start_p": d.start_p,
             "end_p": d.end_p,
             "run_up_p": (d.start_p - lead / self.track.model.length_m) % 1.0,
+            "target_ms": target,
+            "target_is_best": target is not None and target == st.best_ms,
         }
 
     # -- car profile ----------------------------------------------------------

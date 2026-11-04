@@ -70,6 +70,7 @@ DEFAULTS: dict[str, Any] = {
         "show_turn_name": True,  # the corner's name next to it
         "show_brake": True,  # countdown bar and BRAKE at the braking point
         "show_from_m": 250,  # how far before the braking point it appears
+        "show_drill": True,  # during a drill: the run's time and the time to beat
     },
     "units": {"speed": "kmh", "pressure": "psi", "temperature": "c"},
     "display": {

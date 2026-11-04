@@ -372,7 +372,7 @@ export interface Config {
   drills: { lead_in_s: number };
   /** brake_cue: "brake in" counts down to the optimal run's braking points, or your best lap's */
   coach: { brake_cue: "optimal" | "best" };
-  overlay: { show_turn: boolean; show_turn_name: boolean; show_brake: boolean; show_from_m: number };
+  overlay: { show_turn: boolean; show_turn_name: boolean; show_brake: boolean; show_from_m: number; show_drill?: boolean };
   server: { host: string; port: number };
   rates: { poll_hz: number; broadcast_hz: number };
   laps: { max_tyres_out: number };
