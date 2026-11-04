@@ -373,6 +373,7 @@ select {
 /* lap times */
 .laps {
   flex: 1;
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -407,7 +408,7 @@ select {
 
 .laps__grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: calc(var(--u) * 1.2);
   margin-top: calc(var(--u) * 1);
 }
@@ -430,6 +431,26 @@ select {
 
 .stat--bad .stat__value {
   color: var(--bad);
+}
+
+.stat--target .stat__value {
+  color: var(--accent);
+}
+
+/* a narrow column (the analysis window): the same four, smaller */
+@container (max-width: 560px) {
+  .laps__grid {
+    gap: 6px;
+  }
+
+  .laps__grid .stat__value {
+    font-size: min(calc(var(--u) * 3.4), 5.2cqi);
+  }
+
+  .laps__grid .stat__label {
+    font-size: min(calc(var(--u) * 1.8), 2.8cqi);
+    letter-spacing: 0.04em;
+  }
 }
 
 .laps__flash {
@@ -1173,6 +1194,12 @@ select {
   font-weight: 700;
 }
 
+.drill__target {
+  font-size: calc(var(--u) * 2.8);
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .drill__delta--plain {
   color: var(--muted);
 }
@@ -1849,6 +1876,11 @@ select {
 
 .lsum__opt {
   color: var(--opt-line);
+}
+
+.lsum__tb,
+.cd__tb {
+  color: var(--accent);
 }
 
 .lsum__where {

@@ -16,12 +16,12 @@ Work only from the data you're given. Where it's thin (few clean laps, no compar
 Reply in Markdown with exactly these parts:
 **<one-sentence headline: how the session went, with the key number>**
 
-**Focus next time:** the one change worth the most time: where, what to do differently, and a concrete target (a brake point, a minimum speed, a line).
+**Focus next time:** the one change worth the most time: where, what to do differently, and a concrete target (a brake point, a minimum speed, a line, or the corner's time to beat).
 
 **Also:** up to two short bullets.
 
 **Going well:** one bullet.
 
-**Drill:** one practice section to drill, with a target time.
+**Drill:** one practice section to drill, with its time to beat as the target (from time_to_beat when given).
 
 Stay under 170 words.`;

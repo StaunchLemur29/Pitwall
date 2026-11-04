@@ -7,7 +7,7 @@
  * test checks both give the same answers on the same laps.
  */
 import { timeLookup, type Trace } from "../lib/profile";
-import type { CarProfile, CornerLap, CornerReport, Mastery, TrackGeometry } from "../lib/types";
+import type { CarProfile, CornerLap, CornerReport, Mastery, TimeToBeat, TrackGeometry } from "../lib/types";
 
 /** A lap as uploaded (the columns the report needs). */
 export interface HubLap {
@@ -21,6 +21,7 @@ export interface HubLap {
   sector_ms: number[];
   corners: CornerLap[] | null;
   systems: CornerReport["systems"];
+  time_to_beat?: TimeToBeat | null; // the PC's targets as they stood after this lap
 }
 
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
@@ -172,11 +173,21 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
   };
   const shownTrace = shownId !== null ? inp.traces.get(shownId) : undefined;
   const refTrace = refId !== null ? inp.traces.get(refId) : undefined;
+  // Time to beat: the PC works it out; the newest lap carries the latest.
+  const newest = [...inp.laps].filter((l) => l.time_to_beat).sort((a, b) => b.started_at - a.started_at)[0];
+  const tbAll = newest?.time_to_beat ?? null;
+  const tb = tbAll ? { lap_ms: tbAll.lap_ms, usual_lap_ms: tbAll.usual_lap_ms, corners: tbAll.corners } : null;
+  if (lap && tb) {
+    const targets = new Map(tb.corners.map((c) => [c.corner, c.target_s]));
+    for (const c of lap) c.to_beat_s = targets.get(c.corner) ?? null;
+  }
+  const sectionTargets = new Map((tbAll?.sections ?? []).map((s) => [s.number, s.to_beat_s]));
   const practice = inp.geometry.practice.map((ps) => ({
     ...ps,
     time_s: span(shownTrace, ps.start, ps.end),
     ref_s: span(refTrace, ps.start, ps.end),
     drill_best_s: null,
+    to_beat_s: sectionTargets.get(ps.number) ?? null,
   }));
   const chapters = inp.geometry.chapters.map((ch) => ({
     ...ch,
@@ -198,6 +209,7 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
     track_key: inp.track_key,
     live: false,
     theoretical_best_ms: sectors.length ? sectors.reduce((a, b) => a + b, 0) : null,
+    time_to_beat: tb,
     systems: shown?.systems ?? null,
     car_systems: carSummary(inp.profile),
     compare: cmp?.corners ?? null,
