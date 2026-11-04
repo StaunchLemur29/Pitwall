@@ -65,6 +65,7 @@ export function LapAnalysis({
   const [otherTrace, setOtherTrace] = useState<Trace | null>(null);
   const [focus, setFocus] = useState<number | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
+  const [allNotes, setAllNotes] = useState(false); // car-system notes beyond the first three
   const [showOpt, setShowOpt] = useState(false);
   const [optTrace, setOptTrace] = useState<Trace | null>(null);
 
@@ -326,9 +327,14 @@ export function LapAnalysis({
       <div className="sysnotes">
         {!wide && <div className="chapters__title">Car systems</div>}
         {report.car_systems?.length ? <div className="sysnotes__car">{report.car_systems.join(" · ")}</div> : null}
-        {systemNotes.map((n) => (
+        {(allNotes ? systemNotes : systemNotes.slice(0, 3)).map((n) => (
           <div key={n} className="sysnotes__note">{n}</div>
         ))}
+        {systemNotes.length > 3 && (
+          <button className="linkbtn" onClick={() => setAllNotes((v) => !v)}>
+            {allNotes ? "Show fewer" : `${systemNotes.length - 3} more`}
+          </button>
+        )}
       </div>
     ) : null;
 
@@ -457,7 +463,7 @@ export function LapAnalysis({
             {systemsBlock && <Panel id="systems" title="Car systems">{systemsBlock}</Panel>}
             <Panel id="map" title="Map" height={420} minHeight={220}>
               {modes}
-              <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} />
+              <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
               <Legend mode={mode} label={label} showOpt={showOpt} />
             </Panel>
             <Panel id="sections" title="Sections" right={<span className="muted pnl__hint">click a corner for the detail</span>}>{list}</Panel>
@@ -493,7 +499,7 @@ export function LapAnalysis({
             {optLap !== null ? <span className="nsum__theo" title={optTitle(report?.optimal)}>optimal run {lapTime(Math.round(optLap * 1000))}</span> : null}
           </div>
           {modes}
-          <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} />
+          <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
           <Legend mode={mode} label={label} showOpt={showOpt} />
           {list}
         </div>
@@ -579,11 +585,17 @@ function ColouredMap(props: {
   mode: Mode;
   rows: CornerLap[];
   focus: number | null;
+  /** corners to number even on a long track (e.g. where the time went) */
+  labelled?: number[];
   onPick: (n: number | null) => void;
   onSelect: (n: number) => void;
   showOpt: boolean;
 }) {
   const { g, trace, ref_, mode, rows, focus, showOpt } = props;
+  // A long track (the Nordschleife has over 100 corners): numbers only on the
+  // corner you're looking at and where the time went; the rest are small dots.
+  const many = g.corners.length > 30;
+  const labelled = new Set(props.labelled ?? []);
   const [box, { w, h }] = useSize<HTMLDivElement>();
   const fit = useMemo(() => fitTrack(g.center as Pt[], w, h, 18), [g, w, h]);
   const proj = (p: P): P => fit.project(p[0], p[1]);
@@ -619,10 +631,16 @@ function ColouredMap(props: {
                 onClick={() => props.onSelect(c.number)}
                 className="la__cnum"
               >
-                <circle r={focus === c.number ? 14 : 10} className="map__cnum" />
-                <text className="map__cnum-text" textAnchor="middle" dy="0.35em">
-                  {c.number}
-                </text>
+                {many && focus !== c.number && !labelled.has(c.number) ? (
+                  <circle r={3} className="map__cnum map__cnum--dot" />
+                ) : (
+                  <>
+                    <circle r={focus === c.number ? 14 : 10} className="map__cnum" />
+                    <text className="map__cnum-text" textAnchor="middle" dy="0.35em">
+                      {c.number}
+                    </text>
+                  </>
+                )}
               </g>
             );
           })}

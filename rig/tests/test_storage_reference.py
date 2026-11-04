@@ -122,3 +122,16 @@ def test_old_databases_get_the_rewound_column(tmp_path):
     s = Store(path)
     assert s.laps()[0]["rewound"] is False
     assert s.best_lap("ac", "spa", "car_a")["lap_time_ms"] == 60_000
+
+
+def test_traces_pack_small_and_round_trip_including_old_ones():
+    import json
+    import zlib
+
+    from pitwall_rig.storage import pack_trace, unpack_trace
+
+    tr = {"t": [0.0, 0.016, 0.033], "p": [0.0, 0.00001, 0.00002], "gear": [2, 2, 3], "off": [0, 4, 0]}
+    back = unpack_trace(pack_trace(tr))
+    assert back == {k: [float(x) for x in v] for k, v in tr.items()}
+    legacy = zlib.compress(json.dumps(tr).encode())  # laps saved before the binary format
+    assert unpack_trace(legacy) == tr

@@ -504,6 +504,7 @@ async def _start_background(app: web.Application) -> None:
     loop = asyncio.get_running_loop()
     app[HUB_KEY].bind_loop(loop)
     stop = threading.Event()
+    app[RIG_KEY].start_post_lap_worker()  # crossing the line never stalls the live data
     t = threading.Thread(target=_rig_thread, args=(app, loop, stop), name="pitwall-rig", daemon=True)
     t.start()
     app[TASK_KEY] = stop

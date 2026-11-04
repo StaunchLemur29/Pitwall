@@ -25,6 +25,20 @@ def _monotonic(trace: dict[str, list[float]]) -> list[int]:
 class LapView:
     """Lookups into one lap trace by track progress."""
 
+    _recent: list[tuple[dict[str, list[float]], "LapView"]] = []  # (trace, view), newest last
+
+    @classmethod
+    def of(cls, trace: dict[str, list[float]]) -> "LapView":
+        """The view of this exact trace object, made once: building one for a long
+        lap (the Nordschleife) takes a while, and the same lap is looked at
+        several times after it's driven. Traces never change once saved."""
+        for tr, view in cls._recent:
+            if tr is trace:
+                return view
+        view = cls(trace)
+        cls._recent = [*cls._recent[-5:], (trace, view)]
+        return view
+
     def __init__(self, trace: dict[str, list[float]]):
         self.trace = trace
         self.idx = _monotonic(trace)
@@ -139,7 +153,7 @@ def _coast_time(tr: dict[str, list[float]], idx: list[int]) -> float:
 
 
 def analyse_lap(trace: dict[str, list[float]], model: TrackModel) -> list[dict[str, Any]]:
-    view = LapView(trace)
+    view = LapView.of(trace)
     if not view or not model.corners:
         return []
     cs = model.corners
@@ -339,7 +353,7 @@ def analyse_systems(trace: dict[str, list[float]], model: TrackModel, profile: d
     """Battery and DRS use on one lap, with plain-English notes. Only for
     systems the car has (``profile``) and the trace recorded."""
     out: dict[str, Any] = {"drs": None, "battery": None, "notes": []}
-    view = LapView(trace)
+    view = LapView.of(trace)
     if not view or not profile:
         return out
     idx, L = view.idx, model.length_m or 1.0
