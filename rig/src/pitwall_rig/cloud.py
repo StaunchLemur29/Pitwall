@@ -23,7 +23,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +44,7 @@ class CloudError(Exception):
 
 
 def _iso(ts: float) -> str:
-    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+    return datetime.fromtimestamp(ts, tz=UTC).isoformat()
 
 
 class Supabase:
@@ -251,7 +251,7 @@ class CloudSync:
         trace = self.store.trace(lap_id)
         try:
             extras = self.extras_for(lap_id) or {}
-        except Exception:  # noqa: BLE001 - upload the plain lap rather than nothing
+        except Exception:
             log.exception("Couldn't analyse lap %s for upload", lap_id)
             extras = {}
         return {
@@ -330,7 +330,7 @@ class CloudSync:
                 break
             try:
                 self.sync_once()
-            except Exception as e:  # noqa: BLE001 - never let the sync thread die
+            except Exception as e:
                 log.exception("Cloud sync failed")
                 self.state, self.error = "error", f"Unexpected problem: {e}"
             backoff = self.every_s if self.state != "error" else min(300.0, backoff * 2)

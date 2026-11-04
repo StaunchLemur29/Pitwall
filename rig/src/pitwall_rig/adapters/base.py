@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-
 from typing import TYPE_CHECKING
 
 from ..models import Capabilities, Frame, SessionInfo
@@ -31,7 +30,7 @@ class GameAdapter(ABC):
     def session(self) -> SessionInfo | None:
         """Return info about the current session, or None if unavailable."""
 
-    def watch(self) -> None:  # noqa: B027 - optional hook
+    def watch(self) -> None:
         """Cheap check between polls, so the moment the car's position changes
         is known precisely. Called often (every ~2 ms); must be very fast."""
 
@@ -39,5 +38,5 @@ class GameAdapter(ABC):
         """The track's layout from the game's own data, if the game provides it."""
         return None
 
-    def close(self) -> None:  # noqa: B027 - optional hook
+    def close(self) -> None:
         """Release resources."""

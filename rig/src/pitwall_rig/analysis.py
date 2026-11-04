@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import itertools
 import statistics
 from bisect import bisect_left
-from typing import Any
+from typing import Any, ClassVar
 
 from .car_profile import has_battery, has_drs
 from .tracks.model import Corner, TrackModel
@@ -26,10 +27,10 @@ def _monotonic(trace: dict[str, list[float]]) -> list[int]:
 class LapView:
     """Lookups into one lap trace by track progress."""
 
-    _recent: list[tuple[dict[str, list[float]], "LapView"]] = []  # (trace, view), newest last
+    _recent: ClassVar[list[tuple[dict[str, list[float]], LapView]]] = []  # (trace, view), newest last
 
     @classmethod
-    def of(cls, trace: dict[str, list[float]]) -> "LapView":
+    def of(cls, trace: dict[str, list[float]]) -> LapView:
         """The view of this exact trace object, made once: building one for a long
         lap (the Nordschleife) takes a while, and the same lap is looked at
         several times after it's driven. Traces never change once saved."""
@@ -96,7 +97,7 @@ def driven_through(view: LapView, c: Corner, length: float, max_tyres_out: int =
     seg = view.range(c.entry - tol, c.exit + tol)
     if len(seg) < 3:
         return False, None
-    for a, b in zip(seg, seg[1:], strict=False):
+    for a, b in itertools.pairwise(seg):
         if (tr["p"][b] - tr["p"][a]) * length > GAP_M or tr["t"][b] < tr["t"][a]:
             return False, None
     off = tr.get("off")
@@ -173,7 +174,7 @@ def analyse_corner(
 def _coast_time(tr: dict[str, list[float]], idx: list[int]) -> float:
     """Seconds with neither pedal pressed (above walking pace)."""
     total = 0.0
-    for a, b in zip(idx, idx[1:], strict=False):
+    for a, b in itertools.pairwise(idx):
         if tr["gas"][a] < 0.05 and tr["brake"][a] < 0.05 and tr["speed"][a] > 30:
             total += max(0.0, tr["t"][b] - tr["t"][a])
     return total
@@ -374,7 +375,7 @@ def _runs(trace: dict[str, list[float]], idx: list[int], length_m: float, inside
     """Stretches (first index, last index, metres) where ``inside(i)`` holds."""
     out: list[tuple[int, int, float]] = []
     start, metres = None, 0.0
-    for a, b in zip(idx, idx[1:], strict=False):
+    for a, b in itertools.pairwise(idx):
         if inside(a):
             if start is None:
                 start, metres = a, 0.0

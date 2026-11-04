@@ -82,7 +82,7 @@ class Grip:
 
 def _percentile(v: list[float], q: float) -> float:
     s = sorted(v)
-    return s[min(len(s) - 1, max(0, int(round(q * (len(s) - 1)))))]
+    return s[min(len(s) - 1, max(0, round(q * (len(s) - 1))))]
 
 
 def _fit_v2(points: list[tuple[float, float, int]]) -> tuple[float, float]:
@@ -108,7 +108,7 @@ def _samples(tr: dict[str, list[float]]) -> list[tuple[float, float, float, floa
     if n < 50 or len(x) != n:
         return []
     rate = (n - 1) / max(1e-6, t[-1] - t[0])
-    k = max(1, int(round(rate * 0.15)))  # ±0.15 s
+    k = max(1, round(rate * 0.15))  # ±0.15 s
     out = []
     for i in range(k, n - k):
         if t[i] < 5 and tr["p"][i] > 0.9:
@@ -179,7 +179,7 @@ def _curvature(xs: list[float], zs: list[float], ds: list[float], window_m: floa
     """|1/radius| along a closed path, over ±window_m."""
     n = len(xs)
     spacing = sum(ds) / n
-    k = max(1, int(round(window_m / max(spacing, 0.1))))
+    k = max(1, round(window_m / max(spacing, 0.1)))
     out = []
     for i in range(n):
         a, b = (i - k) % n, (i + k) % n

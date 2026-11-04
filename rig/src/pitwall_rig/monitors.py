@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import sys
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -31,10 +32,8 @@ def list_monitors() -> list[Monitor]:
     from ctypes import wintypes
 
     user32 = ctypes.windll.user32
-    try:  # report real pixels, not DPI-scaled ones
+    with contextlib.suppress(Exception):  # report real pixels, not DPI-scaled ones
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
-    except Exception:  # noqa: BLE001
-        pass
 
     class MONITORINFO(ctypes.Structure):
         _fields_ = [

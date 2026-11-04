@@ -6,7 +6,13 @@ import anthropic
 import httpx2
 import pytest
 
-from pitwall_rig.debrief import MODEL, AISettings, DebriefError, Debriefer, write_debrief
+from pitwall_rig.debrief import (
+    MODEL,
+    AISettings,
+    Debriefer,
+    DebriefError,
+    write_debrief,
+)
 from pitwall_rig.rig import Rig
 
 
@@ -173,5 +179,5 @@ def test_hub_function_uses_the_same_prompt_and_model() -> None:
     ts = (Path(__file__).resolve().parents[2] / "cloud" / "supabase" / "functions" / "debrief" / "prompt.ts").read_text(encoding="utf-8")
     assert f'export const MODEL = "{MODEL}";' in ts
     assert f"export const MIN_CLEAN_LAPS = {MIN_CLEAN_LAPS};" in ts
-    m = re.search(r"export const SYSTEM = `(.*?)`;", ts, re.S)
+    m = re.search(r"export const SYSTEM = `(.*?)`;", ts, re.DOTALL)
     assert m and m.group(1) == SYSTEM

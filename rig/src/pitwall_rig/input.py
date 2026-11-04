@@ -267,7 +267,10 @@ class KeyHolder:
         if sc is not None and _send_scancode(sc[0], sc[1], up=False):
             return ("scan", sc)
         try:
-            from pynput.keyboard import Controller, Key  # type: ignore[import-not-found]
+            from pynput.keyboard import (  # type: ignore[import-not-found]
+                Controller,
+                Key,
+            )
         except Exception:  # noqa: BLE001
             log.warning("Can't press keys on this system.")
             return None

@@ -9,15 +9,9 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from . import car_profile
 from .adapters.base import GameAdapter
 from .adapters.replay import Recorder
-from .config import ACTIONS, Config
-from . import car_profile
-from .csp import CspLink
-from .input import InputEvent
-from .laps import LapRecorder
-from .models import Frame, GameStatus, Lap, Mode, SessionInfo, mode_for
-from .reference import ReferenceLap, downsample
 from .analysis import (
     LapView,
     analyse_lap,
@@ -30,7 +24,13 @@ from .analysis import (
     time_to_beat,
     width_advice,
 )
+from .config import ACTIONS, Config
+from .csp import CspLink
+from .input import InputEvent
+from .laps import LapRecorder
+from .models import Frame, GameStatus, Lap, Mode, SessionInfo, mode_for
 from .optimal_run import lap_time, learn_grip, simulate
+from .reference import ReferenceLap, downsample
 from .storage import Store
 from .tracks.live import Drill, TrackState
 from .tracks.loader import from_lap_trace
@@ -169,7 +169,7 @@ class Rig:
             if old is not None:
                 try:
                     self.on_session_end(old.game, old.car, old.track_key)
-                except Exception:  # noqa: BLE001 - never let this stop telemetry
+                except Exception:
                     log.exception("Session-end hook failed")
             self.session = session
             self._load_car_profile()
@@ -263,10 +263,11 @@ class Rig:
                 lap = q.get()
                 try:
                     self._finish_lap(lap)
-                except Exception:  # noqa: BLE001 - never lose the worker
+                except Exception:
                     log.exception("Couldn't finish lap %s", lap.lap_number)
 
         threading.Thread(target=run, name="pitwall-post-lap", daemon=True).start()
+
     # -- the SF1000 wheel screen ------------------------------------------------------
 
     def _wheel(self) -> Any:
@@ -357,7 +358,7 @@ class Rig:
         model: TrackModel | None = None
         try:
             model = self.adapter.track_model(s)
-        except Exception:  # noqa: BLE001 - a bad mod track must not stop telemetry
+        except Exception:
             log.exception("Couldn't load the track layout for %s", s.track_key)
         if model is None:
             lap_id = self.store.outline_lap_id(s.game, s.track_key)
@@ -390,7 +391,7 @@ class Rig:
     def _optimal_line(self, model: TrackModel) -> None:
         try:
             model.optimal()
-        except Exception:  # noqa: BLE001 - the analysis works without it
+        except Exception:
             log.exception("Couldn't work out the optimal line for %s", model.track_key)
             return
         with self.lock:
@@ -468,7 +469,7 @@ class Rig:
 
                     self._ac_tracks = TrackLoader(self.config["games"]["ac"]["install_dir"])
                 model = self._ac_tracks.load(si)
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.exception("Couldn't load the track layout for %s", track_key)
         if model is None:
             lap_id = self.store.outline_lap_id(game, track_key)
@@ -478,7 +479,7 @@ class Rig:
         if model is not None:
             try:
                 model.optimal()  # outside the lock too: seconds on a long track, once
-            except Exception:  # noqa: BLE001 - the analysis works without it
+            except Exception:
                 log.exception("Couldn't work out the optimal line for %s", track_key)
         return model
 
@@ -904,7 +905,7 @@ class Rig:
                     laps_used=len(traces),
                     rows={r["corner"]: r for r in analyse_lap(tr, model)},
                 )
-        except Exception:  # noqa: BLE001 - the analysis works without it
+        except Exception:
             log.exception("Couldn't work out the optimal run for %s", model.track_key)
         return run
 

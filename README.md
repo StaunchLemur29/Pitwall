@@ -4,18 +4,20 @@ A sim-racing coach and racing hub. A live dashboard runs on a vertical second
 monitor while you drive; laps, lessons and guides follow later (see
 [SPEC.md](SPEC.md) for the whole plan).
 
-**Status: phases 0–1 (foundation + track learning).** Reads Assetto Corsa
-telemetry and records every lap. Reads each track's layout from the game files,
-with corners, their severity, practice sections, and Nordschleife chapters.
-While you drive it shows the next corner, a brake countdown that adjusts to
-your speed, and the road ahead with your left/right position. Practice drills
-use one-button rewind (CSP Time Shift). Lap analysis runs on the vertical
-screen and in a detailed window on the main screen, for any car + track you've
-driven. Coaching, the in-game CSP app and the cloud hub come next.
+**What it does today.** Reads Assetto Corsa telemetry and records every lap.
+Reads each track's layout from the game files (corners, severity, practice
+sections, Nordschleife chapters). While you drive, the side screen shows the
+next corner, a brake countdown, the road ahead and a coach strip (this
+session's focus, each lap's biggest mistake, cold tyres). Drills use one-button
+rewind (CSP Time Shift) with a timer in the game. After a lap: corner-by-corner
+analysis against a faster lap or the optimal run, "good and bad", a time to
+beat, and an AI debrief. Laps sync to a cloud hub you can open on the MacBook.
 
 ```
 rig/        Python service: reads the game, records laps, serves the dashboard
 dashboard/  React + TypeScript dashboard (portrait 1080×1920, also works on a laptop)
+csp/        In-game CSP app (overlay, drills)
+cloud/      Supabase schema and the debrief function
 scripts/    Windows helpers (setup, start, demo)
 ```
 
@@ -49,6 +51,10 @@ preferred, Edge as a fallback). If it picks the wrong screen, choose one under
   your car's grip, learnt from your fastest laps) adds optimal speed, brake and
   throttle to the corner charts, an Optimal run column, notes on where you
   differ, and an estimated lap time.
+- The **fullscreen** button (corner arrows, or the **F** key) goes fullscreen, on the PC and on the hub.
+- **Settings → Coaching** holds everything about how you're coached.
+- **Tools** (top of Settings, or `#/tools`) has a force-feedback clipping
+  meter (from your recent laps) and a brake pedal check for the T-LCM.
 - The **–** button minimises the dashboard; **⏻** stops Pitwall.
 - Press **L** on the dashboard for the lag meter and **Record performance**
   (saves a report to `%APPDATA%\Pitwall\perf`).
@@ -62,6 +68,17 @@ rewind, drills, pages and analysis to wheel buttons. Or bind any single action
 with **Bind wheel / pedal**: press the SF1000 button, turn an encoder or pull a
 clutch paddle. Keyboard shortcuts work too (default `Ctrl+Alt+→` / `Ctrl+Alt+←`
 to change page, `Ctrl+Alt+M` to mark a spot), even while the game has focus.
+
+### SF1000 wheel screen (over Wi-Fi)
+
+Thrustmaster doesn't let other programs drive the screen over USB, so Pitwall
+sends the F1 23 game's UDP format to the wheel instead, and its F1 pages work
+in AC (gear, RPM lights, lap times, fuel, tyres, brake bias, ABS / TC, DRS).
+
+1. Update the wheel to firmware 6.27 or later (Thrustmaster's driver app).
+2. On the wheel, join your Wi-Fi and turn on UDP mode (port 20777). Note its IP.
+3. Settings → Controls → **SF1000 wheel screen**: turn on **Send to the wheel**, enter the **Wheel IP**, then **Test** sweeps
+   the rev lights and gears.
 
 ### Rewind and drills (CSP Time Shift)
 

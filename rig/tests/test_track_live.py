@@ -1,3 +1,4 @@
+import itertools
 from types import SimpleNamespace
 
 from pitwall_rig.analysis import corner_mastery, width_advice
@@ -81,7 +82,7 @@ def test_width_advice_for_a_right_hander():
 
 
 def test_mastery_grades():
-    lap = lambda t: [{"corner": 1, "time_s": t}]  # noqa: E731
+    lap = lambda t: [{"corner": 1, "time_s": t}]
     steady = corner_mastery([lap(5.0), lap(5.02), lap(4.98), lap(5.01)])
     assert steady[1]["grade"] == "green"
     messy = corner_mastery([lap(5.0), lap(5.6), lap(4.9), lap(5.9)])
@@ -117,7 +118,7 @@ def test_pack_chapters_resolve_from_section_names():
     secs.append(Section("Somewhere else", 0.5, 0.51))
     ch = resolve_chapters(pack, secs)
     assert [c.name for c in ch] == [c["name"] for c in pack["chapters"]]
-    assert all(a.end == b.start for a, b in zip(ch, ch[1:]))
+    assert all(a.end == b.start for a, b in itertools.pairwise(ch))
     assert ch[-1].end == 0.99999  # first chapter starts at the line
     assert find_pack("spa") is None
 

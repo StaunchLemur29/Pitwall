@@ -3,7 +3,12 @@ import math
 from pitwall_rig.adapters.demo import DemoAdapter
 from pitwall_rig.analysis import line_vs_optimal, width_advice
 from pitwall_rig.tracks.ac_files import TrackLine
-from pitwall_rig.tracks.model import Corner, TrackModel, _signed_curvature, detect_corners
+from pitwall_rig.tracks.model import (
+    Corner,
+    TrackModel,
+    _signed_curvature,
+    detect_corners,
+)
 from pitwall_rig.tracks.racing_line import offsets_to_points, optimal_offsets
 
 

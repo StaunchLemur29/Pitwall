@@ -7,9 +7,9 @@ import logging
 from pathlib import Path
 
 from ..models import SessionInfo
+from ..packs import find_pack, resolve_chapters
 from .ac_files import TrackLine, read_fast_lane, read_sections
 from .ac_install import find_ac_root, track_files
-from ..packs import find_pack, resolve_chapters
 from .model import TrackModel, detect_corners
 
 log = logging.getLogger(__name__)

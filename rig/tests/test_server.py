@@ -75,7 +75,7 @@ async def test_mark_corner_and_bind(config, store):
 
 
 async def test_laps_are_recorded_and_served(config, store):
-    client, rig = await make_client(config, store, time_scale=40.0)
+    client, _rig = await make_client(config, store, time_scale=40.0)
     try:
         ws = await client.ws_connect("/ws")
         lap = await next_of(ws, "lap", timeout=10)
@@ -139,5 +139,24 @@ async def test_the_dashboard_page_is_never_cached(config, store, tmp_path):
             assert r.status == 200 and r.headers["Cache-Control"] == "no-cache"
         r = await client.get("/assets/index-abc123.js")
         assert "immutable" in r.headers["Cache-Control"]
+    finally:
+        await client.close()
+
+
+async def test_other_websites_cant_use_the_api(config, store):
+    """A page on another site open in Chrome mustn't drive Pitwall (or spend the
+    API key on debriefs): requests carrying a foreign Origin are refused."""
+    client, _ = await make_client(config, store)
+    try:
+        evil = {"Origin": "https://example.com"}
+        r = await client.put("/api/config", json={"display": {"accent": "#000000"}}, headers=evil)
+        assert r.status == 403
+        r = await client.get("/ws", headers={**evil, "Connection": "Upgrade", "Upgrade": "websocket",
+                                             "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ=="})
+        assert r.status == 403
+        # Pitwall's own pages, the dev server and the in-game app (no Origin) are fine.
+        for headers in ({"Origin": f"http://{client.host}:{client.port}"}, {"Origin": "http://localhost:5173"}, {}):
+            ok = await client.put("/api/config", json={"display": {"accent": "#123456"}}, headers=headers)
+            assert ok.status == 200, headers
     finally:
         await client.close()

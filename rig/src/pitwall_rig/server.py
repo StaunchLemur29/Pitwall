@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import threading
-import time
 import json
 import logging
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -435,7 +435,7 @@ def _summ(xs: list[float]) -> dict[str, float] | None:
     if not xs:
         return None
     s = sorted(xs)
-    pick = lambda q: round(s[min(len(s) - 1, int(q * len(s)))], 2)  # noqa: E731
+    pick = lambda q: round(s[min(len(s) - 1, int(q * len(s)))], 2)
     return {"n": len(s), "avg": round(sum(s) / len(s), 2), "p50": pick(0.5), "p95": pick(0.95), "p99": pick(0.99),
             "max": round(s[-1], 2)}
 
@@ -494,7 +494,7 @@ def _rig_thread(app: web.Application, loop: asyncio.AbstractEventLoop, stop: thr
             try:
                 with rig.lock:
                     rig.tick()
-            except Exception:  # noqa: BLE001 - never let one bad frame kill the loop
+            except Exception:
                 log.exception("Error while reading telemetry")
             next_poll = max(next_poll + 1.0 / rig.config["rates"]["poll_hz"], now)
             # Send straight after a fresh read. (Separate schedules at the same
@@ -516,8 +516,8 @@ def _rig_thread(app: web.Application, loop: asyncio.AbstractEventLoop, stop: thr
             try:
                 with rig.lock:
                     rig.adapter.watch()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:
+                log.debug("watch failed", exc_info=True)
         wait = min(next_poll - clock(), watch_every)
         if wait > 0:
             time.sleep(wait)
@@ -541,8 +541,37 @@ async def _stop_background(app: web.Application) -> None:
         await ws.close()
 
 
+_LOOPBACK = {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def origin_allowed(origin: str | None, host: str | None) -> bool:
+    """Requests from a browser carry the page's Origin. Only Pitwall's own pages
+    (this server, or the dashboard dev server on this machine) may use the API:
+    otherwise any website open in Chrome could drive it, spend your API key on
+    debriefs or read the live data over the WebSocket. No Origin (the in-game
+    app, scripts) is fine."""
+    if not origin:
+        return True
+    from urllib.parse import urlsplit
+
+    try:
+        u = urlsplit(origin)
+    except ValueError:
+        return False
+    if u.netloc and host and u.netloc.lower() == host.lower():
+        return True  # same origin (also on the LAN with --lan)
+    return (u.hostname or "").lower() in _LOOPBACK
+
+
+@web.middleware
+async def same_origin_only(request: web.Request, handler: Any) -> web.StreamResponse:
+    if not origin_allowed(request.headers.get("Origin"), request.host):
+        return web.json_response({"error": "Not from Pitwall's own pages."}, status=403)
+    return await handler(request)
+
+
 def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool = True) -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[same_origin_only])
     app[RIG_KEY] = rig
     app[HUB_KEY] = hub
     from collections import deque
