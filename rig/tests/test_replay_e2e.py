@@ -23,7 +23,7 @@ class FakeSocket:
 
 def test_spa_recording_through_the_whole_service(tmp_path):
     t = [0.0]
-    clock = lambda: t[0]  # noqa: E731
+    clock = lambda: t[0]
     store = Store(tmp_path / "p.sqlite")
     config = Config(tmp_path / "c.json")
     config.update({"sf1000": {"enabled": True, "ip": "10.0.0.9"}})
