@@ -36,7 +36,7 @@ TRACE_HZ = 20
 BATCH = 10  # laps per upload request
 # Bump when uploads gain something the hub needs from laps already uploaded:
 # every lap then goes up once more on the next start.
-UPLOAD_VERSION = 2  # 2: track-width advice and battery & DRS with each lap
+UPLOAD_VERSION = 3  # 2: track-width advice and battery & DRS with each lap; 3: optimal racing line
 
 
 class CloudError(Exception):

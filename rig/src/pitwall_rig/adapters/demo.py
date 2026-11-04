@@ -15,14 +15,15 @@ from collections.abc import Callable
 from ..models import Capabilities, Frame, GameStatus, SessionInfo, SessionType
 from .base import GameAdapter
 
-# A made-up ~3.6 km circuit (metres). Clockwise-ish, with a hairpin, a fast
+# A made-up ~2.2 km circuit (metres). Clockwise-ish, with a hairpin, a fast
 # sweeper, a chicane and a long straight.
-CONTROL_POINTS: list[tuple[float, float]] = [
+_SCALE = 0.66
+CONTROL_POINTS: list[tuple[float, float]] = [(x * _SCALE, z * _SCALE) for x, z in [
     (0, 0), (420, 0), (620, 10), (700, 80), (690, 180), (600, 230), (520, 260),
     (500, 330), (560, 400), (700, 430), (820, 500), (840, 620), (760, 700),
     (620, 690), (540, 640), (420, 640), (300, 700), (180, 690), (90, 610),
     (40, 520), (60, 430), (20, 330), (-80, 280), (-150, 190), (-130, 80), (-70, 20),
-]
+]]
 
 A_LAT = 14.0  # m/s² cornering grip (~1.4 g)
 A_BRAKE = 15.0
@@ -59,15 +60,22 @@ def _catmull_rom(points: list[tuple[float, float]], per_segment: int) -> list[tu
 class DemoTrack:
     def __init__(self, points: list[tuple[float, float]] = CONTROL_POINTS, step_m: float = 2.0):
         dense = _catmull_rom(points, 60)
-        # resample at a uniform step
-        pts = [dense[0]]
-        acc = 0.0
-        for a, b in zip(dense, dense[1:] + dense[:1], strict=True):
-            seg = math.dist(a, b)
-            acc += seg
-            if acc >= step_m:
-                pts.append(b)
-                acc = 0.0
+        # Resample at a uniform step (interpolating, so points really are
+        # step_m apart and positions agree with the car's speed).
+        loop = dense + dense[:1]
+        total = sum(math.dist(a, b) for a, b in zip(loop, loop[1:], strict=False))
+        count = max(3, int(total / step_m))
+        pts = []
+        j, along = 0, 0.0  # segment j starts at distance `along`
+        for k in range(count):
+            d = k * step_m
+            while along + math.dist(loop[j], loop[j + 1]) < d:
+                along += math.dist(loop[j], loop[j + 1])
+                j += 1
+            a, b = loop[j], loop[j + 1]
+            seg = math.dist(a, b) or 1.0
+            f = (d - along) / seg
+            pts.append((a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f))
         self.points = pts
         self.n = len(pts)
         self.step = step_m

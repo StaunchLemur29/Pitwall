@@ -396,6 +396,12 @@ export async function fetchCorners(lapId: number | null, compareId?: number | nu
   return (await fetch(`/api/corners?${q}`)).json();
 }
 
+/** The optimal run as a lap trace (null until there are enough laps, or without track edges). */
+export async function fetchOptimal(combo?: Combo | null): Promise<{ lap_s: number; trace: Record<string, number[]> } | null> {
+  const r = await fetch(`/api/optimal?${comboQuery(new URLSearchParams(), combo)}`);
+  return r.ok ? r.json() : null;
+}
+
 export async function fetchCombos(): Promise<Combo[]> {
   const r = await fetch("/api/combos");
   return r.ok ? r.json() : [];

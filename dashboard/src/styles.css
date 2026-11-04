@@ -15,6 +15,7 @@
   --best: #b980ff;
   --warn: #ffc542;
   --accent: #ff5a36;
+  --opt-line: #dff1ff; /* optimal racing line */
   --u: min(1vw, 0.56vh);
   --radius: 8px;
   color-scheme: dark;
@@ -1837,6 +1838,10 @@ select {
   color: var(--best);
 }
 
+.lsum__opt {
+  color: var(--opt-line);
+}
+
 .lsum__where {
   flex: 1 1 100%;
   display: flex;
@@ -2060,6 +2065,23 @@ select {
   stroke-dasharray: 7 5;
 }
 
+/* Optimal racing line: dotted, so it reads apart from both laps without colour. */
+.cd__opt,
+.la__opt {
+  fill: none;
+  stroke: var(--opt-line);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 0.1 6;
+  opacity: 0.85;
+}
+
+.la__opt {
+  stroke-width: 2.5;
+  stroke-dasharray: 0.1 5;
+}
+
 .cd__tag {
   fill: var(--text);
   font-size: 12px;
@@ -2121,6 +2143,12 @@ select {
 
 .strip__line--dash {
   stroke-dasharray: 6 4;
+}
+
+.strip__line--dot {
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 4;
 }
 
 .strip__area {

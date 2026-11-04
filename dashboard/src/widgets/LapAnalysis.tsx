@@ -65,6 +65,8 @@ export function LapAnalysis({
   const [otherTrace, setOtherTrace] = useState<Trace | null>(null);
   const [focus, setFocus] = useState<number | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
+  const [showOpt, setShowOpt] = useState(false);
+  const [optTrace, setOptTrace] = useState<Trace | null>(null);
 
   const requested = lapId ?? (active ? null : latest?.lap_id ?? null);
   useEffect(() => {
@@ -85,6 +87,16 @@ export function LapAnalysis({
     };
   }, [shownId]);
   const theo = active ? report?.theoretical_best_ms ?? null : liveTheo;
+  // The optimal run: fetched again whenever it's been worked out afresh.
+  const optLap = report?.optimal?.lap_s ?? null;
+  useEffect(() => {
+    if (optLap === null) return setOptTrace(null);
+    let live = true;
+    src.optimal(active).then((o) => live && setOptTrace(o?.trace ?? null));
+    return () => {
+      live = false;
+    };
+  }, [optLap, activeKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     onShowing?.(report?.car && report.track_key ? { car: report.car, track_key: report.track_key } : null);
   }, [report?.car, report?.track_key]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -174,6 +186,12 @@ export function LapAnalysis({
           <div className="muted">best sectors combined</div>
         </div>
       ) : null}
+      {optLap !== null ? (
+        <div className="lsum__stat" title={optTitle(report?.optimal)}>
+          <div className="lsum__big lsum__opt">{lapTime(Math.round(optLap * 1000))}</div>
+          <div className="muted">optimal run (estimate)</div>
+        </div>
+      ) : null}
       <div className="lsum__where">
         <div className="cd__sub">{losses.length ? "Where the time went" : rows.length && other ? "No corner lost more than 0.03 s" : "Drive another clean lap to compare"}</div>
         {losses.map(({ r, c }) => (
@@ -238,6 +256,16 @@ export function LapAnalysis({
           {l}
         </button>
       ))}
+      {g.optimal?.length ? (
+        <button
+          className={`chipbtn chipbtn--toggle ${showOpt ? "chipbtn--on" : ""}`}
+          onClick={() => setShowOpt((v) => !v)}
+          aria-pressed={showOpt}
+          title="The smoothest path the track's edges allow: a guide for where to place the car"
+        >
+          {showOpt ? "✓ " : "+ "}Optimal line
+        </button>
+      ) : null}
     </div>
   );
 
@@ -369,8 +397,8 @@ export function LapAnalysis({
             {systemsBlock && <Panel id="systems" title="Car systems">{systemsBlock}</Panel>}
             <Panel id="map" title="Map" height={420} minHeight={220}>
               {modes}
-              <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />
-              <Legend mode={mode} label={label} />
+              <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} />
+              <Legend mode={mode} label={label} showOpt={showOpt} />
             </Panel>
             <Panel id="sections" title="Sections" right={<span className="muted pnl__hint">click a corner for the detail</span>}>{list}</Panel>
           </div>
@@ -385,6 +413,7 @@ export function LapAnalysis({
                 otherLabel={label}
                 myTrace={trace}
                 otherTrace={otherTrace}
+                optTrace={optTrace}
                 mastery={report?.mastery.find((x) => x.corner === corner.number)}
                 section={canDrill ? section : undefined}
                 onStep={step}
@@ -400,15 +429,27 @@ export function LapAnalysis({
             <span className="nsum__t">{lapTime(shown?.lap_time_ms)}</span>
             {lapDelta !== null && <span className={lapDelta <= 0 ? "good" : "bad"}>{delta(lapDelta, 3)}</span>}
             {lapDelta !== null && <span className="muted">vs {label}</span>}
-            {theo ? <span className="nsum__theo" title="best sectors combined">optimal {lapTime(theo)}</span> : null}
+            {theo ? <span className="nsum__theo" title="best sectors combined">best sectors {lapTime(theo)}</span> : null}
+            {optLap !== null ? <span className="nsum__theo" title={optTitle(report?.optimal)}>optimal run {lapTime(Math.round(optLap * 1000))}</span> : null}
           </div>
           {modes}
-          <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />
-          <Legend mode={mode} label={label} />
+          <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} />
+          <Legend mode={mode} label={label} showOpt={showOpt} />
           {list}
         </div>
       )}
     </Card>
+  );
+}
+
+function optTitle(o: { laps_used: number; grip: Record<string, number> } | null | undefined): string {
+  if (!o) return "";
+  const g = o.grip;
+  return (
+    "The optimal line driven at this car's grip, learnt from your " +
+    `${o.laps_used} fastest lap${o.laps_used === 1 ? "" : "s"} here ` +
+    `(cornering ${g.lat_g_100} g at 100 km/h, ${g.lat_g_200} g at 200; braking ${g.brake_g_100} g). ` +
+    "An estimate: only as good as the laps it learnt from."
   );
 }
 
@@ -423,7 +464,7 @@ function gradeColour(loss: number | null | undefined): string {
   return loss <= 0.05 ? "#3ddc84" : loss <= 0.2 ? "#ffc542" : "#ff5252";
 }
 
-function Legend({ mode, label }: { mode: Mode; label: string | null }) {
+function Legend({ mode, label, showOpt }: { mode: Mode; label: string | null; showOpt: boolean }) {
   const items: Record<Mode, [string, string][]> = {
     phase: [
       ["#ff5252", "braking"],
@@ -459,6 +500,14 @@ function Legend({ mode, label }: { mode: Mode; label: string | null }) {
           {l}
         </span>
       ))}
+      {showOpt && (
+        <span>
+          <svg width="16" height="6" className="key" aria-hidden>
+            <line x1="2" x2="15" y1="3" y2="3" className="la__opt" />
+          </svg>
+          optimal line
+        </span>
+      )}
     </div>
   );
 }
@@ -472,8 +521,9 @@ function ColouredMap(props: {
   focus: number | null;
   onPick: (n: number | null) => void;
   onSelect: (n: number) => void;
+  showOpt: boolean;
 }) {
-  const { g, trace, ref_, mode, rows, focus } = props;
+  const { g, trace, ref_, mode, rows, focus, showOpt } = props;
   const [box, { w, h }] = useSize<HTMLDivElement>();
   const fit = useMemo(() => fitTrack(g.center as Pt[], w, h, 18), [g, w, h]);
   const proj = (p: P): P => fit.project(p[0], p[1]);
@@ -483,6 +533,11 @@ function ColouredMap(props: {
     [g, fit],
   );
   const segments = useMemo(() => (trace ? colourSegments(trace, ref_, mode, g, rows) : []), [trace, ref_, mode, g, rows]);
+  const optimal = useMemo(
+    () => (g.optimal?.length ? pathOf(g.optimal.map((p) => proj(p as P)), true) : ""),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [g, fit],
+  );
 
   return (
     <div ref={box} className="la__map">
@@ -492,6 +547,7 @@ function ColouredMap(props: {
           {segments.map(([colour, pts], i) => (
             <path key={i} d={pathOf(pts.map(proj))} stroke={colour} className="la__seg" />
           ))}
+          {showOpt && optimal && <path d={optimal} className="la__opt" />}
           {g.corners.map((c) => {
             const at = proj(g.center[indexAt(g, c.apex)] as P);
             return (
