@@ -288,6 +288,8 @@ export interface CornerReport {
   compare: CornerLap[] | null;
   compare_lap_id: number | null;
   compare_label: string | null;
+  /** what it's compared with: one of your (faster) laps, or the optimal run as the benchmark */
+  compare_kind?: "lap" | "optimal" | null;
   /** which car + track this is, and whether it's the one you're driving now */
   game: string | null;
   car: string | null;

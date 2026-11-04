@@ -56,6 +56,7 @@ class AnalysisCtx:
 # The optimal run learns the car's grip from this many of your fastest laps.
 OPT_LAPS = 8
 # What each corner row carries about the optimal run (also uploaded to the hub).
+OPTIMAL = -1  # compare_id meaning "the optimal run" (the benchmark when there's no faster lap of yours)
 TTB_LAPS = 10  # the time to beat starts from your usual over this many recent clean laps
 TTB_PAST_BEST = 0.003  # the lap's time to beat asks at most 0.3 % beyond your best lap
 OPT_KEYS = ("time_s", "brake_m", "entry_kmh", "peak_brake", "min_speed_kmh", "throttle_m", "exit_kmh")
@@ -589,17 +590,33 @@ class Rig:
                 if o and data.get("driven") is not False:
                     data["opt"] = {k: o.get(k) for k in OPT_KEYS}
                     data["opt_notes"] = compare_notes(data, o, "the optimal run")[:3]
-        compare, compare_label = None, None
+        compare, compare_label, compare_kind = None, None, None
         if lap:
             ref_id = ctx.ref_lap_id
             if compare_id is None:
-                if ref_id is not None and ref_id != lap_id:
+                # Coaching, not lap comparison: only ever against something faster.
+                # Your best lap if it's quicker than this one; on your best (or a
+                # lap quicker only by cutting), the benchmark: the optimal run.
+                shown_info = self.store.lap(lap_id) if lap_id is not None else None
+                ref_info = self.store.lap(ref_id) if ref_id is not None else None
+                full_lap = bool(shown_info) and not shown_info["out_lap"] and not shown_info.get("unfinished")
+                if ref_info and ref_id != lap_id and (not full_lap or ref_info["lap_time_ms"] < shown_info["lap_time_ms"]):
                     compare_id = ref_id
                 else:
-                    others = [i for i in self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=500) if i != lap_id]
-                    ranked = sorted(others, key=lambda i: (self.store.lap(i) or {}).get("lap_time_ms") or 1e12)
-                    compare_id = ranked[0] if ranked else None
-            if compare_id is not None and compare_id != lap_id:
+                    compare_id = OPTIMAL
+            if compare_id == OPTIMAL:
+                rows = run.get("rows") if run else None
+                if rows:
+                    compare_kind, compare_label = "optimal", "the optimal run"
+                    compare = [dict(rows[c.number]) for c in m.corners if c.number in rows]
+                    for data in lap:
+                        o = rows.get(data["corner"])
+                        if o and data.get("driven") is not False:
+                            data["vs_s"] = round(data["time_s"] - o["time_s"], 3)
+                            data["notes"] = data.get("opt_notes") or compare_notes(data, o, compare_label)[:3]
+                compare_id = None
+            elif compare_id is not None and compare_id != lap_id:
+                compare_kind = "lap"
                 compare = self.store.lap_corners(compare_id, sig)
                 if compare is None:
                     tr = self.store.trace(compare_id)
@@ -609,7 +626,7 @@ class Rig:
                 info = self.store.lap(compare_id)
                 is_best = compare_id == ref_id
                 compare_label = "your best lap" if is_best else f"lap {info['lap_number']}" if info else "the other lap"
-            if compare:
+            if compare and compare_kind == "lap":
                 by_num = {c["corner"]: c for c in compare}
                 for other in compare:
                     k = other["corner"] - 1
@@ -650,6 +667,7 @@ class Rig:
             "compare": compare,
             "compare_lap_id": compare_id if compare else None,
             "compare_label": compare_label,
+            "compare_kind": compare_kind,  # "lap" | "optimal" | None
             "chapters": chapters,
             "practice": practice,
             "mastery": list(track.mastery.values()),

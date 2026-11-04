@@ -166,7 +166,12 @@ export function LapAnalysis({
   const otherRow = report?.compare?.find((x) => x.corner === corner?.number) ?? null;
   const section = (report?.practice?.length ? report.practice : g.practice).find((ps) => ps.corners.includes(corner?.number));
   const step = (d: 1 | -1) => setPicked(g.corners[(ci + d + g.corners.length) % g.corners.length].number);
-  const lapDelta = shown && other ? (shown.lap_time_ms - other.lap_time_ms) / 1000 : null;
+  const lapDelta =
+    shown && other
+      ? (shown.lap_time_ms - other.lap_time_ms) / 1000
+      : shown && report?.compare_kind === "optimal" && report.optimal
+        ? shown.lap_time_ms / 1000 - report.optimal.lap_s
+        : null;
 
   const summary = (
     <div className="lsum">
@@ -443,12 +448,14 @@ export function LapAnalysis({
           <span className="muted">vs</span>
           <select className="lapsel" value={compareId ?? ""} onChange={(e) => setCompareId(Number(e.target.value) || null)} aria-label="Compare with">
             <option value="">{compareId === null && label ? `auto: ${label}` : "auto"}</option>
+            <option value={-1}>the optimal run (benchmark)</option>
+            {/* Coaching, not lap comparison: only your laps that were faster than this one. */}
             {valid
-              .filter((l) => l.id !== shownId)
+              .filter((l) => l.id !== shownId && !l.rewound && (!shown || shown.out_lap || shown.unfinished || l.lap_time_ms < shown.lap_time_ms))
               .map((l) => (
                 <option key={l.id} value={l.id}>
                   Lap {l.lap_number} · {lapTime(l.lap_time_ms)}
-                  {l.id === report?.reference_lap_id ? " (best)" : l.rewound ? " (rewind)" : ""}
+                  {l.id === report?.reference_lap_id ? " (best)" : ""}
                 </option>
               ))}
           </select>

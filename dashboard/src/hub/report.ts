@@ -91,6 +91,7 @@ export function counts(c: CornerLap, lapValid: boolean): boolean {
   if (c.driven === false) return false;
   return c.clean ?? lapValid;
 }
+export const OPTIMAL = -1; // compare_id: the optimal run (rig.py OPTIMAL)
 
 export function cornerMastery(history: CornerLap[][], recent = 10): Map<number, Mastery> {
   const byCorner = new Map<number, number[]>();
@@ -162,15 +163,36 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
     }
   }
 
+  // Coaching, not lap comparison (rig.py): only ever against something faster.
+  // Your best lap if it's quicker than this one; on your best (or a lap quicker
+  // only by cutting), the benchmark: the optimal run (OPTIMAL = -1).
   let cmp: HubLap | null = null;
+  let kind: CornerReport["compare_kind"] = null;
+  let optLabel: string | null = null;
+  let optCompare: CornerLap[] | null = null;
   if (lap && shownId !== null) {
     if (compareId === null) {
-      if (refId !== null && refId !== shownId) compareId = refId;
-      else compareId = [...valid].filter((l) => l.id !== shownId).sort((a, b) => a.lap_time_ms - b.lap_time_ms)[0]?.id ?? null;
+      const fullLap = !!shown && !shown.out_lap && !shown.unfinished;
+      compareId = best && best.id !== shownId && (!fullLap || best.lap_time_ms < shown!.lap_time_ms) ? best.id : OPTIMAL;
     }
-    cmp = compareId !== null && compareId !== shownId ? byId.get(compareId) ?? null : null;
+    if (compareId === OPTIMAL) {
+      const rows = lap.filter((c) => c.opt);
+      if (rows.length) {
+        kind = "optimal";
+        optLabel = "the optimal run";
+        optCompare = rows.map((c) => ({ ...(c.opt as unknown as CornerLap), corner: c.corner }));
+        for (const c of lap) {
+          if (!c.opt || c.driven === false) continue;
+          c.vs_s = r3(c.time_s - c.opt.time_s);
+          c.notes = c.opt_notes?.length ? c.opt_notes : compareNotes(c, c.opt as unknown as CornerLap, optLabel).slice(0, 3);
+        }
+      }
+    } else {
+      cmp = compareId !== null && compareId !== shownId ? byId.get(compareId) ?? null : null;
+      if (cmp) kind = "lap";
+    }
   }
-  const label = cmp ? (cmp.id === refId ? "your best lap" : `lap ${cmp.lap_number}`) : null;
+  const label = cmp ? (cmp.id === refId ? "your best lap" : `lap ${cmp.lap_number}`) : optLabel;
   if (lap && cmp?.corners && label) {
     const other = new Map(cmp.corners.map((c) => [c.corner, c]));
     for (const c of lap) {
@@ -231,9 +253,10 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
     systems: shown?.systems ?? null,
     review: shown?.review ?? null,
     car_systems: carSummary(inp.profile),
-    compare: cmp?.corners ?? null,
+    compare: cmp?.corners ?? optCompare,
     compare_lap_id: cmp ? cmp.id : null,
     compare_label: label,
+    compare_kind: kind,
     chapters,
     practice,
     mastery: [...mastery.values()],
