@@ -31,6 +31,7 @@ interface LapRow {
   valid: boolean;
   out_lap: boolean;
   rewound?: boolean;
+  unfinished?: boolean;
   started_at: string;
   sector_ms: number[];
   corners?: HubLap["corners"];
@@ -50,7 +51,7 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     if (!lapsByCombo.has(k)) {
       lapsByCombo.set(k, all<LapRow>((a, b) =>
         sb.from("laps")
-          .select("id,game,car,track_key,lap_number,lap_time_ms,valid,out_lap,rewound,started_at,sector_ms,corners,systems,review,time_to_beat")
+          .select("id,game,car,track_key,lap_number,lap_time_ms,valid,out_lap,rewound,unfinished,started_at,sector_ms,corners,systems,review,time_to_beat")
           .eq("game", c.game).eq("car", c.car).eq("track_key", c.track_key)
           .order("started_at", { ascending: false }).range(a, b)));
     }
@@ -81,7 +82,7 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
 
   const hubLaps = async (c: Combo): Promise<HubLap[]> =>
     (await comboLaps(c)).map((r) => ({
-      id: r.id, lap_number: r.lap_number, lap_time_ms: r.lap_time_ms, valid: r.valid, out_lap: r.out_lap, rewound: !!r.rewound,
+      id: r.id, lap_number: r.lap_number, lap_time_ms: r.lap_time_ms, valid: r.valid, out_lap: r.out_lap, rewound: !!r.rewound, unfinished: !!r.unfinished,
       started_at: unix(r.started_at), sector_ms: r.sector_ms, corners: r.corners ?? null, systems: r.systems ?? null, review: r.review ?? null, time_to_beat: r.time_to_beat ?? null,
     }));
   const report = async (combo: Combo, lapId: number | null, compareId: number | null): Promise<CornerReport> => {
@@ -125,7 +126,7 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     async laps(c) {
       return (await comboLaps(c)).map<LapSummary>((r) => ({
         id: r.id, game: r.game, car: r.car, track_key: r.track_key, lap_number: r.lap_number,
-        lap_time_ms: r.lap_time_ms, valid: r.valid, out_lap: r.out_lap, rewound: !!r.rewound, started_at: unix(r.started_at), sector_ms: r.sector_ms,
+        lap_time_ms: r.lap_time_ms, valid: r.valid, out_lap: r.out_lap, rewound: !!r.rewound, unfinished: !!r.unfinished, started_at: unix(r.started_at), sector_ms: r.sector_ms,
       }));
     },
 

@@ -172,9 +172,17 @@ export function LapAnalysis({
     <div className="lsum">
       <div className="lsum__stat">
         <div className="lsum__big">{lapTime(shown?.lap_time_ms)}</div>
-        <div className="muted">lap {shown?.lap_number ?? ""}</div>
+        <div className="muted">lap {shown?.lap_number ?? ""}{shown?.unfinished ? " · time driven" : ""}</div>
       </div>
-      {lapDelta !== null && (
+      {shown?.unfinished ? (
+        <div className="lsum__stat">
+          <div className="lsum__big">
+            {rows.filter((r) => r.driven !== false).length} / {rows.length}
+          </div>
+          <div className="muted">corners driven (unfinished lap)</div>
+        </div>
+      ) : null}
+      {lapDelta !== null && !shown?.unfinished && (
         <div className="lsum__stat">
           <div className={`lsum__big ${lapDelta <= 0 ? "good" : "bad"}`}>{delta(lapDelta, 3)}</div>
           <div className="muted">vs {label}</div>
@@ -273,7 +281,11 @@ export function LapAnalysis({
         >
           <span className="mdot" style={{ background: GRADE_COLORS[m?.grade ?? "new"] }} />
           <span className="cchip__name">{num}. {g.corners[i].label}</span>
-          {r && <span className="cchip__t">{r.time_s.toFixed(2)}s</span>}
+          {r && r.driven === false ? (
+            <span className="cchip__t muted">not driven</span>
+          ) : (
+            r && <span className="cchip__t">{r.time_s.toFixed(2)}s</span>
+          )}
           {r?.vs_s !== undefined && <span className={`cchip__d ${vsClass(r.vs_s)}`}>{delta(r.vs_s)}</span>}
         </button>
         {why && !open && <div className="cwrap__why">{notes[0] ?? "Small losses all the way through rather than one mistake."}</div>}
@@ -419,7 +431,7 @@ export function LapAnalysis({
       {laps.map((l) => (
         <option key={l.id} value={l.id}>
           Lap {l.lap_number} · {lapTime(l.lap_time_ms)}
-          {l.id === report?.reference_lap_id ? " (best)" : l.out_lap ? " (out)" : !l.valid ? " (cut)" : l.rewound ? " (rewind)" : ""}
+          {l.id === report?.reference_lap_id ? " (best)" : l.unfinished ? " (unfinished)" : l.out_lap ? " (out)" : !l.valid ? " (cut)" : l.rewound ? " (rewind)" : ""}
         </option>
       ))}
     </select>
@@ -464,7 +476,9 @@ export function LapAnalysis({
           </div>
           <div className="la__split" role="separator" aria-label="Resize columns" title="Drag to resize · double-click to reset" onPointerDown={startSplit} onDoubleClick={resetSplit} />
           <div className="la__right">
-            {corner && mine ? (
+            {corner && mine && mine.driven === false ? (
+              <div className="upcoming">This lap didn't drive {corner.label} all the way through (it wasn't finished, or jumped past it). Pick a corner it drove.</div>
+            ) : corner && mine ? (
               <CornerDetail
                 g={g}
                 corner={corner}

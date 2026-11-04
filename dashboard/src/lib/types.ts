@@ -72,6 +72,8 @@ export interface LapSummary {
   out_lap: boolean;
   /** used a rewind after a mistake: a normal lap, but never a best one */
   rewound?: boolean;
+  /** didn't get to the line (quit, restarted): only some corners driven */
+  unfinished?: boolean;
   started_at: number;
   sector_ms: number[];
 }
@@ -222,6 +224,10 @@ export interface CornerLap {
   opt_notes?: string[];
   /** this corner's time to beat */
   to_beat_s?: number | null;
+  /** this lap drove the whole corner (false: didn't finish it, or jumped past) */
+  driven?: boolean;
+  /** stayed on track through it (null: lap recorded before wheels-off was kept) */
+  clean?: boolean | null;
 }
 
 /** A realistic stretch target for one corner. */

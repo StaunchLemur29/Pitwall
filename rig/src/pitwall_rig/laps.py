@@ -170,6 +170,7 @@ class LapRecorder:
 
     def feed(self, frame: Frame, session: SessionInfo | None) -> None:
         if session is None or frame.status == GameStatus.OFF:
+            self._save_unfinished(self._buf)  # quit to the menu (or the game closed) mid-lap
             self._buf = None
             self._pending = None
             self._jumps.reset()
@@ -177,6 +178,7 @@ class LapRecorder:
 
         key = (session.game, session.car, session.track_key)
         if key != self._session_key:
+            self._save_unfinished(self._buf)
             self._session_key = key
             self._buf = None
             self._pending = None
@@ -198,6 +200,8 @@ class LapRecorder:
         if buf is not None and frame.lap < buf.lap_number:
             # Session restarted, or rewound back over the line: the lap before
             # is already saved, and this bit until the line isn't a lap.
+            if jump != REWIND:
+                self._save_unfinished(buf)  # restarted mid-lap: keep what you drove
             buf = None
             if jump == REWIND:
                 buf = self._new_buffer(frame, jumped=False)
@@ -224,6 +228,32 @@ class LapRecorder:
             last_lap_ms_at_start=frame.last_lap_ms,
             jumped=jumped,
         )
+
+    UNFINISHED_MIN = 0.03  # of a lap driven before an unfinished lap is worth keeping
+
+    def _save_unfinished(self, buf: _LapBuffer | None) -> None:
+        """A lap you didn't finish (quit, restarted, went back to the pits): kept
+        as an unfinished lap, never valid, so the corners and sections you did
+        drive well still count and can be looked at (long tracks especially)."""
+        if buf is None or self._session is None or buf.discard or buf.samples < 60:
+            return
+        ps = buf.trace["p"]
+        if max(ps) - min(ps) < self.UNFINISHED_MIN:
+            return
+        ts = buf.trace["t"]
+        self._on_lap(Lap(
+            game=self._session.game,
+            car=self._session.car,
+            track_key=self._session.track_key,
+            lap_number=buf.lap_number + 1,
+            lap_time_ms=max(1, int((ts[-1] - ts[0]) * 1000)),  # time driven, not a lap time
+            valid=False,
+            out_lap=True,
+            unfinished=True,
+            started_at=buf.started_at,
+            sector_ms=[],
+            trace=buf.trace,
+        ))
 
     def _maybe_finalize(self, frame: Frame) -> None:
         if self._pending is None or self._session is None:

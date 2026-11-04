@@ -163,6 +163,7 @@ class Lap:
     trace: dict[str, list[float]] = field(default_factory=dict)
     id: int | None = None
     rewound: bool = False  # rewound after a mistake: a normal lap, but never a best one
+    unfinished: bool = False  # you didn't get to the line (quit, restarted): only some corners driven
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -175,6 +176,7 @@ class Lap:
             "valid": self.valid,
             "out_lap": self.out_lap,
             "rewound": self.rewound,
+            "unfinished": self.unfinished,
             "started_at": self.started_at,
             "sector_ms": self.sector_ms,
         }

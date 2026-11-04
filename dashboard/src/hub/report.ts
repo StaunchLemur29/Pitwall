@@ -17,6 +17,7 @@ export interface HubLap {
   valid: boolean;
   out_lap?: boolean;
   rewound?: boolean; // used a rewind: never a best lap
+  unfinished?: boolean; // didn't get to the line: only some corners driven
   started_at: number; // unix seconds
   sector_ms: number[];
   corners: CornerLap[] | null;
@@ -85,6 +86,12 @@ function pstdev(xs: number[]): number {
 }
 
 /** Per corner: best and recent times, consistency, green / amber / red. ``history`` newest first. */
+/** Whether a corner of a lap counts towards your usual and bests (analysis.py counts). */
+export function counts(c: CornerLap, lapValid: boolean): boolean {
+  if (c.driven === false) return false;
+  return c.clean ?? lapValid;
+}
+
 export function cornerMastery(history: CornerLap[][], recent = 10): Map<number, Mastery> {
   const byCorner = new Map<number, number[]>();
   for (const lap of history) for (const c of lap) byCorner.set(c.corner, [...(byCorner.get(c.corner) ?? []), c.time_s]);
@@ -137,11 +144,19 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
   const shownId = lapId ?? valid[0]?.id ?? null;
   const shown = shownId !== null ? byId.get(shownId) ?? null : null;
 
-  const history = valid.slice(0, 30).map((l) => l.corners ?? []).filter((c) => c.length);
+  // Your recent driving through each corner (rig.py _history): the corners that
+  // count (driven all the way, clean) from any lap, finished or not, newest first.
+  const history: CornerLap[][] = [];
+  for (const l of [...inp.laps].sort((a, b) => b.started_at - a.started_at).slice(0, 90)) {
+    const good = (l.corners ?? []).filter((c) => counts(c, l.valid));
+    if (good.length) history.push(good);
+    if (history.length >= 30) break;
+  }
   const mastery = cornerMastery(history);
   const lap = shown?.corners ? shown.corners.map((c) => ({ ...c })) : null;
   if (lap) {
     for (const c of lap) {
+      if (c.driven === false) continue; // not driven on this lap: nothing to compare
       const b = mastery.get(c.corner)?.best_s;
       c.loss_s = b !== undefined ? r3(c.time_s - b) : null;
     }
@@ -160,7 +175,7 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
     const other = new Map(cmp.corners.map((c) => [c.corner, c]));
     for (const c of lap) {
       const o = other.get(c.corner);
-      if (o) {
+      if (o && c.driven !== false && o.driven !== false) {
         c.vs_s = r3(c.time_s - o.time_s);
         c.notes = compareNotes(c, o, label);
       }
@@ -168,7 +183,9 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
   }
 
   const span = (tr: Trace | undefined, a: number, b: number) => {
-    if (!tr || b <= a) return null;
+    if (!tr || b <= a || !tr.p.length) return null;
+    // an unfinished lap may stop short (rig.py _covers)
+    if (Math.min(...tr.p) > a + 0.002 || Math.max(...tr.p) < b - 0.002) return null;
     const at = timeLookup(tr);
     return r3(at(b) - at(a));
   };
