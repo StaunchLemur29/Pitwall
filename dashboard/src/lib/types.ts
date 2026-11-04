@@ -264,6 +264,17 @@ export interface Systems {
   notes: string[];
 }
 
+/** An AI debrief of one session. */
+export interface Debrief {
+  game: string;
+  car: string;
+  track_key: string;
+  session_start: number; // unix seconds
+  created_at: number;
+  model: string;
+  body: string; // short Markdown
+}
+
 /** Which systems the current car has. */
 export interface CarProfile {
   abs: boolean;

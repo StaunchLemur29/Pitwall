@@ -1,0 +1,7 @@
+# Only what `supabase functions deploy` needs (run by .github/workflows/functions.yml).
+project_id = "pitwall"
+
+[functions.debrief]
+# The function checks who you are itself (handler.ts), so it also works with
+# Supabase's newer signing keys.
+verify_jwt = false

@@ -117,6 +117,17 @@ def cmd_run(args: argparse.Namespace) -> None:
         rig.on_lap_saved = cloud.sync_soon
         cloud.start()
 
+    # AI debriefs (need an Anthropic API key, added in Settings -> AI). Written
+    # automatically when a real session ends; on request from the analysis.
+    from .debrief import AISettings, Debriefer
+    from .server import AI_KEY
+
+    debriefer = Debriefer(store, AISettings(data_dir), summary_for=rig.session_summary,
+                          on_saved=cloud.sync_soon if cloud is not None else (lambda: None))
+    app[AI_KEY] = debriefer
+    if game not in ("demo", "replay"):
+        rig.on_session_end = debriefer.session_ended
+
     def on_action(a: str, pressed: bool = True) -> None:
         loop = hub._loop
         if loop is not None:

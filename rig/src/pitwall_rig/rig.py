@@ -101,6 +101,8 @@ class Rig:
         self.csp = CspLink(clock)  # the in-game CSP app, when it's running
         self.car_profile: dict[str, Any] | None = None  # which systems the current car has
         self.on_lap_saved: Callable[[], None] = lambda: None  # e.g. wake the cloud sync
+        # (game, car, track_key) of a session that just ended, e.g. to write its debrief
+        self.on_session_end: Callable[[str, str, str], None] = lambda g, c, t: None
         # rates for the lag meter: rig ticks/s and new game packets/s
         self._rate_t0 = time.perf_counter()
         self._ticks = 0
@@ -132,6 +134,12 @@ class Rig:
             frame = Frame(t=now, status=GameStatus.OFF)
 
         if self._session_changed(session):
+            old = self.session
+            if old is not None:
+                try:
+                    self.on_session_end(old.game, old.car, old.track_key)
+                except Exception:  # noqa: BLE001 - never let this stop telemetry
+                    log.exception("Session-end hook failed")
             self.session = session
             self._load_car_profile()
             if session is not None:
@@ -392,6 +400,82 @@ class Rig:
             return None
         corners = [{k: v for k, v in c.items() if k not in ("vs_s", "notes")} for c in rep["lap"]]
         return {"corners": corners, "systems": rep.get("systems")}
+
+    SESSION_GAP_S = 3600  # laps more than an hour apart belong to different sessions
+
+    def session_summary(self, game: str, car: str, track_key: str) -> dict[str, Any] | None:
+        """The latest session on this car + track, condensed for the AI debrief.
+        None when it has too few clean laps to be worth one."""
+        from .debrief import MIN_CLEAN_LAPS
+
+        laps = sorted(self.store.laps(game, track_key, car, limit=500), key=lambda l: l["started_at"])
+        if not laps:
+            return None
+        sessions: list[list[dict[str, Any]]] = []
+        for lap in laps:
+            if sessions and lap["started_at"] - sessions[-1][-1]["started_at"] <= self.SESSION_GAP_S:
+                sessions[-1].append(lap)
+            else:
+                sessions.append([lap])
+        sess = sessions[-1]
+        clean = [l for l in sess if l["valid"]]
+        if len(clean) < MIN_CLEAN_LAPS:
+            return None
+        start = sess[0]["started_at"]
+        best = min(clean, key=lambda l: l["lap_time_ms"])
+        before = [l["lap_time_ms"] for l in laps if l["valid"] and l["started_at"] < start]
+        times = sorted(l["lap_time_ms"] for l in clean)
+        mid = len(times) // 2
+        median = times[mid] if len(times) % 2 else (times[mid - 1] + times[mid]) / 2
+        mean = sum(times) / len(times)
+        spread = (sum((t - mean) ** 2 for t in times) / len(times)) ** 0.5
+
+        rep = self.corner_report(best["id"], game=game, car=car, track_key=track_key)
+        ctx = self.analysis_ctx(game, car, track_key)
+        model_corners = {c.number: c for c in ctx.track.model.corners} if ctx else {}
+        mastery = {m["corner"]: m for m in rep.get("mastery", [])}
+        corners = []
+        for c in rep.get("lap") or []:
+            mc = model_corners.get(c["corner"])
+            m = mastery.get(c["corner"], {})
+            corners.append({
+                "corner": mc.label if mc else f"Corner {c['corner']}",
+                "type": f"{mc.direction}{mc.grade} (1 = tightest, 6 = flat)" if mc else None,
+                "time_s": c["time_s"],
+                "vs_comparison_s": c.get("vs_s"),
+                "differences": (c.get("notes") or [])[:3],
+                "lost_vs_best_ever_here_s": c.get("loss_s"),
+                "consistency": {"grade": m.get("grade"), "spread_s": m.get("spread_s"), "laps": m.get("laps")},
+                "track_width_advice": (c.get("advice") or [])[:1],
+                "slowest_kmh": c.get("min_speed_kmh"),
+                "gear": c.get("apex_gear"),
+                "brake_m_before_apex": c.get("brake_m"),
+            })
+        return {
+            "car": car,
+            "track": track_key,
+            "session": {
+                "start": start,
+                "laps": [{"lap": l["lap_number"], "time": fmt_ms(l["lap_time_ms"]), "clean": l["valid"],
+                          "out_lap": l["out_lap"]} for l in sess],
+                "clean_laps": len(clean),
+                "best": fmt_ms(best["lap_time_ms"]),
+                "typical": fmt_ms(int(median)),
+                "spread_s": round(spread / 1000, 2),
+            },
+            "personal_best_before_session": fmt_ms(min(before)) if before else None,
+            "new_personal_best": not before or best["lap_time_ms"] < min(before),
+            "best_sectors_combined": fmt_ms(rep["theoretical_best_ms"]) if rep.get("theoretical_best_ms") else None,
+            "best_lap_compared_with": rep.get("compare_label"),
+            "corners_on_best_lap": corners,
+            "practice_sections": [
+                {"name": ps["name"], "this_lap_s": ps.get("time_s"), "best_lap_s": ps.get("ref_s"),
+                 "best_drill_run_s": ps.get("drill_best_s")}
+                for ps in rep.get("practice", [])
+            ],
+            "battery_and_drs": (rep.get("systems") or {}).get("notes", []),
+            "car_has": rep.get("car_systems", []),
+        }
 
     def combos(self) -> list[dict[str, Any]]:
         """Every car + track you've driven, most recent first."""

@@ -58,6 +58,19 @@ CREATE TABLE IF NOT EXISTS section_attempts (
     created_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS debriefs (
+    id INTEGER PRIMARY KEY,
+    game TEXT NOT NULL,
+    car TEXT NOT NULL,
+    track_key TEXT NOT NULL,
+    session_start REAL NOT NULL,
+    created_at REAL NOT NULL,
+    model TEXT NOT NULL,
+    body TEXT NOT NULL,
+    synced_at REAL,
+    UNIQUE (game, car, track_key, session_start)
+);
+
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
@@ -181,6 +194,44 @@ class Store:
                FROM laps GROUP BY game, car, track_key ORDER BY last_driven DESC"""
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # -- AI debriefs --------------------------------------------------------------
+
+    def add_debrief(self, game: str, car: str, track_key: str, session_start: float, model: str, body: str,
+                    created_at: float) -> int:
+        with self._lock, self._db:
+            cur = self._db.execute(
+                """INSERT OR REPLACE INTO debriefs (game, car, track_key, session_start, created_at, model, body)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (game, car, track_key, session_start, created_at, model, body),
+            )
+            return int(cur.lastrowid or 0)
+
+    def debriefs(self, game: str, car: str, track_key: str, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            """SELECT id, game, car, track_key, session_start, created_at, model, body FROM debriefs
+               WHERE game=? AND car=? AND track_key=? ORDER BY session_start DESC LIMIT ?""",
+            (game, car, track_key, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def has_debrief(self, game: str, car: str, track_key: str, session_start: float) -> bool:
+        return self._db.execute(
+            "SELECT 1 FROM debriefs WHERE game=? AND car=? AND track_key=? AND session_start=?",
+            (game, car, track_key, session_start),
+        ).fetchone() is not None
+
+    def unsynced_debriefs(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            """SELECT id, game, car, track_key, session_start, created_at, model, body FROM debriefs
+               WHERE synced_at IS NULL ORDER BY created_at LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_debriefs_synced(self, ids: list[int], when: float) -> None:
+        with self._lock, self._db:
+            self._db.executemany("UPDATE debriefs SET synced_at=? WHERE id=?", [(when, i) for i in ids])
 
     # -- cloud sync -------------------------------------------------------------
 

@@ -6,7 +6,7 @@
 import { createContext, useContext } from "react";
 import type { Trace } from "./profile";
 import { fetchCombos, fetchCorners, fetchGeometry, fetchLaps, fetchOptimal, fetchTrace, type Combo } from "./rig";
-import type { CornerReport, LapSummary, TrackGeometry } from "./types";
+import type { CornerReport, Debrief, LapSummary, TrackGeometry } from "./types";
 
 export interface AnalysisSource {
   /** A game session can be running here (live laps, drills, the analysis window). */
@@ -19,7 +19,15 @@ export interface AnalysisSource {
   trace(lapId: number, hz: number): Promise<Trace | null>;
   /** The optimal run (optimal line at this car's grip) as a trace; null where there isn't one. */
   optimal(combo: Combo | null): Promise<{ lap_s: number; trace: Trace } | null>;
+  /** AI debriefs for this car + track, newest first. */
+  debriefs(combo: Combo): Promise<Debrief[]>;
+  /** Write one now (rig PC only, with an API key set). */
+  writeDebrief?(combo: Combo): Promise<Debrief>;
+  /** Whether debriefs can be written here (an API key is set). */
+  canWriteDebrief?(): Promise<boolean>;
 }
+
+const q = (c: Combo) => new URLSearchParams({ game: c.game, car: c.car, track_key: c.track_key });
 
 export const rigSource: AnalysisSource = {
   live: true,
@@ -29,6 +37,24 @@ export const rigSource: AnalysisSource = {
   corners: fetchCorners,
   trace: fetchTrace,
   optimal: fetchOptimal,
+  debriefs: async (c) => {
+    const r = await fetch(`/api/debriefs?${q(c)}`);
+    return r.ok ? r.json() : [];
+  },
+  writeDebrief: async (c) => {
+    const r = await fetch("/api/debrief", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ game: c.game, car: c.car, track_key: c.track_key }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error ?? "Couldn't write the debrief");
+    return j;
+  },
+  canWriteDebrief: async () => {
+    const r = await fetch("/api/ai");
+    return r.ok ? !!(await r.json()).configured : false;
+  },
 };
 
 export const SourceContext = createContext<AnalysisSource>(rigSource);

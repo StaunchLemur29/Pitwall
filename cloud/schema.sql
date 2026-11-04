@@ -1,7 +1,8 @@
 -- Pitwall cloud schema (Supabase / Postgres).
 --
--- Run once in the Supabase dashboard: SQL Editor -> New query -> paste -> Run.
--- Safe to run again (everything is "if not exists" / "or replace").
+-- Applied automatically by .github/workflows/schema.yml when this file changes
+-- on main (or by hand: SQL Editor -> New query -> paste -> Run).
+-- Must stay safe to run again and again: "if not exists" / "or replace" only.
 --
 -- Every row belongs to a user (user_id = the signed-in account) and row-level
 -- security makes sure an account can only ever read or write its own rows.
@@ -66,6 +67,10 @@ create table if not exists public.debriefs (
   model       text not null,
   created_at  timestamptz not null default now()
 );
+
+-- One debrief per session (the rig uploads it, and may replace it).
+create unique index if not exists debriefs_session
+  on public.debriefs (user_id, game, car, track_key, session_start);
 
 -- Only your own rows, for every table.
 alter table public.laps enable row level security;

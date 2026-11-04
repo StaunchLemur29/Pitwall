@@ -124,8 +124,51 @@ Vercel. One-time setup:
 It redeploys by itself whenever `main` changes on GitHub. Run it locally with
 `npm run dev:hub` (in `dashboard`, with the two variables set).
 
-If Pitwall's Settings → Cloud ever says the tables are out of date, run
-`cloud/schema.sql` again in the SQL Editor (safe to repeat).
+**Database updates apply themselves.** When a change to `cloud/schema.sql`
+reaches `main`, a GitHub Action applies it to your Supabase database. One-time
+setup:
+
+1. In Supabase, click **Connect** (top of the project), choose **Session
+   pooler** and copy the URI. Put your database password in place of
+   `[YOUR-PASSWORD]` (forgotten it? **Project Settings → Database → Reset
+   database password**).
+2. On GitHub: the Pitwall repository → **Settings → Secrets and variables →
+   Actions → New repository secret**. Name `SUPABASE_DB_URL`, value the URI.
+3. **Actions → Apply database schema → Run workflow** once, to check it works.
+
+If Pitwall's Settings → Cloud ever says the tables are out of date, check
+that the Action ran (GitHub → Actions), or run it again from there.
+
+### AI debrief
+
+After a session with at least 3 clean laps, Claude writes a short
+race-engineer debrief: the one change worth the most time (where, what to do,
+a target), a couple of smaller notes, what's going well, and a section to
+drill. It shows in the analysis (PC and hub). Setup: create an API key at
+[console.anthropic.com](https://console.anthropic.com) (API Keys, and add some
+credit under Billing), then paste it into **Settings → AI**. It's checked,
+then kept on the PC only (`%APPDATA%\Pitwall\ai.json`). Each debrief costs
+roughly 10 cents. Turn automatic debriefs off in the same tab; the
+**Write debrief** button in the analysis still works.
+
+**Debriefs from the hub (PC off).** The hub can write one too, for your latest
+session on the car + track you're looking at. The key then also lives in
+Supabase as a hidden secret (never in the browser), and a GitHub Action puts
+it there. One-time setup, in GitHub under **Settings → Secrets and variables →
+Actions → New repository secret**:
+
+1. `SUPABASE_ACCESS_TOKEN`: make one at
+   [supabase.com/dashboard/account/tokens](https://supabase.com/dashboard/account/tokens)
+   (**Generate new token**).
+2. `ANTHROPIC_API_KEY`: the same key as on the PC.
+3. `PITWALL_EMAIL`: the email you sign in to the hub with. Only that account
+   can write debriefs, so nobody else can spend your credit.
+
+Then **Actions → Deploy hub function → Run workflow**. When it's green, the
+hub's analysis has a **Write debrief** button. It uses `SUPABASE_DB_URL` (from
+the database step above) to know which project; if it can't tell, it asks for
+a `SUPABASE_PROJECT_REF` secret. New key later? Update the secret and run the
+workflow again.
 
 ### Recording a session (helps development)
 
