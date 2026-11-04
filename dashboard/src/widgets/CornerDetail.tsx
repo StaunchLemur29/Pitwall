@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { delta } from "../lib/format";
 import { fitTrack, type Pt } from "../lib/geometry";
 import { profile, timeDelta, type Profile, type Trace } from "../lib/profile";
-import { startDrill } from "../lib/rig";
+import { practise } from "../lib/rig";
 import { GRADE_COLORS, type P } from "../lib/track";
 import type { CornerLap, Mastery, PracticeSection, TrackGeometry } from "../lib/types";
 import { useSize } from "./common";
@@ -85,7 +85,7 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
           </div>
         )}
         {section && (
-          <button className="btn btn--sm cd__drill" onClick={() => startDrill({ section: section.number })}>
+          <button className="btn btn--sm cd__drill" onClick={() => practise({ section: section.number }, section.name)}>
             Practise {section.name}
           </button>
         )}

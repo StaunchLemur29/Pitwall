@@ -160,7 +160,7 @@ Known gap: no free source of other drivers' telemetry exists for AC/EVO.
 - Pick a section: one corner, a dragged range on the map, or a named section from a pack.
 - Section gets its own timer, delta, all-time best; every pass is an attempt.
 - **Retry** (AC + CSP, offline): rewind mod if it can be triggered (keeps momentum), else teleport slightly before section start. **Retry is button-only by default**; auto-retry-after-mistake optional per drill.
-- **Pass targets** (e.g. 3 clean attempts within 0.3 s of best).
+- **No pass targets** (decided 2026-11-04, owner: resetting when a run isn't close enough "ignores the whole point of a drill"): every run counts and nothing resets. The card shows the last run against your best, the best, how many runs, and the recent runs as bars.
 - End-of-drill summary ("12 attempts, best −0.4 s, consistency ↑").
 
 ### Guides (structured, not just a clickable map)
@@ -204,7 +204,7 @@ Assists/realism guidance (what servers expect) lives inside the guides.
 - **Curated library** (Markdown, written once, reviewed): fundamentals, setup unlock tree, racecraft.
 - **AI follow-ups** for deeper questions.
 - Format: 1–3 min cards, never walls of text.
-- Gamification (streaks, corner greens, drills passed, car/track XP): light, on by default, can be turned off.
+- Gamification (streaks, corner greens, car/track XP): light, on by default, can be turned off.
 
 ### Voice
 Natural, informative race-engineer voice (not generic/obviously-AI). Pace notes rally-style. High-quality TTS **generated once and cached** for pace notes and lessons; Windows local TTS for instant live tips. 2–3 candidate voices to be auditioned.
@@ -238,7 +238,7 @@ Reads AC `cfg/*.ini`; writes only after one-click confirm, with automatic backup
   - Two possible routes:
     - **USB ("Native" mode)**: the wheel's screen and LEDs are driven through the wheelbase's USB link (Wi-Fi off). Games with Thrustmaster's SDK built in use this, and Thrustmaster's "SDK Test" PC app drives the screen this way, so a PC-side library exists. Preferred if it's usable by other apps (no Wi-Fi, no re-enabling after power-up), but no public documentation was found: research spike needed.
     - **Wi-Fi UDP** (known to work, fallback): in the F1 games' telemetry format (port 20777; F1 2020 or F1 23 format, chosen by firmware). Pitwall sends those packets itself, filling the fields with Pitwall data. Prior art: the community SimHub SF1000 UDP plugin feeds AC this way. On firmware v5 and older, UDP mode has to be switched on at the wheel after every power-up.
-  - What to show (configurable, no code): gear/speed/RPM lights as normal, plus Pitwall's own: live delta to your reference, brake-in countdown and next corner grade, drill timer/target and pass streak, lap/sector times vs best, ABS/TC/BB once the CSP app reports real levels, flags/pit limiter.
+  - What to show (configurable, no code): gear/speed/RPM lights as normal, plus Pitwall's own: live delta to your reference, brake-in countdown and next corner grade, drill timer, last run and best, lap/sector times vs best, ABS/TC/BB once the CSP app reports real levels, flags/pit limiter.
   - Constraint: the wheel's screen layouts are Thrustmaster's F1 pages, so "custom" means choosing which F1 field carries which Pitwall value (e.g. the delta field, lap times, ERS/DRS bars repurposed). First step is a research spike: map every field each SF1000 page actually displays, then design pages around that.
   - Settings tool: wheel IP, format (F1 2020 / F1 23), what goes on each page, a "test pattern" button.
 - **Home Assistant** (very last): flags, shift light, pit lane, PB flash via HA WebSocket API; each toggleable.

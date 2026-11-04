@@ -3,6 +3,7 @@ import { useRig } from "./lib/rig";
 import { Dashboard } from "./views/Dashboard";
 import { AnalysisPage } from "./views/AnalysisPage";
 import { Settings } from "./views/Settings";
+import { Toasts } from "./widgets/Toasts";
 
 function useHashRoute(): string {
   const [hash, setHash] = useState(location.hash);
@@ -20,7 +21,11 @@ export function App() {
   useEffect(() => {
     if (accent) document.documentElement.style.setProperty("--accent", accent);
   }, [accent]);
-  if (route.startsWith("/settings")) return <Settings />;
-  if (route.startsWith("/analysis")) return <AnalysisPage />;
-  return <Dashboard />;
+  const page = route.startsWith("/settings") ? <Settings /> : route.startsWith("/analysis") ? <AnalysisPage /> : <Dashboard />;
+  return (
+    <>
+      {page}
+      <Toasts />
+    </>
+  );
 }

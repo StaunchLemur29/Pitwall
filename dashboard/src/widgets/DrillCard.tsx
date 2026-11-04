@@ -1,5 +1,6 @@
 import { delta, lapTime } from "../lib/format";
 import { stopDrill, useRig } from "../lib/rig";
+import type { Attempt } from "../lib/types";
 import { Card } from "./common";
 
 /** Section times read better as plain seconds under a minute: "10.62". */
@@ -47,24 +48,44 @@ export function DrillCard() {
             {d.running ? d.elapsed_s.toFixed(1) : last ? secs(last.time_ms) : "drive to it"}
           </div>
           {last && !d.running && (
-            <div className={`drill__delta ${last.counted ? "good" : "bad"}`}>
-              {!last.clean ? "not clean" : last.delta_s === null ? "first run" : delta(last.delta_s)}
+            <div className={`drill__delta ${!last.clean ? "amber" : last.new_best ? "good" : "drill__delta--plain"}`}>
+              {!last.clean
+                ? "not clean"
+                : last.delta_s === null
+                  ? "first run"
+                  : last.new_best
+                    ? `new best ${delta(last.delta_s)}`
+                    : `${delta(last.delta_s)} to best`}
             </div>
           )}
         </div>
         <div className="drill__side">
           <div className="drill__best">best {d.best_ms ? secs(d.best_ms) : "—"}</div>
-          <div className="drill__streak" aria-label={`${d.streak} of ${d.pass_streak} in a row`}>
-            {Array.from({ length: d.pass_streak }, (_, i) => (
-              <span key={i} className={`sdot ${i < d.streak ? "sdot--on" : ""}`} />
-            ))}
-          </div>
+          {d.recent.length > 0 && <RecentRuns runs={d.recent} />}
           {retryMsg && <div className="drill__retry">{retryMsg}</div>}
-          <div className="drill__goal">
-            {d.passed ? "Passed ✓" : `${d.pass_streak} clean within ${d.pass_within_s}s of best`}
-          </div>
+          <div className="drill__goal">{d.attempts ? `${d.attempts} run${d.attempts === 1 ? "" : "s"}` : "drive through it"}</div>
         </div>
       </div>
     </Card>
+  );
+}
+
+/** Your last few runs as bars (taller = quicker), oldest first. Nothing ever resets. */
+function RecentRuns({ runs }: { runs: Attempt[] }) {
+  const clean = runs.filter((r) => r.clean).map((r) => r.time_ms);
+  const lo = clean.length ? Math.min(...clean) : 0;
+  const hi = clean.length ? Math.max(...clean) : 0;
+  const h = (r: Attempt) => (!r.clean || hi === lo ? 0.55 : 0.3 + (0.7 * (hi - r.time_ms)) / (hi - lo));
+  return (
+    <div className="druns" aria-label="Your recent runs">
+      {runs.map((r, i) => (
+        <span
+          key={i}
+          className={`druns__bar ${!r.clean ? "druns__bar--cut" : r.new_best ? "druns__bar--best" : ""}`}
+          style={{ height: `${Math.round(h(r) * 100)}%` }}
+          title={`${secs(r.time_ms)}${r.clean ? "" : " (not clean)"}`}
+        />
+      ))}
+    </div>
   );
 }
