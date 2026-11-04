@@ -122,3 +122,22 @@ async def test_cloud_connect_from_settings(config, store, tmp_path):
     finally:
         await client.close()
         supa.close()
+
+
+async def test_the_dashboard_page_is_never_cached(config, store, tmp_path):
+    """After a pull and restart, the browser must load the rebuilt dashboard."""
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<html>new</html>")
+    (tmp_path / "assets" / "index-abc123.js").write_text("// app")
+    hub = Hub()
+    rig = Rig(DemoAdapter(seed=1, start_in_pit_s=0.0), store, config, emit=hub.emit)
+    client = TestClient(TestServer(make_app(rig, hub, static_dir=tmp_path)))
+    await client.start_server()
+    try:
+        for path in ("/", "/analysis"):
+            r = await client.get(path)
+            assert r.status == 200 and r.headers["Cache-Control"] == "no-cache"
+        r = await client.get("/assets/index-abc123.js")
+        assert "immutable" in r.headers["Cache-Control"]
+    finally:
+        await client.close()
