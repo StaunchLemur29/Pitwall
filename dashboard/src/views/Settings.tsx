@@ -47,6 +47,9 @@ export function Settings() {
           ← Dashboard
         </a>
         <h1>Settings</h1>
+        <a href="#/tools" className="settings__back" title="Hardware checks: force feedback clipping, brake pedal">
+          Tools
+        </a>
         <div className="settings__actions">
           <FullscreenButton className="btn btn--ghost" />
           {saved && !dirty && <span className="ok">Saved</span>}

@@ -25,6 +25,7 @@ TRACE_CHANNELS = (
     "batt",  # battery charge 0..1 (0 for cars without one)
     "drs",  # 0 = closed / not available, 1 = available, 2 = open
     "off",  # wheels off the track (0..4): where you went off, for the lap review
+    "ffb",  # force feedback output (|AC finalFF|, 0..1): 1 = clipping
 )
 
 
@@ -123,6 +124,7 @@ class _LapBuffer:
         tr["batt"].append(round(f.battery, 3) if f.battery is not None else 0.0)
         tr["drs"].append(2 if f.drs_open else 1 if f.drs_available else 0)
         tr["off"].append(f.tyres_out)
+        tr["ffb"].append(round(min(1.0, abs(f.ffb)), 3) if f.ffb is not None else 0.0)
         if f.tyres_out > max_tyres_out:
             self.cuts.append(f.lap_progress)
         if f.sector != self.last_sector:

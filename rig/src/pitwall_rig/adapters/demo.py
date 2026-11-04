@@ -239,6 +239,8 @@ class DemoAdapter(GameAdapter):
             tc_active=gas > 0.9 and gear <= 2,
             tyre_pressure_psi=[27.4, 27.6, 26.9, 27.1],
             tyre_core_temp_c=[82, 84, 78, 79],
+            # force feedback grows with cornering load; tight, fast corners max it out
+            ffb=max(-1.0, min(1.0, k * 46 * self._v * 3.6 / 120)),
             tyres_out=3 if cutting else 0,
             lap=self._lap,
             lap_time_ms=int(self._lap_t * 1000),

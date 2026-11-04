@@ -2831,4 +2831,21 @@ select {
 
 .coach__why {
   color: var(--muted);
+
+/* -- tools (hardware checks) ------------------------------------------------ */
+.tools__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.tools__big {
+  font-size: 28px;
+  font-weight: 800;
+  margin: 4px 0 8px;
+}
+
+.tools__big .muted {
+  font-size: 15px;
+  font-weight: 500;
 }
