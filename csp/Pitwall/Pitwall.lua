@@ -20,7 +20,7 @@ local car = ac.getCar(0)
 
 local track = nil -- { version, length_m, corners = {...}, ref_speed = {...} }
 local drill = nil -- { key, name, start_p, end_p, run_up_p, teleport, run_up_kmh, run_up_gear }
-local settle = nil -- after a teleport: { pos, dir, speed, frames, flipped }, re-applied for a few frames
+local settle = nil -- after a plain teleport: { pos, dir, frames, flipped }, checked for a few frames
 local launch = nil -- { key, data } car state saved at the run-up point
 local connected = false
 local syncBusy, trackBusy = false, false
@@ -58,12 +58,17 @@ end
 -- -- drill teleport -------------------------------------------------------------
 -- Puts the car on the racing line (the track's AI spline) at the run-up point,
 -- pointing down the track, moving at the reference lap's speed in its gear.
+--
+-- AC has no call to change gear or speed directly, but a saved car state holds
+-- both. So while you drive, the app keeps a recent snapshot of the car in each
+-- gear (taken on straights, a few speeds per gear). A teleport takes the
+-- snapshot in the reference lap's gear nearest its speed, moves it to the
+-- run-up point and sets its velocity (CSP's shared/sim/cars helpers), then
+-- loads it. With no snapshot yet it falls back to a plain move, standing still.
+
+local carsUtils = require('shared/sim/cars')
 
 local function wrap01(x) return x - math.floor(x) end
-
-local function canTeleport()
-  return physics and physics.setCarPosition and ac.trackProgressToWorldCoordinate
-end
 
 local function lineAt(p)
   local len = track and track.length_m or sim.trackLengthM or 5000
@@ -74,34 +79,101 @@ local function lineAt(p)
   return pos, dir:normalize()
 end
 
-local function push(dir, speed)
-  if physics.setCarVelocity then physics.setCarVelocity(0, dir * speed) end
+-- snapshots: gear*100 + speed band -> { gear, kmh, vel, look, h, data, t }
+local snaps, snapCount = {}, 0
+local SNAP_EVERY_S, SNAP_BAND_KMH, SNAP_MAX = 1.0, 20, 48
+local SNAP_MAX_YAW = 0.03 -- rad/s: only on straights, so the car isn't rotating
+local snapAt, snapBusy, prevLook = 0, false, nil
+
+local function snapStep(dt)
+  local look = car.look:clone()
+  local yaw = math.huge
+  if prevLook and dt > 0 then yaw = math.acos(math.max(-1, math.min(1, look:dot(prevLook)))) / dt end
+  prevLook = look
+  local now = os.preciseClock()
+  if snapBusy or now < snapAt or car.gear < 1 or car.speedKmh < 30 or yaw > SNAP_MAX_YAW then return end
+  snapAt, snapBusy = now + SNAP_EVERY_S, true
+  local gear, kmh, vel = car.gear, car.speedKmh, car.velocity:clone()
+  -- how high the car sits above the racing line, to place it the same at the run-up
+  local h = car.position.y - ac.trackProgressToWorldCoordinate(car.splinePosition).y
+  ac.saveCarStateAsync(function (err, data)
+    snapBusy = false
+    if not data then return end
+    local key = gear * 100 + math.floor(kmh / SNAP_BAND_KMH)
+    if not snaps[key] then snapCount = snapCount + 1 end
+    snaps[key] = { gear = gear, kmh = kmh, vel = vel, look = look, h = math.max(0, math.min(2, h)), data = data, t = now }
+    while snapCount > SNAP_MAX do -- forget the oldest
+      local oldK, oldT = nil, math.huge
+      for k, v in pairs(snaps) do if v.t < oldT then oldK, oldT = k, v.t end end
+      snaps[oldK] = nil
+      snapCount = snapCount - 1
+    end
+  end)
+end
+
+-- The snapshot in `gear` nearest `kmh`; failing that, the nearest gear.
+local function pickSnap(gear, kmh)
+  local best, bestScore = nil, math.huge
+  for _, v in pairs(snaps) do
+    local score = math.abs(v.gear - gear) * 1000 + math.abs(v.kmh - kmh)
+    if score < bestScore then best, bestScore = v, score end
+  end
+  return best
+end
+
+local function teleportFromSnap(snap, pos, dir, speed)
+  local B = carsUtils.getCarStateTransform(snap.data)
+  if not B then return nil end
+  -- where the snapshot's car should end up: same orientation conventions as
+  -- the snapshot itself, so nothing depends on which way CSP's axes point
+  local fwd = B.look:dot(snap.look) >= 0 and dir or -dir
+  local up = vec3(0, 1, 0)
+  up = (up - dir * dir:dot(up)):normalize()
+  local hand = B.side:dot(B.look:clone():cross(B.up)) >= 0 and 1 or -1
+  local G = B:clone()
+  G.look:set(fwd)
+  G.up:set(up)
+  G.side:set(fwd:clone():cross(up):normalize() * hand)
+  G.position:set(pos + vec3(0, snap.h + 0.05, 0))
+  local data = carsUtils.alterCarStateVelocity(snap.data, -snap.vel) -- stop it first
+  data = data and carsUtils.alterCarStateTransform(data, B:inverse() * G)
+  data = data and carsUtils.alterCarStateVelocity(data, dir * speed)
+  if not data or not ac.loadCarState(data, 30) then return nil end
+  return data
 end
 
 local function teleport(d)
-  if not canTeleport() then return false, 'unsupported' end
+  if not ac.trackProgressToWorldCoordinate then return false, 'unsupported' end
   local pos, dir = lineAt(d.run_up_p)
   if not pos then return false, 'no_line' end
-  physics.setCarPosition(0, pos, dir)
-  local speed = math.max(0, tonumber(d.run_up_kmh) or 0) / 3.6
-  local gear = tonumber(d.run_up_gear)
-  if gear and gear >= 1 and physics.engageGear then physics.engageGear(0, gear) end
-  push(dir, speed)
-  -- the physics settles over the next frames: keep the speed, and if the car
-  -- came out facing backwards, turn it round
-  settle = { pos = pos, dir = dir, speed = speed, frames = 3, flipped = false }
+  local kmh, gear = tonumber(d.run_up_kmh) or 0, tonumber(d.run_up_gear) or 0
+  local snap = kmh > 20 and pickSnap(gear >= 1 and gear or 3, kmh)
+  if snap then
+    local data = teleportFromSnap(snap, pos, dir, kmh / 3.6)
+    if data then
+      launch = { key = d.key, data = data } -- the next retry just loads it again
+      lastSpline = nil
+      snapAt, prevLook = os.preciseClock() + 2, nil -- let it settle before the next snapshot
+      return true, nil, snap.gear
+    end
+  end
+  -- no snapshot yet: just move the car there (CSP's own apps pass the
+  -- direction reversed); turned round below if it comes out backwards
+  if not (physics and physics.setCarPosition) then return false, 'unsupported' end
+  physics.setCarPosition(0, pos, -dir)
+  settle = { pos = pos, dir = dir, frames = 3, flipped = false }
   lastSpline = nil
-  return true
+  snapAt, prevLook = os.preciseClock() + 2, nil
+  return true, nil, nil
 end
 
 local function settleStep()
   local st = settle
   if not st then return end
-  if not st.flipped and car.look and car.look:dot(st.dir) < 0 then
-    physics.setCarPosition(0, st.pos, -st.dir)
+  if not st.flipped and car.look:dot(st.dir) < 0 then
+    physics.setCarPosition(0, st.pos, st.dir)
     st.flipped = true
   end
-  push(st.dir, st.speed)
   st.frames = st.frames - 1
   if st.frames <= 0 then settle = nil end
 end
@@ -113,10 +185,10 @@ local function handle(cmd)
       events[#events + 1] = { type = 'retry', ok = false, reason = 'not_allowed' }
       say('Retry only works in offline practice')
     elseif not here then
-      local ok, why = false, 'no_state'
-      if drill and drill.key == cmd.key and drill.teleport then ok, why = teleport(drill) end
+      local ok, why, gear = false, 'no_state', nil
+      if drill and drill.key == cmd.key and drill.teleport then ok, why, gear = teleport(drill) end
       if ok then
-        events[#events + 1] = { type = 'retry', ok = true, method = 'teleport' }
+        events[#events + 1] = { type = 'retry', ok = true, method = 'teleport', gear = gear }
         say('Go!', 2)
       else
         events[#events + 1] = { type = 'retry', ok = false, reason = why }
@@ -249,6 +321,7 @@ function script.update(dt)
     lastSpline = nil
     return
   end
+  if ac.isCarResetAllowed() then snapStep(dt) end -- offline only, like the teleport itself
   local p = car.splinePosition
   if drill and lastSpline and car.speedKmh > 20 and crossed(lastSpline, p, drill.run_up_p) then
     local key = drill.key

@@ -268,13 +268,13 @@ Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
 
 ## 15b. Notes for later
 
-- **In-game CSP Lua app** (v0.1 built: `csp/Pitwall`, installed by start.bat; next corner + brake countdown overlay, instant drill retry via saved car state, drill teleport to the run-up (`physics.setCarPosition` + reference speed and gear) until a state is saved, real ABS/TC/BB. Still to do: in-game drill timer, coaching tips in game). Original plan: zero-latency overlays (brake countdown, next corner, drill), real ABS/TC levels (`car.absMode`, `car.tractionControlMode`), its own rewind using `ac.saveCarStateAsync` / `ac.loadCarState` (same approach as Time Shift), talking to the rig over `web.get/post`.
+- **In-game CSP Lua app** (v0.1 built: `csp/Pitwall`, installed by start.bat; next corner + brake countdown overlay, instant drill retry via saved car state, drill teleport to the run-up until a state is saved (a per-gear car-state snapshot moved there with `shared/sim/cars` `alterCarStateTransform` / `alterCarStateVelocity`, at the reference speed and gear; `physics.setCarPosition` from a standstill before any snapshot exists), real ABS/TC/BB. Still to do: in-game drill timer, coaching tips in game). Original plan: zero-latency overlays (brake countdown, next corner, drill), real ABS/TC levels (`car.absMode`, `car.tractionControlMode`), its own rewind using `ac.saveCarStateAsync` / `ac.loadCarState` (same approach as Time Shift), talking to the rig over `web.get/post`.
 - A deeper AC/CSP **mod** is also an option if an app can't do something.
 - Second-screen smoothness depends on GPU headroom: capping AC's frame rate leaves room for Chrome.
 
 ## 16. Open items
 
-- **Drill teleport** (owner request, 2026-11-03): built. Retry teleports to the run-up with `physics.setCarPosition` at the reference lap's speed and gear until the app has saved a state there; on the drill / retry buttons. Still to do: one-click "teleport to section N" from the dashboard's practice list, and confirm in game how CSP handles the direction, velocity and gear calls.
+- **Drill teleport** (owner request, 2026-11-03): built. Retry teleports to the run-up with `physics.setCarPosition` at the reference lap's speed and gear until the app has saved a state there; on the drill / retry buttons. Run-up default raised to 8 s (owner: 4 s was too close). Gear and speed come from per-gear car-state snapshots: CSP's apps have no confirmed call to set gear or velocity directly. Still to do: one-click "teleport to section N" from the dashboard's practice list.
 
 - **Rewind mod**: name and whether it can be triggered from a CSP Lua app / externally. Affects only phase 1 retry implementation; teleport is the fallback.
 - **AC EVO fields**: confirm BB/ABS/TC levels and tyre pressures exist before building EVO electronics features.

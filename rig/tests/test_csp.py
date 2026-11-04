@@ -92,8 +92,9 @@ def test_retry_teleports_until_the_app_has_a_saved_state(demo, clock, config, st
     assert rig.start_retry() and rig._retry.get("csp")
     cmds = rig.csp_sync({"reset_allowed": True, "has_launch": False})["commands"]
     assert cmds == [{"cmd": "retry", "key": drill["key"]}]
-    rig.csp_sync({"reset_allowed": True, "events": [{"type": "retry", "ok": True, "method": "teleport"}]})
+    rig.csp_sync({"reset_allowed": True, "events": [{"type": "retry", "ok": True, "method": "teleport", "gear": 4}]})
     assert [e["state"] for e in events if e["type"] == "retry"] == ["rewinding", "teleported"]
+    assert [e for e in events if e["type"] == "retry"][-1]["gear"] == 4  # the gear it landed in, for the dashboard
     assert rig._retry is None
 
 

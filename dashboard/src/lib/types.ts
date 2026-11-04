@@ -387,5 +387,5 @@ export type ServerEvent =
   | ({ type: "corners" } & CornerReport)
   | { type: "drill"; drill: Drill | null }
   | { type: "shutdown" }
-  | { type: "retry"; state: "rewinding" | "ready" | "teleported" | "no_rewind" | "timeout" | "stopped" }
+  | { type: "retry"; state: "rewinding" | "ready" | "teleported" | "no_rewind" | "timeout" | "stopped"; gear?: number | null }
   | { type: "attempt"; attempt: Attempt & { start_p: number; end_p: number } };

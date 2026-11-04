@@ -61,7 +61,7 @@ DEFAULTS: dict[str, Any] = {
     # teleport: until the in-game app has saved the car at the run-up point,
     # a retry teleports you there instead (at your reference lap's speed and
     # gear when there is one), rather than rewinding with Time Shift.
-    "drills": {"lead_in_s": 4, "teleport": True},
+    "drills": {"lead_in_s": 8, "teleport": True},
     # The in-game overlay (CSP app): what it shows as a braking point approaches.
     "overlay": {
         "show_turn": True,  # rally-style: direction + how sharp (R3) and the gear

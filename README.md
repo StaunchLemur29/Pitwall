@@ -61,7 +61,7 @@ to change page, `Ctrl+Alt+M` to mark a spot), even while the game has focus.
 Bind the same key in CSP's **Time Shift** app as **Settings → Controls → Time
 Shift rewind key** (default `Insert`). The **Rewind** button then rewinds while
 held. During a drill, one press rewinds to a run-up before the section
-(**Drill run-up**, 4 s by default). Time Shift only works offline, in
+(**Drill run-up**, 8 s by default). Time Shift only works offline, in
 single-car practice.
 
 ### In-game app (CSP)
@@ -78,8 +78,10 @@ bar (the Pitwall icon). It adds:
   the fallback).
 - **Drill teleport.** Before the app has saved the run-up (say you start a
   drill on the other side of the track), Rewind teleports you to the run-up
-  point on the racing line, moving at your reference lap's speed in its gear
-  (from a standstill if you haven't set a lap yet). Turn it off under
+  point on the racing line, moving at your reference lap's speed in its gear.
+  To do that the app keeps a snapshot of the car in each gear as you drive
+  (on straights, offline only). Until it has one, or before you've set a lap,
+  you arrive standing still. Turn it off under
   **Settings → Controls → Teleport to the run-up** to use Time Shift instead.
 - **Real ABS / TC levels and brake bias** on the dashboard instead of ON/OFF.
 

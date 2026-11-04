@@ -31,7 +31,7 @@ export function DrillCard() {
       ? {
           rewinding: "Rewinding to the start…",
           ready: "Ready — go!",
-          teleported: "Teleported to the run-up — go!",
+          teleported: retry.gear ? `Teleported to the run-up in gear ${retry.gear} — go!` : "Teleported to the run-up — go!",
           no_rewind: "Time Shift didn't rewind — check its key matches Settings → Controls",
           timeout: "Rewind took too long — stopped",
           stopped: "",

@@ -751,8 +751,11 @@ class Rig:
         for e in self.csp.sync(body):
             if e.get("type") == "retry" and self._retry is not None and self._retry.get("csp"):
                 self._retry = None
-                if e.get("ok"):
-                    self.emit({"type": "retry", "state": "teleported" if e.get("method") == "teleport" else "ready"})
+                if e.get("ok") and e.get("method") == "teleport":
+                    gear = e.get("gear")
+                    self.emit({"type": "retry", "state": "teleported", "gear": gear if isinstance(gear, int) else None})
+                elif e.get("ok"):
+                    self.emit({"type": "retry", "state": "ready"})
                 else:
                     self._retry_with_time_shift()  # e.g. no saved state yet
         if not was:

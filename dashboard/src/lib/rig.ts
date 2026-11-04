@@ -35,7 +35,7 @@ export interface RigState {
   refTrace: Record<string, number[]> | null;
   lastAttempt: (Attempt & { at: number }) | null;
   stopped: boolean;
-  retry: { state: string; at: number } | null;
+  retry: { state: string; gear: number | null; at: number } | null;
   carSystems: string[];
   notice: { text: string; at: number } | null;
 }
@@ -178,7 +178,7 @@ class RigStore {
       case "drill":
         break;
       case "retry":
-        this.set({ retry: { state: e.state, at: Date.now() } });
+        this.set({ retry: { state: e.state, gear: e.gear ?? null, at: Date.now() } });
         break;
       case "shutdown":
         this.set({ stopped: true });
