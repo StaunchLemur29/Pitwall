@@ -369,6 +369,13 @@ function General({ draft, edit }: EditProps) {
       <Field label="Show the braking point" hint="A countdown bar that turns into BRAKE at the point. Adjusts to how fast you're arriving.">
         <input type="checkbox" checked={draft.overlay.show_brake} onChange={(e) => edit((c) => (c.overlay.show_brake = e.target.checked))} />
       </Field>
+      <Field label="Show the drill timer" hint="During a drill: your run's time counting up, and the time to beat; at the end, how you did.">
+        <input
+          type="checkbox"
+          checked={draft.overlay.show_drill !== false}
+          onChange={(e) => edit((c) => (c.overlay.show_drill = e.target.checked))}
+        />
+      </Field>
       <Field label="Appear this far before braking (m)">
         <input
           type="number"

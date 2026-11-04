@@ -272,6 +272,27 @@ def main() -> int:
     check("retry loaded the saved state", state["loaded"] == 1)
     check("car back at the run-up point", abs(g.car.splinePosition - run_up) < 0.002,
           f"{g.car.splinePosition} vs {run_up}")
+    # The drill timer in the overlay: counts through the section, then shows the result.
+    tick(2)
+    status, body = http("POST", RIG + "/api/csp/sync", json.dumps({}))
+    drill = json.loads(body)["drill"]
+    seen_running = seen_target = seen_result = False
+    p = (drill["start_p"] - 0.01) % 1.0
+    end = drill["end_p"] if drill["end_p"] > drill["start_p"] else drill["end_p"] + 1.0
+    while p < end + 0.01:
+        g.car.splinePosition = p % 1.0
+        g.car.speedKmh = 150
+        script.update(1 / 60)
+        state["texts"].clear()
+        script.windowMain(1 / 60)
+        texts = list(state["texts"])
+        seen_running |= any(t.replace(".", "", 1).isdigit() and "." in t and len(t) <= 5 for t in texts)
+        seen_target |= any(t.startswith(("to beat ", "best ")) for t in texts)
+        seen_result |= any(t.startswith(("+", "-", "beat it", "new best")) for t in texts)
+        p += 0.0005
+    check("in-game drill timer counts through the section", seen_running)
+    check("... with the time to beat (or your best) beside it", seen_target, str(drill)[:200])
+    check("... and shows the result at the end", seen_result)
     http("DELETE", RIG + "/api/drill")
 
     print("ALL PASS" if ok else "SOME CHECKS FAILED")

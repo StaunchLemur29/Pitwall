@@ -24,6 +24,8 @@ local track = nil -- { version, length_m, corners = {...}, ref_speed = {...} }
 local drill = nil -- { key, name, start_p, end_p, run_up_p }
 local launch = nil -- { key, data } car state saved at the run-up point
 local settle = nil -- just teleported: { pos, dir, frames, flipped, tyreTemp }
+local run = nil -- the drill run you're on: { key, elapsed } (game time, so pauses don't count)
+local runResult = nil -- the run just finished: { time, target, isBest, untilT }
 local connected = false
 local syncBusy, trackBusy = false, false
 local trackVersion = -1
@@ -140,6 +142,7 @@ local function handle(cmd)
       events[#events + 1] = { type = 'retry', ok = false, reason = 'no_state' }
     elseif ac.loadCarState(launch.data, 30) then
       lastSpline = nil
+      run = nil -- back before the section: a fresh run
       events[#events + 1] = { type = 'retry', ok = true }
       say('Go!', 2)
     else
@@ -182,6 +185,7 @@ local function sync()
       settings = {
         showTurn = o.show_turn ~= false, showTurnName = o.show_turn_name ~= false,
         showBrake = o.show_brake ~= false, showFromM = tonumber(o.show_from_m) or 250,
+        showDrill = o.show_drill ~= false,
       }
     end
     if launch and (not drill or launch.key ~= drill.key) then launch = nil end
@@ -266,6 +270,22 @@ function script.update(dt)
     return
   end
   local p = car.splinePosition
+  -- the drill timer: start at the section start, stop at its end; a jump
+  -- backwards (rewind, retry) or a different drill cancels the run
+  if run and (not drill or drill.key ~= run.key) then run = nil end
+  if drill and lastSpline then
+    local back = wrap(lastSpline - p)
+    if run and back > 0.002 and back < 0.5 then
+      run = nil
+    elseif crossed(lastSpline, p, drill.start_p) then
+      run = { key = drill.key, elapsed = 0 }
+    elseif run and crossed(lastSpline, p, drill.end_p) then
+      runResult = { time = run.elapsed, target = drill.target_ms and drill.target_ms / 1000 or nil,
+                    isBest = drill.target_is_best, untilT = os.preciseClock() + 4 }
+      run = nil
+    end
+  end
+  if run then run.elapsed = run.elapsed + dt end
   if drill and lastSpline and car.speedKmh > 20 and crossed(lastSpline, p, drill.run_up_p) then
     local key = drill.key
     ac.saveCarStateAsync(function (err, data)
@@ -284,12 +304,13 @@ end
 
 -- What to show is set in Pitwall's Settings (General > In-game overlay) and
 -- arrives with each sync; these are the defaults until then.
-settings = settings or { showTurn = true, showTurnName = true, showBrake = true, showFromM = 250 }
+settings = settings or { showTurn = true, showTurnName = true, showBrake = true, showFromM = 250, showDrill = true }
 local preview = false -- settings: sample content, to position the window
 
 local WHITE = rgbm(0.933, 0.941, 0.953, 1) -- dashboard --text
 local DIM = rgbm(0.62, 0.66, 0.71, 1)
 local RED = rgbm(1, 0.322, 0.322, 1) -- dashboard --bad
+local GREEN = rgbm(0.24, 0.863, 0.518, 1) -- dashboard --good
 local PANEL = rgbm(0.03, 0.035, 0.045, 0.72)
 local alpha = 0
 local held = { c = nil, b = nil } -- last thing shown, kept while fading out
@@ -320,6 +341,8 @@ local function text(str, font, size, x, y, w, h, align, colour)
   ui.popDWriteFont()
 end
 
+local drawCard, drawDrill -- below
+
 function script.windowMain(dt)
   local W = ui.windowWidth()
   local now = os.preciseClock()
@@ -339,8 +362,42 @@ function script.windowMain(dt)
   end
   if show then held.c, held.b = c, b end
   alpha = math.max(0, math.min(1, alpha + (show and 8 or -4) * dt))
-  if alpha <= 0 or not held.c or not (settings.showBrake or settings.showTurn) then return end
-  c, b = held.c, held.b
+  local cardH = 0
+  if alpha > 0 and held.c and (settings.showBrake or settings.showTurn) then
+    cardH = drawCard(W, now, held.c, held.b) + 8
+  end
+  if settings.showDrill ~= false and drill and (run or (runResult and now < runResult.untilT)) then
+    drawDrill(W, cardH + 1)
+  end
+end
+
+-- During a drill: the run's time (counting) and the target; then the result for a moment.
+drawDrill = function (W, y)
+  local PW, H = 200, 40
+  local x0 = (W - PW) / 2
+  ui.drawRectFilled(vec2(x0, y), vec2(x0 + PW, y + H), CARD, 8)
+  ui.drawRect(vec2(x0, y), vec2(x0 + PW, y + H), EDGE, 8)
+  if run then
+    text(string.format('%.1f', run.elapsed), FONT_HEAVY, 22, x0 + 14, y, 80, H, ui.Alignment.Start, WHITE)
+    if drill.target_ms then
+      local what = drill.target_is_best and 'best ' or 'to beat '
+      text(what .. string.format('%.2f', drill.target_ms / 1000), FONT_BOLD, 13, x0 + 80, y, PW - 94, H,
+        ui.Alignment.End, MUTED)
+    end
+  else
+    local r = runResult
+    text(string.format('%.2f', r.time), FONT_HEAVY, 22, x0 + 14, y, 90, H, ui.Alignment.Start, WHITE)
+    if r.target then
+      local d = r.time - r.target
+      local label = (d <= 0 and (r.isBest and 'new best ' or 'beat it ') or '') .. string.format('%+.2f', d)
+      text(label, FONT_BOLD, 15, x0 + 90, y, PW - 104, H, ui.Alignment.End, d <= 0 and GREEN or MUTED)
+    end
+  end
+end
+
+-- The braking card. Returns its height.
+drawCard = function (W, now, c, b)
+  local alpha = alpha
 
   -- card
   local PW, PAD = 200, 16
@@ -383,6 +440,7 @@ function script.windowMain(dt)
         fade(close and RED or MUTED, alpha))
     end
   end
+  return H
 end
 
 function script.windowSettings(dt)
