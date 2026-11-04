@@ -26,6 +26,7 @@ export function LapTimes() {
           <Stat label="Last" value={lapTime(f?.last_lap_ms || lastLap?.lap.lap_time_ms)} tone={flash ? (flash.newBest ? "best" : flash.lap.valid ? "" : "bad") : ""} />
           <Stat label="Best" value={lapTime(live.ref_lap_ms)} />
           <Stat label="Optimal" value={lapTime(live.theoretical_best_ms)} />
+          <Stat label="To beat" value={lapTime(live.time_to_beat_ms)} tone="target" />
         </div>
         {flash && (
           <div className={`laps__flash ${flash.newBest ? "laps__flash--best" : ""}`}>

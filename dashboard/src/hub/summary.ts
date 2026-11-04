@@ -104,5 +104,24 @@ export function sessionSummary(
     })),
     battery_and_drs: rep.systems?.notes ?? [],
     car_has: rep.car_systems ?? [],
+    time_to_beat: summaryTargets(rep, modelCorners),
+  };
+}
+
+/** The time to beat, condensed for the debrief (rig.py _summary_targets). */
+function summaryTargets(rep: CornerReport, modelCorners: Map<number, { label: string }>): Record<string, unknown> | null {
+  const tb = rep.time_to_beat;
+  if (!tb) return null;
+  const top = [...tb.corners].sort((a, b) => b.gain_s - a.gain_s).slice(0, 4);
+  return {
+    lap: fmtMs(tb.lap_ms),
+    usual_lap: fmtMs(tb.usual_lap_ms),
+    corners: top.map((c) => ({
+      corner: modelCorners.get(c.corner)?.label ?? `Corner ${c.corner}`,
+      to_beat_s: c.target_s,
+      usual_s: c.usual_s,
+      why: c.why,
+    })),
+    practice_sections: rep.practice.filter((ps) => ps.to_beat_s).map((ps) => ({ name: ps.name, to_beat_s: ps.to_beat_s })),
   };
 }

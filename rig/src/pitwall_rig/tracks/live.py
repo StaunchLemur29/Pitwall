@@ -33,6 +33,7 @@ class Drill:
 class DrillState:
     drill: Drill
     best_ms: int | None = None  # best clean attempt ever (or from your best lap)
+    target_ms: int | None = None  # time to beat through it (a stretch from your usual)
     attempts: int = 0  # runs through the section this drill, never reset
     running: bool = False
     elapsed_s: float = 0.0
@@ -44,6 +45,7 @@ class DrillState:
         d = asdict(self.drill)
         d.update(
             best_ms=self.best_ms,
+            target_ms=self.target_ms,
             attempts=self.attempts,
             running=self.running,
             elapsed_s=round(self.elapsed_s, 2),
@@ -216,10 +218,10 @@ class TrackState:
 
     # -- drills ---------------------------------------------------------------
 
-    def start_drill(self, drill: Drill, best_ms: int | None) -> None:
+    def start_drill(self, drill: Drill, best_ms: int | None, target_ms: int | None = None) -> None:
         ref = self.ref_section_ms(drill)
         candidates = [b for b in (best_ms, ref) if b]
-        self.drill = DrillState(drill, best_ms=min(candidates) if candidates else None)
+        self.drill = DrillState(drill, best_ms=min(candidates) if candidates else None, target_ms=target_ms)
 
     def stop_drill(self) -> None:
         self.drill = None
@@ -261,7 +263,9 @@ class TrackState:
         new_best = st.clean and (prev_best is None or time_ms < prev_best)
         if new_best:
             st.best_ms = time_ms
-        st.last = {"time_ms": time_ms, "clean": st.clean, "delta_s": delta, "new_best": new_best}
+        st.last = {"time_ms": time_ms, "clean": st.clean, "delta_s": delta, "new_best": new_best,
+                   # against the time to beat (negative: beaten)
+                   "vs_target_s": (time_ms - st.target_ms) / 1000 if st.target_ms else None}
         st.history.append(st.last)
         attempt = {**st.last, "start_p": st.drill.start_p, "end_p": st.drill.end_p}
         self.on_attempt(attempt)

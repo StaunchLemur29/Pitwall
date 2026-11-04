@@ -123,6 +123,8 @@ export interface PracticeSection {
   time_s?: number | null;
   ref_s?: number | null;
   drill_best_s?: number | null;
+  /** time to beat through this section (a stretch from your usual) */
+  to_beat_s?: number | null;
 }
 
 export interface Chapter {
@@ -149,6 +151,8 @@ export interface Drill {
   end_p: number;
   corner: number | null;
   best_ms: number | null;
+  /** time to beat through it: a realistic stretch from your usual */
+  target_ms?: number | null;
   /** runs through the section in this drill (never resets) */
   attempts: number;
   running: boolean;
@@ -163,6 +167,8 @@ export interface Attempt {
   /** vs your best before this run */
   delta_s: number | null;
   new_best: boolean;
+  /** against the time to beat (negative: beaten) */
+  vs_target_s?: number | null;
 }
 
 export interface TrackLive {
@@ -214,6 +220,27 @@ export interface CornerLap {
   opt?: OptimalCorner;
   /** what you did differently from the optimal run, biggest first */
   opt_notes?: string[];
+  /** this corner's time to beat */
+  to_beat_s?: number | null;
+}
+
+/** A realistic stretch target for one corner. */
+export interface CornerToBeat {
+  corner: number;
+  target_s: number;
+  usual_s: number;
+  best_s: number;
+  gain_s: number;
+  why: string;
+}
+
+/** Time to beat: your usual lap, minus what each corner's target asks of you. */
+export interface TimeToBeat {
+  lap_ms: number;
+  usual_lap_ms: number;
+  corners: CornerToBeat[];
+  /** practice sections (as uploaded for the hub) */
+  sections?: { number: number; to_beat_s: number | null }[];
 }
 
 export interface OptimalCorner {
@@ -261,6 +288,8 @@ export interface CornerReport {
   track_key: string | null;
   live: boolean;
   theoretical_best_ms: number | null;
+  /** a realistic stretch target for the lap and each corner (3+ clean laps) */
+  time_to_beat?: TimeToBeat | null;
   /** The optimal line driven at this car's grip (learnt from your fastest laps); rig only. */
   optimal?: { lap_s: number; laps_used: number; grip: Record<string, number> } | null;
   /** Battery and DRS use on this lap (cars that have them). */
@@ -392,6 +421,7 @@ export interface Live {
   delta_s: number | null;
   ref_lap_ms: number | null;
   theoretical_best_ms: number | null;
+  time_to_beat_ms?: number | null;
   driving_s: number;
   track: TrackLive | null;
 }

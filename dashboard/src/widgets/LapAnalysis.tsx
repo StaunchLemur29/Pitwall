@@ -186,6 +186,12 @@ export function LapAnalysis({
           <div className="muted">best sectors combined</div>
         </div>
       ) : null}
+      {report?.time_to_beat ? (
+        <div className="lsum__stat" title="A realistic stretch target: your usual lap, minus what each corner's target asks of you">
+          <div className="lsum__big lsum__tb">{lapTime(report.time_to_beat.lap_ms)}</div>
+          <div className="muted">time to beat</div>
+        </div>
+      ) : null}
       {optLap !== null ? (
         <div className="lsum__stat" title={optTitle(report?.optimal)}>
           <div className="lsum__big lsum__opt">{lapTime(Math.round(optLap * 1000))}</div>
@@ -394,7 +400,13 @@ export function LapAnalysis({
                 </button>
               )}
             </div>
-            {ps.drill_best_s ? <div className="psec__sub">best drill run {ps.drill_best_s.toFixed(2)}s</div> : null}
+            {ps.drill_best_s || ps.to_beat_s ? (
+              <div className="psec__sub">
+                {[ps.to_beat_s ? `to beat ${ps.to_beat_s.toFixed(2)}s` : "", ps.drill_best_s ? `best drill run ${ps.drill_best_s.toFixed(2)}s` : ""]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </div>
+            ) : null}
             <div className="psec__corners">{ps.corners.map((num) => chip(num))}</div>
           </div>
         );

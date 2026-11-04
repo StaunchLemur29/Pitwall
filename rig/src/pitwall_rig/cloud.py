@@ -270,6 +270,7 @@ class CloudSync:
             "sector_ms": info["sector_ms"],
             "corners": extras.get("corners") or self.store.latest_lap_corners(lap_id),
             "systems": extras.get("systems"),
+            "time_to_beat": extras.get("time_to_beat"),
             "review": extras.get("review"),
             "trace": downsample(trace, TRACE_HZ) if trace else None,
         }

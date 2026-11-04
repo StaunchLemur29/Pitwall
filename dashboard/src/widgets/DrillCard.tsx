@@ -27,6 +27,10 @@ export function DrillCard() {
     );
   }
   const last = d.last;
+  // The time to beat only means something while it's quicker than your best run.
+  const target = d.target_ms && (!d.best_ms || d.target_ms < d.best_ms) ? d.target_ms : null;
+  const vsTarget = target && last ? (last.time_ms - target) / 1000 : null;
+  const beat = !!last && last.clean && vsTarget !== null && vsTarget <= 0;
   const retryMsg =
     retry && Date.now() - retry.at < 5000
       ? {
@@ -48,18 +52,23 @@ export function DrillCard() {
             {d.running ? d.elapsed_s.toFixed(1) : last ? secs(last.time_ms) : "drive to it"}
           </div>
           {last && !d.running && (
-            <div className={`drill__delta ${!last.clean ? "amber" : last.new_best ? "good" : "drill__delta--plain"}`}>
+            <div className={`drill__delta ${!last.clean ? "amber" : beat || last.new_best ? "good" : "drill__delta--plain"}`}>
               {!last.clean
                 ? "not clean"
-                : last.delta_s === null
-                  ? "first run"
-                  : last.new_best
-                    ? `new best ${delta(last.delta_s)}`
-                    : `${delta(last.delta_s)} to best`}
+                : vsTarget !== null
+                  ? beat
+                    ? `beat it by ${Math.abs(vsTarget).toFixed(2)}${last.new_best ? " · new best" : ""}`
+                    : `${delta(vsTarget)} to beat${last.new_best ? " · new best" : ""}`
+                  : last.delta_s === null
+                    ? "first run"
+                    : last.new_best
+                      ? `new best ${delta(last.delta_s)}`
+                      : `${delta(last.delta_s)} to best`}
             </div>
           )}
         </div>
         <div className="drill__side">
+          {target ? <div className="drill__target">to beat {secs(target)}</div> : null}
           <div className="drill__best">best {d.best_ms ? secs(d.best_ms) : "—"}</div>
           {d.recent.length > 0 && <RecentRuns runs={d.recent} />}
           {retryMsg && <div className="drill__retry">{retryMsg}</div>}

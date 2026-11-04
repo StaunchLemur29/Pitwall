@@ -376,6 +376,42 @@ def analyse_systems(trace: dict[str, list[float]], model: TrackModel, profile: d
     return out
 
 
+# -- time to beat ------------------------------------------------------------------
+
+# How far from your usual towards your best (or the optimal run) a target asks
+# for, by how consistent you are there: all over the place, be consistent first.
+_STRETCH = {"red": 0.35, "amber": 0.5, "green": 0.6}
+PAST_BEST_S = 0.15  # the most a corner's target asks beyond your best ever
+
+
+def time_to_beat(mastery: dict[int, dict[str, Any]], optimal_rows: dict[int, dict[str, Any]] | None = None
+                 ) -> dict[int, dict[str, Any]]:
+    """A realistic stretch target for each corner: part of the way from your
+    usual time (the median of recent clean laps) towards your best ever, or,
+    where you're already consistent and near it, towards the optimal run, never
+    more than PAST_BEST_S beyond your best. Corners with fewer than 3 laps are
+    left out."""
+    out: dict[int, dict[str, Any]] = {}
+    for num, m in mastery.items():
+        if m.get("laps", 0) < 3 or m.get("grade") not in _STRETCH:
+            continue
+        usual, best, spread = m["median_s"], m["best_s"], m.get("spread_s") or 0.0
+        opt = (optimal_rows or {}).get(num, {}).get("time_s")
+        ceiling = min(best, opt) if opt is not None else best
+        k = _STRETCH[m["grade"]]
+        target = max(usual - k * (usual - ceiling), best - PAST_BEST_S)
+        target = min(target, usual)
+        if m["grade"] == "red":
+            why = f"Be consistent first: your times here vary by ±{spread:.2f} s."
+        elif target < best - 0.005:
+            why = "You're consistent here: push past your best, towards the optimal run."
+        else:
+            why = "Part of the way from your usual to your best."
+        out[num] = {"corner": num, "target_s": round(target, 2), "usual_s": round(usual, 2), "best_s": round(best, 2),
+                    "gain_s": round(usual - target, 2), "why": why}
+    return out
+
+
 # -- the good and the bad of one lap ---------------------------------------------
 
 _TYPICAL_KEYS = ("time_s", "min_speed_kmh", "exit_kmh", "entry_kmh", "brake_m", "throttle_m", "coast_s")

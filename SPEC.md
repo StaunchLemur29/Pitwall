@@ -134,7 +134,7 @@ Post-session race-engineer debrief: explains *why*, answers follow-up questions,
 Selectable / combinable:
 - Own best lap (**default delta**)
 - Theoretical best (best sectors)
-- AI time to beat (**default in drills**)
+- **Time to beat** (done, 2026-11-04; **shown in drills**): a realistic stretch target per corner, worked out (no API call): part of the way from your usual (median of your last 10 clean laps) towards your best ever, or towards the optimal run where you're already consistent; less of a stretch where you're inconsistent ("be consistent first"); at most 0.15 s past your best per corner. The lap's time to beat is your usual lap minus those gains, never more than 0.3 % under your best lap; sections and drills get theirs from your usual time through them. Shown on the side screen (lap card, drill card while it's quicker than your best run), in the analysis (lap, corner, section) and the hub (uploaded with each lap), and given to the AI debrief for its targets.
 - Online lap times as *targets* (via RSR / SRS / CM leaderboards — times only, no telemetry), labelled elite / average / your level
 - Imported laps (own older laps, friend's file, exports from paid tools where permitted)
 - AC AI line (for line drawing on the map)

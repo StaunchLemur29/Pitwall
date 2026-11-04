@@ -35,6 +35,7 @@ interface LapRow {
   sector_ms: number[];
   corners?: HubLap["corners"];
   systems?: HubLap["systems"];
+  time_to_beat?: HubLap["time_to_beat"];
   review?: HubLap["review"];
 }
 
@@ -49,7 +50,7 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     if (!lapsByCombo.has(k)) {
       lapsByCombo.set(k, all<LapRow>((a, b) =>
         sb.from("laps")
-          .select("id,game,car,track_key,lap_number,lap_time_ms,valid,out_lap,rewound,started_at,sector_ms,corners,systems,review")
+          .select("id,game,car,track_key,lap_number,lap_time_ms,valid,out_lap,rewound,started_at,sector_ms,corners,systems,review,time_to_beat")
           .eq("game", c.game).eq("car", c.car).eq("track_key", c.track_key)
           .order("started_at", { ascending: false }).range(a, b)));
     }
@@ -81,7 +82,7 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
   const hubLaps = async (c: Combo): Promise<HubLap[]> =>
     (await comboLaps(c)).map((r) => ({
       id: r.id, lap_number: r.lap_number, lap_time_ms: r.lap_time_ms, valid: r.valid, out_lap: r.out_lap, rewound: !!r.rewound,
-      started_at: unix(r.started_at), sector_ms: r.sector_ms, corners: r.corners ?? null, systems: r.systems ?? null, review: r.review ?? null,
+      started_at: unix(r.started_at), sector_ms: r.sector_ms, corners: r.corners ?? null, systems: r.systems ?? null, review: r.review ?? null, time_to_beat: r.time_to_beat ?? null,
     }));
   const report = async (combo: Combo, lapId: number | null, compareId: number | null): Promise<CornerReport> => {
     const [laps, geo, profile] = await Promise.all([hubLaps(combo), trackGeometry(combo), carProfile(combo)]);

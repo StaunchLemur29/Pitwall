@@ -84,6 +84,12 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
             </div>
           </div>
         )}
+        {mine.to_beat_s != null && (
+          <div title="A realistic stretch from your usual time through here">
+            <div className={`cd__big cd__tb ${mine.time_s <= mine.to_beat_s ? "good" : ""}`}>{mine.to_beat_s.toFixed(2)}s</div>
+            <div className="muted">to beat{mine.time_s <= mine.to_beat_s ? " · beaten" : ""}</div>
+          </div>
+        )}
         {section && (
           <button className="btn btn--sm cd__drill" onClick={() => practise({ section: section.number }, section.name)}>
             Practise {section.name}

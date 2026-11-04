@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import statistics
 import threading
 import time
 from collections.abc import Callable
@@ -18,12 +19,14 @@ from .laps import LapRecorder
 from .models import Frame, GameStatus, Lap, Mode, SessionInfo, mode_for
 from .reference import ReferenceLap, downsample
 from .analysis import (
+    LapView,
     analyse_lap,
     analyse_systems,
     compare_notes,
     corner_mastery,
     lap_review,
     line_vs_optimal,
+    time_to_beat,
     width_advice,
 )
 from .optimal_run import lap_time, learn_grip, simulate
@@ -52,6 +55,8 @@ class AnalysisCtx:
 # The optimal run learns the car's grip from this many of your fastest laps.
 OPT_LAPS = 8
 # What each corner row carries about the optimal run (also uploaded to the hub).
+TTB_LAPS = 10  # the time to beat starts from your usual over this many recent clean laps
+TTB_PAST_BEST = 0.003  # the lap's time to beat asks at most 0.3 % beyond your best lap
 OPT_KEYS = ("time_s", "brake_m", "entry_kmh", "peak_brake", "min_speed_kmh", "throttle_m", "exit_kmh")
 
 
@@ -88,6 +93,8 @@ class Rig:
         self.session: SessionInfo | None = None
         self._ctx_cache: dict[tuple[str, str, str], AnalysisCtx] = {}
         self._opt_runs: dict[tuple[str, str, str], dict[str, Any]] = {}  # optimal run per car + track
+        self._ttb: dict[tuple[str, str, str], dict[str, Any]] = {}  # time to beat per car + track (cached)
+        self.time_to_beat_ms: int | None = None  # the live car + track's lap time to beat
         self._cue_mode: str | None = None  # the brake-cue setting last applied
         self._opt_busy: set[tuple[str, str, str]] = set()
         self._ac_tracks = None  # track loader for past AC tracks when another adapter is running
@@ -414,7 +421,12 @@ class Rig:
         if not rep.get("lap"):
             return None
         corners = [{k: v for k, v in c.items() if k not in ("vs_s", "notes")} for c in rep["lap"]]
-        return {"corners": corners, "systems": rep.get("systems"), "review": rep.get("review")}
+        tb = rep.get("time_to_beat")
+        if tb:  # as it stands after this lap, with the practice sections' targets
+            tb = {**tb, "sections": [{"number": ps["number"], "to_beat_s": ps.get("to_beat_s")}
+                                     for ps in rep.get("practice", [])]}
+        return {"corners": corners, "systems": rep.get("systems"), "time_to_beat": tb,
+                "review": rep.get("review")}
 
     SESSION_GAP_S = 3600  # laps more than an hour apart belong to different sessions
 
@@ -491,6 +503,8 @@ class Rig:
             ],
             "battery_and_drs": (rep.get("systems") or {}).get("notes", []),
             "car_has": rep.get("car_systems", []),
+            # Realistic stretch targets (your usual, part of the way to your best or the optimal run).
+            "time_to_beat": _summary_targets(rep, model_corners),
         }
 
     def combos(self) -> list[dict[str, Any]]:
@@ -601,7 +615,13 @@ class Rig:
                                    if i != lap_id) if d][:30]
             review = lap_review(lap, history, lap_trace, track.model, self.config["laps"]["max_tyres_out"])
         secs = self.store.best_sectors(ctx.game, ctx.track_key, ctx.car)
+        tb = self._time_to_beat(ctx)
+        if lap and tb:
+            targets = {c["corner"]: c["target_s"] for c in tb["corners"]}
+            for data in lap:
+                data["to_beat_s"] = targets.get(data["corner"])
         return {
+            "time_to_beat": tb,
             "game": ctx.game,
             "car": ctx.car,
             "track_key": ctx.track_key,
@@ -628,7 +648,6 @@ class Rig:
         """Each pack chapter with this lap's time through it and your reference lap's."""
         if not ctx.track.model.chapters:
             return []
-        from .analysis import LapView
 
         def span(view: LapView | None, a: float, b: float) -> float | None:
             if not view:
@@ -651,7 +670,6 @@ class Rig:
     def _practice_times(self, lap_id: int | None, ctx: AnalysisCtx) -> list[dict[str, Any]]:
         """Each practice section with this lap's time, your best lap's, and your
         best clean drill attempt."""
-        from .analysis import LapView
 
         lap_trace = self.store.trace(lap_id) if lap_id is not None else None
         view = LapView(lap_trace) if lap_trace else None
@@ -667,6 +685,8 @@ class Rig:
             d["ref_s"] = span(ref, ps.start, ps.end)
             best = self.store.best_section_ms(ctx.game, ctx.car, ctx.track_key, ps.start, ps.end)
             d["drill_best_s"] = best / 1000 if best else None
+            stretch = self._span_to_beat(ctx, ps.start, ps.end)
+            d["to_beat_s"] = stretch["to_beat_s"] if stretch else None
             out.append(d)
         return out
 
@@ -774,7 +794,61 @@ class Rig:
     def _emit_corners(self, lap_id: int | None) -> None:
         if self.track is not None:
             self.track.mastery = self._mastery()
+            tb = self._time_to_beat(self._live_ctx())
+            self.time_to_beat_ms = tb["lap_ms"] if tb else None
         self.emit({"type": "corners", **self.corner_report(lap_id)})
+
+    # -- time to beat ---------------------------------------------------------------
+
+    def _time_to_beat(self, ctx: AnalysisCtx | None) -> dict[str, Any] | None:
+        """A realistic stretch target for the lap and each corner (see
+        analysis.time_to_beat): your usual lap, minus what each corner's target
+        asks of you. None until there are 3 clean laps."""
+        if ctx is None:
+            return None
+        key = (ctx.game, ctx.car, ctx.track_key)
+        ids = self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=TTB_LAPS)
+        run = self._opt_runs.get(key)
+        rows = run.get("rows") if run else None
+        sig = (tuple(ids), id(rows), self._model_sig(ctx.track))
+        known = self._ttb.get(key)
+        if known is not None and known["sig"] == sig:
+            return known["tb"]
+        tb = None
+        laps = [lap for lap in (self.store.lap(i) for i in ids) if lap and not lap.get("rewound")]
+        if len(laps) >= 3:
+            mastery = ctx.track.mastery or self._mastery(ctx)
+            corners = time_to_beat(mastery, rows)
+            usual = statistics.median(lap["lap_time_ms"] for lap in laps)
+            gain_ms = sum(c["gain_s"] for c in corners.values()) * 1000
+            # Every corner at its stretch at once adds up to more than one lap
+            # realistically gives: never ask for much more than your best lap.
+            best = self.store.best_lap(ctx.game, ctx.track_key, ctx.car)
+            floor = best["lap_time_ms"] * (1 - TTB_PAST_BEST) if best else 0
+            tb = {"lap_ms": round(min(usual, max(usual - gain_ms, floor))), "usual_lap_ms": round(usual),
+                  "corners": sorted(corners.values(), key=lambda c: c["corner"])}
+        self._ttb[key] = {"sig": sig, "tb": tb, "ids": ids, "views": None}
+        return tb
+
+    def _span_to_beat(self, ctx: AnalysisCtx | None, start_p: float, end_p: float) -> dict[str, float] | None:
+        """Time to beat for a stretch of track (a drill, a practice section):
+        your usual time through it over recent clean laps, minus what the
+        corners in it ask of you. Seconds; None without enough laps."""
+        tb = self._time_to_beat(ctx)
+        if tb is None or ctx is None or not end_p > start_p:
+            return None
+        known = self._ttb[(ctx.game, ctx.car, ctx.track_key)]
+        if known["views"] is None:
+            known["views"] = [LapView(t) for t in (self.store.trace(i) for i in known["ids"]) if t]
+        spans = [v.time_at(end_p) - v.time_at(start_p) for v in known["views"] if v]
+        spans = [s for s in spans if s > 0]
+        if len(spans) < 3:
+            return None
+        usual = statistics.median(spans)
+        corners = {c.number: c for c in ctx.track.model.corners}
+        gain = sum(c["gain_s"] for c in tb["corners"]
+                   if c["corner"] in corners and start_p <= corners[c["corner"]].apex <= end_p)
+        return {"usual_s": round(usual, 3), "to_beat_s": round(usual - gain, 3)}
 
     # -- drills -----------------------------------------------------------------
 
@@ -785,7 +859,8 @@ class Rig:
             return False
         drill = Drill(name=name, start_p=start_p % 1.0, end_p=end_p % 1.0, corner=corner)
         best = self.store.best_section_ms(s.game, s.car, s.track_key, drill.start_p, drill.end_p)
-        self.track.start_drill(drill, best)
+        span = self._span_to_beat(self._live_ctx(), drill.start_p, drill.end_p)
+        self.track.start_drill(drill, best, int(span["to_beat_s"] * 1000) if span else None)
         self.emit({"type": "drill", "drill": self.track.drill.to_wire() if self.track.drill else None})
         return True
 
@@ -993,6 +1068,7 @@ class Rig:
             "delta_s": self.delta_s,
             "ref_lap_ms": self.reference.lap_time_ms if self.reference else None,
             "theoretical_best_ms": self.theoretical_best_ms,
+            "time_to_beat_ms": self.time_to_beat_ms,
             "driving_s": round(self.driving_s, 1),
             "track": self.track_live,
         }
@@ -1099,6 +1175,23 @@ class Rig:
         self.config.update(data)
         self.emit({"type": "bound", "action": action, "binding": ev.as_binding()})
         self.emit({"type": "config", "config": self.config.data})
+
+
+def _summary_targets(rep: dict[str, Any], model_corners: dict[int, Any]) -> dict[str, Any] | None:
+    """The time to beat, condensed for the debrief: the lap, the corners with
+    the most to gain, and the practice sections."""
+    tb = rep.get("time_to_beat")
+    if not tb:
+        return None
+    top = sorted(tb["corners"], key=lambda c: -c["gain_s"])[:4]
+    return {
+        "lap": fmt_ms(tb["lap_ms"]),
+        "usual_lap": fmt_ms(tb["usual_lap_ms"]),
+        "corners": [{"corner": model_corners[c["corner"]].label if c["corner"] in model_corners else f"Corner {c['corner']}",
+                     "to_beat_s": c["target_s"], "usual_s": c["usual_s"], "why": c["why"]} for c in top],
+        "practice_sections": [{"name": ps["name"], "to_beat_s": ps.get("to_beat_s")}
+                              for ps in rep.get("practice", []) if ps.get("to_beat_s")],
+    }
 
 
 def fmt_ms(ms: int) -> str:

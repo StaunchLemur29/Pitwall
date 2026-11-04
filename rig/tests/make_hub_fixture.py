@@ -36,6 +36,7 @@ def main() -> None:
     fastest = store.fastest_valid_lap_ids(s.game, s.track_key, s.car, limit=1)[0]
     store._db.execute("UPDATE laps SET rewound=1 WHERE id=?", (fastest,))
     rig._load_reference()
+    rig._optimal_run(rig._live_ctx(), wait=True)  # settle it now, so every lap sees the same targets
     sync = CloudSync(store, tmp, geometry_for=rig.track_geometry, extras_for=rig.cloud_extras)
     sync.settings["rig_id"] = "fixture"
     rows = []
@@ -44,7 +45,7 @@ def main() -> None:
         rows.append({
             "id": info["id"], "lap_number": r["lap_number"], "lap_time_ms": r["lap_time_ms"], "valid": r["valid"], "out_lap": r["out_lap"], "rewound": r["rewound"],
             "started_at": info["started_at"], "sector_ms": r["sector_ms"], "corners": r["corners"],
-            "systems": r["systems"], "review": r["review"],
+            "systems": r["systems"], "time_to_beat": r["time_to_beat"], "review": r["review"],
             "trace": {"t": r["trace"]["t"], "p": r["trace"]["p"]} if r["trace"] else None,
         })
     valid = [r["id"] for r in rows if r["valid"]]
