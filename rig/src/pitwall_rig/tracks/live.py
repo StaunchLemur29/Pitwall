@@ -108,6 +108,10 @@ class TrackState:
         self.max_tyres_out = max_tyres_out
         self.ref_corners: dict[int, dict[str, Any]] = {}
         self.ref_view: LapView | None = None
+        # The brake cue's target: the optimal run when there is one (set_target),
+        # else your best lap. Gears always come from your best lap.
+        self.cue_corners: dict[int, dict[str, Any]] = {}
+        self.cue_view: LapView | None = None
         self.mastery: dict[int, dict[str, Any]] = {}
         self.drill: DrillState | None = None
         self._hint: int | None = None
@@ -128,6 +132,20 @@ class TrackState:
             return
         self.ref_view = LapView(trace)
         self.ref_corners = {c["corner"]: c for c in analyse_lap(trace, self.model)}
+
+    def set_target(self, trace: dict[str, list[float]] | None, rows: dict[int, dict[str, Any]] | None = None) -> None:
+        """Aim the brake cue at this run (the optimal run), or back at your best lap (None)."""
+        if not trace:
+            self.cue_corners, self.cue_view = {}, None
+            return
+        self.cue_view = LapView(trace)
+        self.cue_corners = rows if rows is not None else {c["corner"]: c for c in analyse_lap(trace, self.model)}
+
+    def cue(self) -> tuple[dict[int, dict[str, Any]], LapView | None]:
+        """Corners and lap the brake cue counts down to."""
+        if self.cue_corners and self.cue_view is not None:
+            return self.cue_corners, self.cue_view
+        return self.ref_corners, self.ref_view
 
     def ref_section_ms(self, d: Drill) -> int | None:
         v = self.ref_view
@@ -280,23 +298,25 @@ class TrackState:
         if nxt is not None:
             c, dist = nxt
             ref = self.ref_corners.get(c.number, {})
+            cue_corners, cue_view = self.cue()
+            cue = cue_corners.get(c.number, {})
             brake_in = None
-            if ref.get("brake_p") is not None:
+            if cue.get("brake_p") is not None:
                 # Signed: positive before the braking point, negative after it.
                 # Just past it (up to BRAKE_HOLD_M, and before the apex) it's
                 # "brake now", so the cue holds at the moment that matters
                 # instead of vanishing.
-                ahead = (((ref["brake_p"] - p) + 0.5) % 1.0 - 0.5) * m.length_m
+                ahead = (((cue["brake_p"] - p) + 0.5) % 1.0 - 0.5) * m.length_m
                 to_apex = (((c.apex - p) + 0.5) % 1.0 - 0.5) * m.length_m
                 if -BRAKE_HOLD_M <= ahead <= dist + 400 and to_apex > 0:
-                    brake_in = ahead - self._speed_shift(c.number, ref, p, f.speed_kmh)
+                    brake_in = ahead - self._speed_shift(c.number, cue, p, f.speed_kmh, cue_view)
             mast = self.mastery.get(c.number, {})
             out["corner"] = {
                 **c.to_dict(),
                 "distance_m": round(dist),
                 "brake_in_m": round(brake_in) if brake_in is not None else None,
-                "gear": ref.get("apex_gear"),
-                "apex_kmh": ref.get("min_speed_kmh"),
+                "gear": ref.get("apex_gear") or cue.get("apex_gear") or None,
+                "apex_kmh": cue.get("min_speed_kmh", ref.get("min_speed_kmh")),
                 "grade_mastery": mast.get("grade"),
             }
         attempt = self._drill_step(f, p, dt, self._jumps.step(f))
@@ -308,19 +328,21 @@ class TrackState:
         self._prev_lap = (f.lap, f.lap_time_ms)
         return out
 
-    def _speed_shift(self, corner: int, ref: dict[str, Any], p: float, speed_kmh: float) -> float:
-        """How much earlier (+) or later (-) to brake than on your reference lap,
-        given how fast you're arriving.
+    def _speed_shift(self, corner: int, ref: dict[str, Any], p: float, speed_kmh: float,
+                     v: LapView | None = None) -> float:
+        """How much earlier (+) or later (-) to brake than the target run (``ref``
+        and its lap ``v``: the optimal run, or your best lap), given how fast
+        you're arriving.
 
-        Takes the reference lap's braking (from its speed at the brake point
-        down to its slowest point, over the distance it used) as how hard the
-        car can brake, then works out the distance your speed needs. Your speed
-        at the braking point is predicted as the reference's plus the gap you
-        have to it right now, so it settles as you get closer.
+        Takes the target's braking (from its speed at the brake point down to
+        its slowest point, over the distance it used) as how hard the car can
+        brake, then works out the distance your speed needs. Your speed at the
+        braking point is predicted as the target's plus the gap you have to it
+        right now, so it settles as you get closer.
         """
         if self._shift_corner != corner:
             self._shift_corner, self._shift = corner, 0.0
-        v = self.ref_view
+        v = v if v is not None else self.ref_view
         ve, vmin, bp, mp = ref.get("entry_kmh"), ref.get("min_speed_kmh"), ref.get("brake_p"), ref.get("min_speed_p")
         if not v or ve is None or vmin is None or bp is None or mp is None or ve - vmin < 15:
             return self._shift

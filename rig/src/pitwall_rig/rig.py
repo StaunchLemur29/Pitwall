@@ -94,6 +94,7 @@ class Rig:
         self._opt_runs: dict[tuple[str, str, str], dict[str, Any]] = {}  # optimal run per car + track
         self._ttb: dict[tuple[str, str, str], dict[str, Any]] = {}  # time to beat per car + track (cached)
         self.time_to_beat_ms: int | None = None  # the live car + track's lap time to beat
+        self._cue_mode: str | None = None  # the brake-cue setting last applied
         self._opt_busy: set[tuple[str, str, str]] = set()
         self._ac_tracks = None  # track loader for past AC tracks when another adapter is running
         self.mode: Mode = Mode.IDLE
@@ -141,6 +142,9 @@ class Rig:
             self.tick_ms.append((time.perf_counter() - t_start) * 1000)
 
     def _tick(self) -> None:
+        if self.track is not None and self.config["coach"]["brake_cue"] != self._cue_mode:
+            with self.lock:
+                self._apply_target()  # the setting changed
         now = self._clock()
         frame = self.adapter.poll()
         session = self.adapter.session() if frame is not None else None
@@ -288,6 +292,7 @@ class Rig:
                 if tr:
                     self._analyse(lap_id, tr)
         self.track.mastery = self._mastery()
+        self._apply_target(touch=False)
         self.csp.touch()
         self.emit({"type": "track", "track": model.geometry(compute_optimal=False)})
         self._emit_corners(None)
@@ -724,7 +729,22 @@ class Rig:
             self._opt_runs[key] = run
             s = self.session
             if live and self.track is not None and s is not None and (s.game, s.car, s.track_key) == key:
+                self._apply_target()
                 self._emit_corners(None)
+
+    def _apply_target(self, touch: bool = True) -> None:
+        """Point the brake cue at the optimal run (if it's worked out and the
+        setting says so), else at your best lap."""
+        if self.track is None:
+            return
+        mode = self.config["coach"]["brake_cue"]
+        self._cue_mode = mode
+        s = self.session
+        run = self._opt_runs.get((s.game, s.car, s.track_key)) if s is not None and mode == "optimal" else None
+        tr = run.get("trace") if run else None
+        self.track.set_target(tr, run.get("rows") if tr and run else None)
+        if touch:
+            self.csp.touch()  # the in-game app fetches the new braking points
 
     def _work_out_run(self, model: TrackModel, ids: list[int], sig: tuple) -> dict[str, Any]:
         run: dict[str, Any] = {"sig": sig}
@@ -988,17 +1008,18 @@ class Rig:
             return None
         m = self.track.model
         ref = self.track.ref_corners
+        cue_corners, v = self.track.cue()  # the optimal run, or your best lap
         corners = []
         for c in m.corners:
-            r = ref.get(c.number, {})
+            r, t = ref.get(c.number, {}), cue_corners.get(c.number, {})
             corners.append({
                 "n": c.number, "label": c.label, "dir": c.direction, "grade": c.grade,
                 "entry": c.entry, "apex": c.apex, "exit": c.exit,
-                "brake_p": r.get("brake_p"), "entry_kmh": r.get("entry_kmh"),
-                "min_kmh": r.get("min_speed_kmh"), "min_p": r.get("min_speed_p"), "gear": r.get("apex_gear"),
+                "brake_p": t.get("brake_p"), "entry_kmh": t.get("entry_kmh"),
+                "min_kmh": t.get("min_speed_kmh"), "min_p": t.get("min_speed_p"),
+                "gear": r.get("apex_gear") or t.get("apex_gear") or None,
             })
-        # The reference lap's speed every 1/1000th of the lap, for the speed-adjusted brake point.
-        v = self.track.ref_view
+        # The target's speed every 1/1000th of the lap, for the speed-adjusted brake point.
         speed = [round(v.trace["speed"][v.at(i / 1000)], 1) for i in range(1000)] if v else []
         return {"version": self.csp.version, "length_m": m.length_m, "corners": corners, "ref_speed": speed}
 
