@@ -3,6 +3,7 @@ import { useRig } from "./lib/rig";
 import { Dashboard } from "./views/Dashboard";
 import { AnalysisPage } from "./views/AnalysisPage";
 import { Settings } from "./views/Settings";
+import { useFullscreenKey } from "./widgets/Fullscreen";
 import { Toasts } from "./widgets/Toasts";
 
 function useHashRoute(): string {
@@ -17,6 +18,7 @@ function useHashRoute(): string {
 
 export function App() {
   const route = useHashRoute();
+  useFullscreenKey();
   const accent = useRig((s) => s.config?.display.accent);
   useEffect(() => {
     if (accent) document.documentElement.style.setProperty("--accent", accent);

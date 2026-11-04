@@ -9,11 +9,13 @@ import { SourceContext } from "../lib/source";
 import { LapAnalysis } from "../widgets/LapAnalysis";
 import { Progress } from "./Progress";
 import { hubSource } from "./source";
+import { FullscreenButton, useFullscreenKey } from "../widgets/Fullscreen";
 
 const URL_ = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
 export function HubApp() {
+  useFullscreenKey();
   const sb = useMemo(() => (URL_ && KEY ? createClient(URL_, KEY) : null), []);
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   useEffect(() => {
@@ -49,7 +51,10 @@ function Shell({ children, title, left, right }: { children: React.ReactNode; ti
           {left}
         </span>
         <span className="hub__title">{title}</span>
-        <span className="hub__right">{right}</span>
+        <span className="hub__right">
+          {right}
+          <FullscreenButton />
+        </span>
       </header>
       {children}
     </div>
