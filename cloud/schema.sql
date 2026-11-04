@@ -30,6 +30,7 @@ create table if not exists public.laps (
 );
 -- Added after the first version: safe to run on an existing project.
 alter table public.laps add column if not exists systems jsonb;  -- battery & DRS on the lap
+alter table public.laps add column if not exists review jsonb;  -- the lap's good and bad (worked out on the PC)
 alter table public.laps add column if not exists rewound boolean not null default false;  -- used a rewind: never a best lap
 
 create index if not exists laps_combo on public.laps (user_id, game, track_key, car, lap_time_ms);
