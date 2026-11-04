@@ -89,6 +89,7 @@ export function LapAnalysis({
     onShowing?.(report?.car && report.track_key ? { car: report.car, track_key: report.track_key } : null);
   }, [report?.car, report?.track_key]); // eslint-disable-line react-hooks/exhaustive-deps
   const canDrill = src.live && !active; // drills run on the car + track you're driving
+  const canTeleport = useRig((s) => !!s.live.can_teleport); // the in-game app can take you there
   const pickCombo = (key: string) => {
     const c = combos.find((x) => comboKey(x) === key) ?? null;
     setCombo(c && !c.live ? c : null);
@@ -266,6 +267,15 @@ export function LapAnalysis({
                   <span className="chap__name">{ch.name}</span>
                   <span className="crow__time">{ch.time_s != null ? `${ch.time_s.toFixed(1)}s` : ""}</span>
                   <span className={`crow__loss ${vsClass(d)}`} title="vs your best lap">{d !== null ? delta(d) : ""}</span>
+                  {canDrill && canTeleport && (
+                    <button
+                      className="btn btn--sm btn--ghost"
+                      title="Start the drill and teleport there, stopped, far enough back to be up to speed"
+                      onClick={() => startDrill({ chapter: ch.number, teleport: true })}
+                    >
+                      Go there
+                    </button>
+                  )}
                   {canDrill && (
                     <button className="btn btn--sm btn--ghost" onClick={() => startDrill({ chapter: ch.number })}>
                       Practise
@@ -296,6 +306,15 @@ export function LapAnalysis({
               <span className={`crow__loss ${vsClass(d)}`} title="vs your best lap">
                 {d !== null ? delta(d) : ""}
               </span>
+              {canDrill && canTeleport && (
+                <button
+                  className="btn btn--sm btn--ghost"
+                  title="Start the drill and teleport there, stopped, far enough back to be up to speed"
+                  onClick={() => startDrill({ section: ps.number, teleport: true })}
+                >
+                  Go there
+                </button>
+              )}
               {canDrill && (
                 <button className="btn btn--sm" onClick={() => startDrill({ section: ps.number })}>
                   Practise

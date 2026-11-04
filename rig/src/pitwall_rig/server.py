@@ -338,6 +338,10 @@ async def post_drill(request: web.Request) -> web.Response:
         return web.json_response({"errors": ["Give a corner number or start_p/end_p"]}, status=400)
     if not ok:
         return web.json_response({"errors": ["No track loaded yet — start a session first"]}, status=409)
+    if body.get("teleport") and not rig.teleport_to_drill():
+        return web.json_response(
+            {"ok": True, "errors": ["Teleport needs the in-game app, in offline practice — drive there instead"]}
+        )
     return web.json_response({"ok": True})
 
 

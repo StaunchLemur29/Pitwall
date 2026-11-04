@@ -302,7 +302,7 @@ export type Binding =
 export interface Config {
   game: "ac" | "demo" | "replay";
   games: { ac: { install_dir: string; rewind_key: string } };
-  drills: { lead_in_s: number; teleport: boolean };
+  drills: { lead_in_s: number };
   overlay: { show_turn: boolean; show_turn_name: boolean; show_brake: boolean; show_from_m: number };
   server: { host: string; port: number };
   rates: { poll_hz: number; broadcast_hz: number };
@@ -347,6 +347,8 @@ export interface Live {
   pos_age_ms?: number | null;
   /** Real ABS / TC levels and brake bias from the in-game CSP app (null without it). */
   electronics?: Electronics | null;
+  /** The in-game app can teleport the car to a drill (it's running, offline practice). */
+  can_teleport?: boolean;
   delta_s: number | null;
   ref_lap_ms: number | null;
   theoretical_best_ms: number | null;
@@ -387,5 +389,8 @@ export type ServerEvent =
   | ({ type: "corners" } & CornerReport)
   | { type: "drill"; drill: Drill | null }
   | { type: "shutdown" }
-  | { type: "retry"; state: "rewinding" | "ready" | "teleported" | "no_rewind" | "timeout" | "stopped"; gear?: number | null }
+  | {
+      type: "retry";
+      state: "rewinding" | "ready" | "no_rewind" | "timeout" | "stopped" | "teleporting" | "teleported" | "no_teleport";
+    }
   | { type: "attempt"; attempt: Attempt & { start_p: number; end_p: number } };

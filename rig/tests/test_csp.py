@@ -78,45 +78,32 @@ def test_app_installs_and_updates(tmp_path):
     assert install_app(root) == "updated"
 
 
-def test_retry_teleports_until_the_app_has_a_saved_state(demo, clock, config, store):
+
+def test_go_to_a_drill_teleports_once_then_retries_rewind(demo, clock, config, store):
     events = []
     rig = Rig(demo, store, config, emit=events.append, clock=clock)
     drive(rig, clock)
     assert rig.drill_corner(1)
-    drill = rig.csp_sync({"reset_allowed": True})["drill"]
-    # Teleport details: on by default, with the reference lap's speed and gear at the run-up point.
-    assert drill["teleport"] is True
-    assert drill["run_up_kmh"] > 20 and drill["run_up_gear"] >= 1
-
-    # No saved state yet: the app is still asked, and teleports.
-    assert rig.start_retry() and rig._retry.get("csp")
-    cmds = rig.csp_sync({"reset_allowed": True, "has_launch": False})["commands"]
-    assert cmds == [{"cmd": "retry", "key": drill["key"]}]
-    rig.csp_sync({"reset_allowed": True, "events": [{"type": "retry", "ok": True, "method": "teleport", "gear": 4}]})
-    assert [e["state"] for e in events if e["type"] == "retry"] == ["rewinding", "teleported"]
-    assert [e for e in events if e["type"] == "retry"][-1]["gear"] == 4  # the gear it landed in, for the dashboard
-    assert rig._retry is None
-
-
-def test_teleport_off_uses_time_shift_until_there_is_a_saved_state(demo, clock, config, store):
-    config.data["drills"]["teleport"] = False
-    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
-    drive(rig, clock)
-    assert rig.drill_corner(1)
-    assert rig.csp_sync({"reset_allowed": True})["drill"]["teleport"] is False
-    held = []
-    rig.keys.down = lambda key: held.append(key) or True
-    assert rig.start_retry() and not rig._retry.get("csp")
-    assert held == ["insert"] and rig.csp_sync({"reset_allowed": True})["commands"] == []
-
-
-def test_failed_teleport_falls_back_to_time_shift(demo, clock, config, store):
-    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
-    drive(rig, clock)
-    assert rig.drill_corner(1)
+    assert not rig.teleport_to_drill()  # no in-game app yet
+    assert rig.live()["can_teleport"] is False
     rig.csp_sync({"reset_allowed": True})
+    assert rig.live()["can_teleport"] is True
+
+    assert rig.teleport_to_drill()
+    (cmd,) = rig.csp_sync({"reset_allowed": True})["commands"]
+    d = rig.track.drill.drill
+    length = rig.track.model.length_m
+    back_m = ((d.start_p - cmd["p"]) % 1.0) * length
+    run_up_m = rig.track.lead_in_m(d, config["drills"]["lead_in_s"])
+    assert cmd["cmd"] == "teleport" and cmd["key"] == rig._drill_key()
+    # Parked before the Time Shift run-up, far enough back to be up to speed by the section.
+    assert back_m >= run_up_m + rig.TELEPORT_EXTRA_M - 0.01
+    assert back_m >= rig.track.standing_start_m(d) - 1
+    rig.csp_sync({"reset_allowed": True, "events": [{"type": "teleport", "ok": True}]})
+    assert [e["state"] for e in events if e["type"] == "retry"] == ["teleporting", "teleported"]
+
+    # Retrying is the rewind as before, not another teleport.
     held = []
     rig.keys.down = lambda key: held.append(key) or True
     assert rig.start_retry()
-    rig.csp_sync({"reset_allowed": True, "events": [{"type": "retry", "ok": False, "reason": "unsupported"}]})
-    assert held == ["insert"] and rig._retry is not None and not rig._retry.get("csp")
+    assert held == ["insert"] and rig.csp_sync({"reset_allowed": True})["commands"] == []

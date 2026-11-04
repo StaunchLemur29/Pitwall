@@ -3,9 +3,8 @@
 A development check: it fakes just enough of CSP (car state, web requests,
 UI text, saving/loading car state) to drive a pretend car round the track and
 confirm the app connects, loads the track, shows the next corner and brake
-countdown, teleports to a drill's run-up (from a gear snapshot, and the plain
-fallback), saves the run-up state and performs a retry from it. The fake CSP
-is in fake_csp.lua.
+countdown, teleports to a drill (stopped, before the section), saves the drill
+run-up and performs a retry.
 
     uv run --with lupa python csp/harness.py      # with `pitwall-rig run --game demo` running
 """
@@ -21,7 +20,6 @@ from lupa import luajit21 as lj
 
 RIG = "http://127.0.0.1:8765"
 APP = Path(__file__).parent / "Pitwall" / "Pitwall.lua"
-FAKE = Path(__file__).parent / "fake_csp.lua"  # just enough of CSP
 
 
 def http(method: str, url: str, body: str | None = None) -> tuple[int, str]:
@@ -53,8 +51,46 @@ def main() -> int:
             return lua.table_from([to_lua(x) for x in v])
         return v
 
-    state = {"texts": [], "intervals": [], "sync": {}}
-    lua.execute(FAKE.read_text(encoding="utf-8"))
+    state = {"texts": [], "saved": 0, "loaded": 0, "intervals": [], "now": 0.0}
+    lua.execute("""
+      car = { splinePosition = 0, speedKmh = 180, absMode = 3, absModes = 12,
+              tractionControlMode = 2, tractionControlModes = 8, brakeBias = 0.57,
+              mgukDelivery = 1, mgukDeliveryCount = 4, mgukRecovery = 5, kersPresent = true,
+              currentEngineBrakeSetting = 2, engineBrakeSettingsCount = 5 }
+      sim = { isReplayActive = false, isPaused = false }
+      jumped = {}
+      ac = {
+        getSim = function () return sim end,
+        getCar = function () return car end,
+        isCarResetAllowed = function () return true end,
+        onCarJumped = function (i, fn) jumped[#jumped + 1] = fn end,
+        -- a pretend track: progress p is x = p * 1000 m along a straight line
+        trackProgressToWorldCoordinate = function (p) return vec3(p * 1000, 0, 0) end,
+      }
+      vec2 = function (x, y) return { x = x, y = y } end
+      local V = {}
+      V.__index = V
+      vec3 = function (x, y, z) return setmetatable({ x = x, y = y, z = z }, V) end
+      V.__sub = function (a, b) return vec3(a.x - b.x, a.y - b.y, a.z - b.z) end
+      V.__unm = function (a) return vec3(-a.x, -a.y, -a.z) end
+      function V:length() return math.sqrt(self.x ^ 2 + self.y ^ 2 + self.z ^ 2) end
+      function V:normalize() local l = self:length(); return vec3(self.x / l, self.y / l, self.z / l) end
+      function V:dot(b) return self.x * b.x + self.y * b.y + self.z * b.z end
+      teleports = {}
+      car.look = vec3(1, 0, 0)
+      physics = {
+        setCarPosition = function (i, pos, dir)
+          teleports[#teleports + 1] = { pos = pos, dir = dir }
+          car.splinePosition = pos.x / 1000
+          car.look = dir -- the opposite of CSP's own apps' convention, so the app has to turn it round
+          car.speedKmh = 0
+          for _, fn in ipairs(jumped) do fn(0) end
+        end,
+      }
+      rgbm = function (r, g, b, a) return { r = r, g = g, b = b, mult = a } end
+      ac.storage = function (defaults) return defaults end
+      script = {}
+    """)
     g.JSON = to_lua({})
     g.JSON.stringify = lambda t: json.dumps(to_py(t))
     g.JSON.parse = lambda s: to_lua(json.loads(s))
@@ -65,13 +101,22 @@ def main() -> int:
     web = to_lua({})
     web.timeouts = lambda *a: None
     web.get = lambda url, cb: respond(cb, *http("GET", url))
-    def post(url, headers, data, cb):
-        state["sync"] = json.loads(data) if data else {}  # what the app last told the service
-        respond(cb, *http("POST", url, data))
-
-    web.post = post
+    web.post = lambda url, headers, data, cb: respond(cb, *http("POST", url, data))
     g.web = web
     g.setInterval = lambda fn, every: state["intervals"].append(fn)
+    g.os.preciseClock = lambda: state["now"]
+
+    def save(cb):
+        state["saved"] += 1
+        cb(None, "STATE@%.6f" % g.car.splinePosition)
+
+    def load(data, frames):
+        state["loaded"] += 1
+        g.car.splinePosition = float(data.split("@")[1])
+        return True
+
+    g.ac.saveCarStateAsync = save
+    g.ac.loadCarState = load
     ui = to_lua({})
     ui.windowWidth = lambda: 360
     ui.getCursorY = lambda: 0
@@ -100,7 +145,7 @@ def main() -> int:
 
     def tick(n=1):
         for _ in range(n):
-            g.NOW += 0.1
+            state["now"] += 0.1
             for fn in state["intervals"]:
                 fn()
 
@@ -117,8 +162,6 @@ def main() -> int:
     check("service reachable and has a track", track and track.get("corners"), body[:200])
     if not track:
         return 1
-    g.TRACK_L = track["length_m"]
-    g.SAVE_OK = False  # no car-state snapshots until the plain teleport has been tried
 
     # Drive a lap: the overlay should name corners and count down to braking.
     seen_corner = seen_brake = False
@@ -126,7 +169,7 @@ def main() -> int:
     seen_cue = False
     p = 0.0
     while p < 1.0:
-        g.place(p)
+        g.car.splinePosition = p
         script.update(1 / 60)
         state["texts"].clear()
         script.windowMain(1 / 60)
@@ -145,7 +188,7 @@ def main() -> int:
     def lap_texts():
         out, q = set(), 0.0
         while q < 1.0:
-            g.place(q)
+            g.car.splinePosition = q
             script.update(1 / 60)
             state["texts"].clear()
             script.windowMain(1 / 60)
@@ -185,70 +228,36 @@ def main() -> int:
     drill = json.loads(body)["drill"]
     check("app receives the drill with a run-up point", drill and "run_up_p" in drill, body[:200])
     run_up = drill["run_up_p"]
-    check("drill comes with teleport speed and gear", drill.get("teleport") and drill.get("run_up_kmh"), body[:300])
 
-    dot = lua.eval("function (a, b) return a:dot(b) end")
-    gear, kmh = drill.get("run_up_gear"), drill["run_up_kmh"]
-    mid = (run_up + 0.3) % 1.0
-
-    def speed():
-        v = g.car.velocity
-        return (v.x ** 2 + v.y ** 2 + v.z ** 2) ** 0.5 * 3.6
-
-    def retry():
-        tick(2)  # the app checks in (a bare sync from here says nothing about resets)
-        http("POST", RIG + "/api/action/rewind")
-        tick(3)
-        for _ in range(5):
-            script.update(1 / 60)
-
-    def at_run_up():
-        return abs((g.car.splinePosition - run_up + 0.5) % 1.0 - 0.5) < 0.002
-
-    # 1. Nothing saved at all yet: a plain move to the run-up point.
-    g.place(mid)
-    retry()
+    # Go to the section: the service picks a spot before it, the app parks the car there.
+    tick(2)  # the app checks in (the bare sync above didn't say resets are allowed)
+    g.car.splinePosition = (run_up + 0.3) % 1.0
+    status, body = http("POST", RIG + "/api/drill", json.dumps({"corner": c1["n"], "teleport": True}))
+    check("dashboard can ask to teleport to a drill", status == 200 and "errors" not in json.loads(body), body)
+    tick(3)
+    for _ in range(3):
+        script.update(1 / 60)
     tp = to_py(g.teleports)
-    check("with no snapshots, retry moves the car", len(tp) >= 1 and g.loaded == 0, str(tp)[:200])
-    check("... to the run-up point", at_run_up(), f"{g.car.splinePosition} vs {run_up}")
-    check("... facing down the track", dot(g.car.look, g.line_dir(run_up)) > 0.99, str(to_py(g.car.look)))
-    tick(2)
-    check("... and nothing is kept as the run-up state", not state["sync"].get("has_launch"), str(state["sync"])[:200])
+    before_m = ((drill["start_p"] - g.car.splinePosition) % 1.0) * track["length_m"]
+    run_up_m = ((drill["start_p"] - run_up) % 1.0) * track["length_m"]
+    check("teleported, stopped", len(tp) >= 1 and g.car.speedKmh == 0, str(tp)[:200])
+    check("... before the Time Shift run-up", run_up_m < before_m < track["length_m"] / 2, f"{before_m} vs {run_up_m}")
+    check("... facing down the track", g.car.look.x > 0, str(to_py(g.car.look)))
+    check("teleport isn't saved as the run-up state", state["saved"] == 0)
+    g.car.speedKmh = 180
 
-    # 2. Drive a bit in a few gears: the app snapshots the car on straights.
-    g.SAVE_OK, g.saved = True, 0
-    for gr, q0 in ((2, run_up + 0.1), (gear or 3, run_up + 0.35), (5, run_up + 0.6)):  # not through the run-up
-        q = q0
-        for _ in range(240):  # 4 s
-            g.place(q, kmh if gr == gear else 100 + 25 * gr, gr)
-            script.update(1 / 60)
-            q += (kmh / 3.6) / 60 / track["length_m"]
-    check("snapshots taken while driving", g.saved >= 6, str(g.saved))
-    g.place(mid, 60, 1)
-    script.update(1 / 60)
-    retry()
-    check("retry teleports from a snapshot", g.loaded == 1, str(g.loaded))
-    check("... to the run-up point", at_run_up(), f"{g.car.splinePosition} vs {run_up}")
-    check("... facing down the track", dot(g.car.look, g.line_dir(run_up)) > 0.99, str(to_py(g.car.look)))
-    check("... at the reference speed", abs(speed() - kmh) < 1, f"{speed()} vs {kmh}")
-    check("... moving down the track", dot(g.car.velocity, g.line_dir(run_up)) > 0, str(to_py(g.car.velocity)))
-    check("... in the reference gear", gear is None or g.car.gear == gear, f"{g.car.gear} vs {gear}")
-    check("... sitting on the road as it was", abs(g.car.position.y - (g.CAR_H + 0.05)) < 0.01, str(g.car.position.y))
-    tick(2)
-    check("... and kept for the next retry", state["sync"].get("has_launch"))
-
-    # 3. Driving through the run-up saves the real car there; retry loads that.
     p = (run_up - 0.01) % 1.0
     for _ in range(60):
-        g.place(p, kmh, gear or 3)
+        g.car.splinePosition = p
         script.update(1 / 60)
         p = (p + 0.0005) % 1.0
-    tick(2)
-    loaded = g.loaded
-    http("POST", RIG + "/api/action/rewind")
-    tick(3)
-    check("retry loads the state saved at the run-up", g.loaded == loaded + 1)
-    check("car back at the run-up point", at_run_up(), f"{g.car.splinePosition} vs {run_up}")
+    check("car state saved at the run-up point", state["saved"] >= 1)
+    tick(2)  # tell the service a launch state exists
+    status, _ = http("POST", RIG + "/api/action/rewind")
+    tick(3)  # app picks up the retry command and loads the state
+    check("retry loaded the saved state", state["loaded"] == 1)
+    check("car back at the run-up point", abs(g.car.splinePosition - run_up) < 0.002,
+          f"{g.car.splinePosition} vs {run_up}")
     http("DELETE", RIG + "/api/drill")
 
     print("ALL PASS" if ok else "SOME CHECKS FAILED")

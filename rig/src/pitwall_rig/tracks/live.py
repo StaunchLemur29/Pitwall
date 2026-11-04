@@ -149,6 +149,57 @@ class TrackState:
                 return max(30.0, ((d.start_p - p) % 1.0) * length)
         return seconds * fallback_mps
 
+    STANDING_MARGIN = 0.85  # assume you accelerate a bit less hard than your best lap
+    FALLBACK_ACCEL = 5.0  # m/s², with no reference lap to learn the car from
+
+    def accel_by_speed(self) -> list[tuple[float, float]]:
+        """How hard the car accelerates flat out at each speed (m/s, m/s²), from
+        your reference lap: full throttle, no brake, every 10 km/h band."""
+        v = self.ref_view
+        if not v:
+            return []
+        tr, idx = v.trace, v.idx
+        bands: dict[int, list[float]] = {}
+        for a, b in zip(idx, idx[1:]):
+            dt = tr["t"][b] - tr["t"][a]
+            if dt <= 0 or tr["gas"][a] < 0.9 or tr["brake"][a] > 0.05:
+                continue
+            acc = (tr["speed"][b] - tr["speed"][a]) / 3.6 / dt
+            if acc > 0:
+                bands.setdefault(int(tr["speed"][a] // 10), []).append(acc)
+        out = []
+        for band, accs in sorted(bands.items()):
+            if len(accs) >= 3:
+                accs.sort()
+                out.append(((band * 10 + 5) / 3.6, accs[int(len(accs) * 0.8)]))
+        return out
+
+    def standing_start_m(self, d: Drill, min_m: float = 0.0) -> float:
+        """How far before the section start to park the car so that, pulling away
+        flat out, you reach the start at your reference lap's speed (lifting
+        for any corner on the way, as your reference lap did)."""
+        length = self.model.length_m or 1.0
+        v = self.ref_view
+        accel = self.accel_by_speed()
+
+        def a_at(mps: float) -> float:
+            if not accel:
+                return self.FALLBACK_ACCEL * self.STANDING_MARGIN
+            # nearest band; below the slowest one seen, its value (traction-limited)
+            best = min(accel, key=lambda sa: abs(sa[0] - mps))
+            return best[1] * self.STANDING_MARGIN
+
+        def ref_mps(p: float) -> float:
+            return v.trace["speed"][v.at(p % 1.0)] / 3.6 if v else 40.0
+
+        # Walk back from the start: the speed you'd need at each point, falling
+        # as far as the car's acceleration allows, until it's zero.
+        step, x, s = 2.0, 0.0, ref_mps(d.start_p)
+        while s > 0.5 and x < length / 2:
+            x += step
+            s = min(ref_mps(d.start_p - x / length), math.sqrt(max(0.0, s * s - 2 * a_at(s) * step)))
+        return max(x, min_m)
+
     # -- drills ---------------------------------------------------------------
 
     def start_drill(self, drill: Drill, best_ms: int | None) -> None:

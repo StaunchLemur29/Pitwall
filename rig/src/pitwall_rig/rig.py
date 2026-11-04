@@ -650,10 +650,9 @@ class Rig:
     def start_retry(self) -> bool:
         if self.track is None or self.track.drill is None or self.frame is None:
             return False
-        if self.csp.can_reset and (self.csp.state.get("has_launch") or self.config["drills"]["teleport"]):
-            # The in-game app puts you straight back at the run-up point: with
-            # the car state it saved there, or (until it has one) by teleporting
-            # you there at your reference lap's speed and gear.
+        if self.csp.can_reset and self.csp.state.get("has_launch"):
+            # The in-game app saved the car at the run-up point: it puts you
+            # straight back there, at speed.
             self.csp.send({"cmd": "retry", "key": self._drill_key()})
             self._retry = {"t0": self._clock(), "csp": True}
             self.emit({"type": "retry", "state": "rewinding"})
@@ -700,6 +699,25 @@ class Rig:
             self._retry = None
             self.emit({"type": "retry", "state": done})
 
+    # -- getting to a drill: teleport (in-game app, offline) --------------------
+
+    TELEPORT_EXTRA_M = 50.0  # always park a bit before the Time Shift run-up
+
+    @_locked
+    def teleport_to_drill(self) -> bool:
+        """Park the car, stopped, far enough before the drill that pulling away
+        flat out gets you to the section at your usual speed. Only to get there:
+        retries rewind as normal."""
+        if self.track is None or self.track.drill is None or not self.csp.can_reset:
+            return False
+        d = self.track.drill.drill
+        run_up = self.track.lead_in_m(d, float(self.config["drills"]["lead_in_s"]))
+        back = self.track.standing_start_m(d, min_m=run_up + self.TELEPORT_EXTRA_M)
+        p = (d.start_p - back / self.track.model.length_m) % 1.0
+        self.csp.send({"cmd": "teleport", "key": self._drill_key(), "p": p})
+        self.emit({"type": "retry", "state": "teleporting"})
+        return True
+
     # -- in-game CSP app ------------------------------------------------------
 
     def _drill_key(self) -> str | None:
@@ -711,20 +729,12 @@ class Rig:
             return None
         d = self.track.drill.drill
         lead = self.track.lead_in_m(d, float(self.config["drills"]["lead_in_s"]))
-        run_up = (d.start_p - lead / self.track.model.length_m) % 1.0
-        # For a teleport: how fast and in which gear your reference lap passed
-        # the run-up point (standing start if there's no reference yet).
-        v = self.track.ref_view
-        i = v.at(run_up) if v else None
         return {
             "key": self._drill_key(),
             "name": d.name,
             "start_p": d.start_p,
             "end_p": d.end_p,
-            "run_up_p": run_up,
-            "teleport": bool(self.config["drills"]["teleport"]),
-            "run_up_kmh": round(v.trace["speed"][i], 1) if v and i is not None else None,
-            "run_up_gear": int(v.trace["gear"][i]) if v and i is not None else None,
+            "run_up_p": (d.start_p - lead / self.track.model.length_m) % 1.0,
         }
 
     # -- car profile ----------------------------------------------------------
@@ -749,12 +759,11 @@ class Rig:
         """The in-game app checking in (about 10 times a second)."""
         was = self.csp.connected
         for e in self.csp.sync(body):
+            if e.get("type") == "teleport":
+                self.emit({"type": "retry", "state": "teleported" if e.get("ok") else "no_teleport"})
             if e.get("type") == "retry" and self._retry is not None and self._retry.get("csp"):
                 self._retry = None
-                if e.get("ok") and e.get("method") == "teleport":
-                    gear = e.get("gear")
-                    self.emit({"type": "retry", "state": "teleported", "gear": gear if isinstance(gear, int) else None})
-                elif e.get("ok"):
+                if e.get("ok"):
                     self.emit({"type": "retry", "state": "ready"})
                 else:
                     self._retry_with_time_shift()  # e.g. no saved state yet
@@ -821,6 +830,7 @@ class Rig:
             "pos_age_ms": pos_age,
             # Real ABS / TC levels and brake bias from the in-game app (None without it).
             "electronics": self.csp.electronics(),
+            "can_teleport": self.csp.can_reset,  # the in-game app is there, offline
             "delta_s": self.delta_s,
             "ref_lap_ms": self.reference.lap_time_ms if self.reference else None,
             "theoretical_best_ms": self.theoretical_best_ms,
