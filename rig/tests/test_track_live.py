@@ -32,12 +32,12 @@ def frame_at(model, p, t, tyres_out=0):
                  tyres_out=tyres_out)
 
 
-def test_drill_attempts_streak_and_rewind(demo):
+def test_drill_counts_every_run_and_never_resets(demo):
     m = demo_model(demo)
     st = TrackState(m)
     attempts = []
     st.on_attempt = attempts.append
-    st.start_drill(Drill("Test", 0.20, 0.30, pass_within_s=0.5, pass_streak=2), best_ms=None)
+    st.start_drill(Drill("Test", 0.20, 0.30), best_ms=None)
 
     def run(seconds, start=0.15, end=0.35, t0=0.0, rewind_at=None, cut=False):
         steps = 200
@@ -58,12 +58,15 @@ def test_drill_attempts_streak_and_rewind(demo):
     t = run(20.0, t0=t + 2, rewind_at=0.25)  # abandoned mid-section
     assert len(attempts) == 1
     st.update(frame_at(m, 0.5, t + 1))
-    t = run(20.0, t0=t + 2, cut=True)  # cut the track: not clean, breaks the streak
-    assert attempts[-1]["clean"] is False and st.drill.streak == 0
-    for _ in range(2):
-        st.update(frame_at(m, 0.5, t + 1))
-        t = run(20.0, t0=t + 2)
-    assert st.drill.streak == 2 and st.drill.passed
+    t = run(20.0, t0=t + 2, cut=True)  # cut the track: not clean, and not a best, but it still counts
+    assert attempts[-1]["clean"] is False and attempts[-1]["new_best"] is False
+    st.update(frame_at(m, 0.5, t + 1))
+    t = run(24.0, t0=t + 2)  # a slow run: counted, nothing resets
+    st.update(frame_at(m, 0.5, t + 1))
+    t = run(18.0, t0=t + 2)  # a quicker one: new best
+    assert st.drill.attempts == 4
+    assert attempts[-1]["new_best"] is True and st.drill.best_ms == attempts[-1]["time_ms"]
+    assert [a["new_best"] for a in attempts] == [True, False, False, True]
 
 
 def test_width_advice_for_a_right_hander():

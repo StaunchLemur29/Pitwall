@@ -19,8 +19,6 @@ class Drill:
     start_p: float
     end_p: float
     corner: int | None = None
-    pass_within_s: float = 0.3  # an attempt counts if it's this close to your best…
-    pass_streak: int = 3  # …and you need this many clean ones in a row
 
     def contains(self, p: float) -> bool:
         if self.start_p <= self.end_p:
@@ -35,9 +33,7 @@ class Drill:
 class DrillState:
     drill: Drill
     best_ms: int | None = None  # best clean attempt ever (or from your best lap)
-    attempts: int = 0
-    streak: int = 0
-    passed: bool = False
+    attempts: int = 0  # runs through the section this drill, never reset
     running: bool = False
     elapsed_s: float = 0.0
     clean: bool = True
@@ -49,8 +45,6 @@ class DrillState:
         d.update(
             best_ms=self.best_ms,
             attempts=self.attempts,
-            streak=self.streak,
-            passed=self.passed,
             running=self.running,
             elapsed_s=round(self.elapsed_s, 2),
             last=self.last,
@@ -244,13 +238,12 @@ class TrackState:
         st.attempts += 1
         prev_best = st.best_ms
         delta = (time_ms - prev_best) / 1000 if prev_best else None
-        good = st.clean and (prev_best is None or delta <= st.drill.pass_within_s)
-        st.streak = st.streak + 1 if good else 0
-        if st.clean and (prev_best is None or time_ms < prev_best):
+        # Every run counts and nothing resets: a drill is repetition, and a slow
+        # run is part of learning the section, not a failure.
+        new_best = st.clean and (prev_best is None or time_ms < prev_best)
+        if new_best:
             st.best_ms = time_ms
-        if st.streak >= st.drill.pass_streak:
-            st.passed = True
-        st.last = {"time_ms": time_ms, "clean": st.clean, "delta_s": delta, "counted": good}
+        st.last = {"time_ms": time_ms, "clean": st.clean, "delta_s": delta, "new_best": new_best}
         st.history.append(st.last)
         attempt = {**st.last, "start_p": st.drill.start_p, "end_p": st.drill.end_p}
         self.on_attempt(attempt)

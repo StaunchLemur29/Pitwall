@@ -148,12 +148,9 @@ export interface Drill {
   start_p: number;
   end_p: number;
   corner: number | null;
-  pass_within_s: number;
-  pass_streak: number;
   best_ms: number | null;
+  /** runs through the section in this drill (never resets) */
   attempts: number;
-  streak: number;
-  passed: boolean;
   running: boolean;
   elapsed_s: number;
   last: Attempt | null;
@@ -163,8 +160,9 @@ export interface Drill {
 export interface Attempt {
   time_ms: number;
   clean: boolean;
+  /** vs your best before this run */
   delta_s: number | null;
-  counted: boolean;
+  new_best: boolean;
 }
 
 export interface TrackLive {

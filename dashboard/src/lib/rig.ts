@@ -1,6 +1,7 @@
 // Connection to the rig service: one WebSocket, one store, React hooks on top.
 
 import { useSyncExternalStore } from "react";
+import { toast } from "../widgets/Toasts";
 import type {
   Attempt,
   Capabilities,
@@ -354,14 +355,18 @@ export async function startDrill(
   body: ({ corner: number } | { section: number } | { chapter: number } | { start_p: number; end_p: number; name: string }) & {
     teleport?: boolean;
   },
-): Promise<string[]> {
-  const r = await fetch("/api/drill", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const out = await r.json().catch(() => ({ errors: r.ok ? [] : [`HTTP ${r.status}`] }));
-  return out.errors ?? [];
+): Promise<{ ok: boolean; errors: string[] }> {
+  try {
+    const r = await fetch("/api/drill", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const out = await r.json().catch(() => ({ errors: r.ok ? [] : [`HTTP ${r.status}`] }));
+    return { ok: r.ok && out.ok !== false, errors: out.errors ?? [] };
+  } catch {
+    return { ok: false, errors: ["Can't reach Pitwall"] };
+  }
 }
 
 export async function stopDrill(): Promise<void> {
@@ -429,4 +434,16 @@ export async function inputDevices(): Promise<{
   devices: { guid: string; name: string }[];
 }> {
   return (await fetch("/api/input/devices")).json();
+}
+
+/** Start a drill from a button, and say so (or say what went wrong). */
+export async function practise(
+  body: Parameters<typeof startDrill>[0],
+  name: string,
+): Promise<void> {
+  const { ok, errors } = await startDrill(body);
+  if (!ok) toast(errors[0] ?? "Couldn't start the drill", "bad", 6000);
+  else if (errors.length) toast(`Drill set: ${name}. ${errors[0]}`, "warn", 7000);
+  else if (body.teleport) toast(`Drill set: ${name}. Taking you there…`);
+  else toast(`Drill set: ${name}. Drive into it, or use your retry button.`);
 }

@@ -1173,22 +1173,31 @@ select {
   font-weight: 700;
 }
 
-.drill__streak {
+.drill__delta--plain {
+  color: var(--muted);
+}
+
+/* recent drill runs: taller = quicker */
+.druns {
   display: flex;
-  gap: calc(var(--u) * 0.8);
+  align-items: flex-end;
   justify-content: flex-end;
+  gap: calc(var(--u) * 0.6);
+  height: calc(var(--u) * 4.5);
 }
 
-.sdot {
-  width: calc(var(--u) * 2.2);
-  height: calc(var(--u) * 2.2);
-  border-radius: 50%;
-  border: 2px solid var(--line);
+.druns__bar {
+  width: calc(var(--u) * 1.6);
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in srgb, var(--text) 35%, transparent);
 }
 
-.sdot--on {
+.druns__bar--best {
   background: var(--good);
-  border-color: var(--good);
+}
+
+.druns__bar--cut {
+  background: color-mix(in srgb, var(--warn) 60%, transparent);
 }
 
 /* full map */
@@ -2676,4 +2685,45 @@ select {
 .prog__table th:first-child,
 .prog__table td:first-child {
   text-align: left;
+}
+
+/* -- pop-up confirmations ------------------------------------------------- */
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(440px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.toast {
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--card-2);
+  border: 1px solid color-mix(in srgb, var(--good) 45%, transparent);
+  border-left-width: 4px;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.35;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+  animation: toast-in 160ms ease-out;
+}
+
+.toast--warn {
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+}
+
+.toast--bad {
+  border-color: color-mix(in srgb, var(--bad) 55%, transparent);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }

@@ -3,7 +3,7 @@ import { delta, lapTime } from "../lib/format";
 import { fitTrack, type Pt } from "../lib/geometry";
 import { timeLookup, type Trace } from "../lib/profile";
 import { prettyName } from "../lib/format";
-import { rig, startDrill, useRig, type Combo } from "../lib/rig";
+import { practise, rig, useRig, type Combo } from "../lib/rig";
 import { useSource } from "../lib/source";
 import { GRADE_COLORS, indexAt, pathOf, type P } from "../lib/track";
 import type { CornerLap, CornerReport, LapSummary, TrackGeometry } from "../lib/types";
@@ -233,7 +233,7 @@ export function LapAnalysis({
             ))}
             <div className="cwrap__actions">
               {section && canDrill && (
-                <button className="btn btn--sm" onClick={() => startDrill({ section: section.number })}>
+                <button className="btn btn--sm" onClick={() => practise({ section: section.number }, section.name)}>
                   Practise {section.name}
                 </button>
               )}
@@ -299,13 +299,13 @@ export function LapAnalysis({
                     <button
                       className="btn btn--sm btn--ghost"
                       title="Start the drill and teleport there, stopped, far enough back to be up to speed"
-                      onClick={() => startDrill({ chapter: ch.number, teleport: true })}
+                      onClick={() => practise({ chapter: ch.number, teleport: true }, ch.name)}
                     >
                       Go there
                     </button>
                   )}
                   {canDrill && (
-                    <button className="btn btn--sm btn--ghost" onClick={() => startDrill({ chapter: ch.number })}>
+                    <button className="btn btn--sm btn--ghost" onClick={() => practise({ chapter: ch.number }, ch.name)}>
                       Practise
                     </button>
                   )}
@@ -338,13 +338,13 @@ export function LapAnalysis({
                 <button
                   className="btn btn--sm btn--ghost"
                   title="Start the drill and teleport there, stopped, far enough back to be up to speed"
-                  onClick={() => startDrill({ section: ps.number, teleport: true })}
+                  onClick={() => practise({ section: ps.number, teleport: true }, ps.name)}
                 >
                   Go there
                 </button>
               )}
               {canDrill && (
-                <button className="btn btn--sm" onClick={() => startDrill({ section: ps.number })}>
+                <button className="btn btn--sm" onClick={() => practise({ section: ps.number }, ps.name)}>
                   Practise
                 </button>
               )}
