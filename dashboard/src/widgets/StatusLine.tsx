@@ -44,11 +44,11 @@ export function StatusLine() {
         {caps?.reports_tc_level && (
           <Item label="TC" value={el ? level(el.tc, el.tc_modes) : onOff(f?.tc)} tone={f?.tc_active ? "warn" : ""} />
         )}
-        {el?.drs_present && (
+        {el?.drs_present && live.car_has?.drs && (
           <Item label="DRS" value={el.drs_active ? "OPEN" : el.drs_available ? "READY" : "–"} tone={el.drs_active ? "good" : el.drs_available ? "warn" : ""} />
         )}
-        {el?.kers_present && el.kers_charge != null && <Item label="Batt" value={`${Math.round(el.kers_charge * 100)}%`} />}
-        {el?.mguk_delivery_count ? <Item label="Deploy" value={String(el.mguk_delivery ?? "–")} /> : null}
+        {el?.kers_present && live.car_has?.battery && el.kers_charge != null && <Item label="Batt" value={`${Math.round(el.kers_charge * 100)}%`} />}
+        {el?.mguk_delivery_count && live.car_has?.battery ? <Item label="Deploy" value={String(el.mguk_delivery ?? "–")} /> : null}
         {el?.engine_brake_count && el.engine_brake_count > 1 ? <Item label="EB" value={String(el.engine_brake ?? "–")} /> : null}
         <Item label={breakDue ? "Break" : "Driving"} value={clock(live.driving_s)} tone={breakDue ? "warn" : ""} />
       </div>

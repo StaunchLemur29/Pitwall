@@ -6,6 +6,7 @@ import statistics
 from bisect import bisect_left
 from typing import Any
 
+from .car_profile import has_battery, has_drs
 from .tracks.model import Corner, TrackModel
 
 
@@ -345,7 +346,7 @@ def analyse_systems(trace: dict[str, list[float]], model: TrackModel, profile: d
     idx, L = view.idx, model.length_m or 1.0
     tr = trace
 
-    if profile.get("drs") and "drs" in tr and any(v >= 1 for v in tr["drs"]):
+    if has_drs(profile) and "drs" in tr and any(v >= 1 for v in tr["drs"]):
         open_m = sum(m for _, _, m in _runs(tr, idx, L, lambda i: tr["drs"][i] >= 2))
         missed = []
         for a, b, m in _runs(tr, idx, L, lambda i: tr["drs"][i] == 1 and tr["gas"][i] >= 0.95):
@@ -355,7 +356,7 @@ def analyse_systems(trace: dict[str, list[float]], model: TrackModel, profile: d
         for x in missed:
             out["notes"].append(f"DRS was available but not opened for {x['metres']} m {x['near']}.".replace("  ", " "))
 
-    if profile.get("battery") and "batt" in tr and max(tr["batt"][i] for i in idx) > 0:
+    if has_battery(profile) and "batt" in tr and max(tr["batt"][i] for i in idx) > 0:
         empty = []
         for a, b, m in _runs(tr, idx, L, lambda i: tr["batt"][i] <= EMPTY and tr["gas"][i] >= 0.9):
             if m >= BATTERY_EMPTY_M:

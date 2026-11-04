@@ -993,7 +993,10 @@ class Rig:
         was = self.csp.connected
         for e in self.csp.sync(body):
             if e.get("type") == "teleport":
-                self.emit({"type": "retry", "state": "teleported" if e.get("ok") else "no_teleport"})
+                state = "teleported" if e.get("ok") else "no_teleport"
+                if e.get("ok") and e.get("tyres") not in (None, "warm"):
+                    state = "teleported_cold"  # this CSP couldn't warm the tyres back up
+                self.emit({"type": "retry", "state": state})
             if e.get("type") == "retry" and self._retry is not None and self._retry.get("csp"):
                 self._retry = None
                 if e.get("ok"):
@@ -1065,6 +1068,8 @@ class Rig:
             # Real ABS / TC levels and brake bias from the in-game app (None without it).
             "electronics": self.csp.electronics(),
             "can_teleport": self.csp.can_reset,  # the in-game app is there, offline
+            # systems this car really has (seen working), so the side screen only shows those
+            "car_has": {"drs": car_profile.has_drs(self.car_profile), "battery": car_profile.has_battery(self.car_profile)},
             "delta_s": self.delta_s,
             "ref_lap_ms": self.reference.lap_time_ms if self.reference else None,
             "theoretical_best_ms": self.theoretical_best_ms,

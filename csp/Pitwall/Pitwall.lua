@@ -10,7 +10,8 @@
 -- saved; "retry" loads it back, putting you there at speed.
 -- Getting to a drill: "teleport" parks the car, stopped, on the racing line at
 -- the point the service picked (far enough back to be up to speed by the
--- section). Only to get there; retries are the rewind above.
+-- section). Only to get there; retries are the rewind above. Teleporting resets
+-- the car, so the tyres are put back to working temperature straight after.
 
 local RIG = 'http://127.0.0.1:8765'
 local SYNC_EVERY = 0.1
@@ -22,7 +23,7 @@ local car = ac.getCar(0)
 local track = nil -- { version, length_m, corners = {...}, ref_speed = {...} }
 local drill = nil -- { key, name, start_p, end_p, run_up_p }
 local launch = nil -- { key, data } car state saved at the run-up point
-local settle = nil -- just teleported: { pos, dir, frames, flipped }
+local settle = nil -- just teleported: { pos, dir, frames, flipped, tyreTemp }
 local connected = false
 local syncBusy, trackBusy = false, false
 local trackVersion = -1
@@ -69,14 +70,42 @@ local function lineAt(p)
   return pos, dir:normalize()
 end
 
+-- The tyre temperature to arrive with: the car's optimum if CSP says, else what
+-- they're at now (warmed by driving). Read defensively: not every CSP has these.
+local function arrivalTyreTemp()
+  local ok, t = pcall(function ()
+    local sum, n = 0, 0
+    for i = 0, 3 do
+      local w = car.wheels[i]
+      local v = w.tyreOptimumTemperature
+      if not v or v < 40 then v = w.tyreCoreTemperature end
+      if v and v >= 40 then sum, n = sum + v, n + 1 end
+    end
+    return n > 0 and sum / n or nil
+  end)
+  return ok and t or nil
+end
+
+-- Teleporting resets the car, tyres stone cold: put them back to temperature.
+-- physics.setTyresTemperature is in CSP's own debug app (CspDebug); guarded in
+-- case this CSP doesn't have it. Returns 'warm', 'no_temp' or 'unsupported'.
+local function warmTyres(temp)
+  if not temp then return 'no_temp' end
+  if not (physics.setTyresTemperature and ac.Wheel and ac.Wheel.All) then return 'unsupported' end
+  local ok = pcall(physics.setTyresTemperature, 0, ac.Wheel.All, temp)
+  return ok and 'warm' or 'unsupported'
+end
+
 local function teleport(p)
   if not (physics and physics.setCarPosition and ac.trackProgressToWorldCoordinate) then return 'unsupported' end
   local pos, dir = lineAt(p)
   if not pos then return 'no_line' end
+  local temp = arrivalTyreTemp() -- before the reset cools them
   -- CSP's own debug app passes the direction reversed; if the car still comes
   -- out facing backwards it's turned round on the next frame (see settleStep)
   physics.setCarPosition(0, pos, -dir)
-  settle = { pos = pos, dir = dir, frames = 3, flipped = false }
+  settle = { pos = pos, dir = dir, frames = 3, flipped = false, tyreTemp = temp }
+  settle.tyres = warmTyres(temp)
   lastSpline = nil
   return nil
 end
@@ -87,6 +116,7 @@ local function settleStep()
     physics.setCarPosition(0, st.pos, st.dir)
     st.flipped = true
   end
+  warmTyres(st.tyreTemp) -- again for a few frames: the reset can land after the first go
   st.frames = st.frames - 1
   if st.frames <= 0 then settle = nil end
 end
@@ -98,7 +128,8 @@ local function handle(cmd)
       say('Teleport only works in offline practice')
     else
       local why = teleport(tonumber(cmd.p) or 0)
-      events[#events + 1] = { type = 'teleport', ok = why == nil, reason = why }
+      events[#events + 1] = { type = 'teleport', ok = why == nil, reason = why, tyres = settle and settle.tyres or nil }
+      if settle and settle.tyres ~= 'warm' then say('Teleported: tyres are cold, this CSP can\'t warm them') end
     end
   end
   if cmd.cmd == 'retry' then

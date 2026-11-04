@@ -111,9 +111,9 @@ export function carSummary(p: CarProfile | null): string[] {
   if (p.abs) out.push(p.abs_levels ? `ABS (${p.abs_levels})` : "ABS");
   if (p.tc) out.push(p.tc_levels ? `TC (${p.tc_levels})` : "TC");
   if (p.brake_bias) out.push("Brake bias");
-  if (p.drs) out.push("DRS");
-  if (p.ers) out.push(p.deploy_modes ? `ERS (${p.deploy_modes} deploy modes)` : "ERS");
-  else if (p.battery) out.push("KERS");
+  // Only what's been seen working: some mod cars claim systems they don't have.
+  if (p.drs && p.drs_seen) out.push("DRS");
+  if (p.battery && p.battery_seen) out.push(p.ers ? (p.deploy_modes ? `ERS (${p.deploy_modes} deploy modes)` : "ERS") : "KERS");
   if (p.engine_brake_maps) out.push(`Engine braking (${p.engine_brake_maps} maps)`);
   return out;
 }

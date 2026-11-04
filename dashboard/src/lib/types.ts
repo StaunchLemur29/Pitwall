@@ -330,7 +330,11 @@ export interface CarProfile {
   tc_levels: number | null;
   brake_bias: boolean;
   drs: boolean;
+  /** DRS has actually come on while driving (shown only then) */
+  drs_seen?: boolean;
   battery: boolean;
+  /** the charge has actually moved while driving (shown only then) */
+  battery_seen?: boolean;
   ers: boolean;
   deploy_modes: number | null;
   engine_brake_maps: number | null;
@@ -418,6 +422,8 @@ export interface Live {
   electronics?: Electronics | null;
   /** The in-game app can teleport the car to a drill (it's running, offline practice). */
   can_teleport?: boolean;
+  /** systems this car really has (seen working on track), so only those are shown */
+  car_has?: { drs: boolean; battery: boolean };
   delta_s: number | null;
   ref_lap_ms: number | null;
   theoretical_best_ms: number | null;
@@ -461,6 +467,6 @@ export type ServerEvent =
   | { type: "shutdown" }
   | {
       type: "retry";
-      state: "rewinding" | "ready" | "no_rewind" | "timeout" | "stopped" | "teleporting" | "teleported" | "no_teleport";
+      state: "rewinding" | "ready" | "no_rewind" | "timeout" | "stopped" | "teleporting" | "teleported" | "teleported_cold" | "no_teleport";
     }
   | { type: "attempt"; attempt: Attempt & { start_p: number; end_p: number } };

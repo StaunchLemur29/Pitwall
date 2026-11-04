@@ -18,8 +18,10 @@ EMPTY: dict[str, Any] = {
     "tc": False,
     "tc_levels": None,
     "brake_bias": False,
-    "drs": False,
+    "drs": False,  # the car says it has DRS (AC / CSP)...
+    "drs_seen": False,  # ...and DRS has actually come on while driving
     "battery": False,  # ERS or KERS
+    "battery_seen": False,  # the charge has actually moved while driving
     "ers": False,  # deploy / recovery modes (hybrids)
     "deploy_modes": None,
     "engine_brake_maps": None,
@@ -38,10 +40,22 @@ def from_session(s: SessionInfo, saved: dict[str, Any] | None = None) -> dict[st
     return p
 
 
+def has_drs(p: dict[str, Any] | None) -> bool:
+    """Shown only when the car says so *and* it's been seen working: some mod
+    cars report systems they don't really have."""
+    return bool(p and p.get("drs") and p.get("drs_seen"))
+
+
+def has_battery(p: dict[str, Any] | None) -> bool:
+    return bool(p and p.get("battery") and p.get("battery_seen"))
+
+
 def note_frame(p: dict[str, Any], f: Frame) -> bool:
     """Learn from telemetry; True if anything changed."""
     changed = False
-    for key, on in (("abs", (f.abs or 0) > 0), ("tc", (f.tc or 0) > 0), ("brake_bias", f.brake_bias is not None)):
+    for key, on in (("abs", (f.abs or 0) > 0), ("tc", (f.tc or 0) > 0), ("brake_bias", f.brake_bias is not None),
+                    ("drs_seen", f.drs_available or f.drs_open),
+                    ("battery_seen", f.battery is not None and 0.02 < f.battery < 0.98)):
         if on and not p[key]:
             p[key], changed = True, True
     return changed
@@ -56,8 +70,12 @@ def note_csp(p: dict[str, Any], el: dict[str, Any]) -> bool:
         p["tc"], p["tc_levels"] = True, int(el["tc_modes"])
     if el.get("drs_present"):
         p["drs"] = True
+    if el.get("drs_available") or el.get("drs_active"):
+        p["drs_seen"] = True
     if el.get("kers_present"):
         p["battery"] = True
+    if el.get("kers_charge") is not None and 0.02 < el["kers_charge"] < 0.98:
+        p["battery_seen"] = True
     if (el.get("mguk_delivery_count") or 0) > 1:
         p["ers"], p["deploy_modes"] = True, int(el["mguk_delivery_count"])
     if (el.get("engine_brake_count") or 0) > 1:
@@ -74,12 +92,13 @@ def summary(p: dict[str, Any]) -> list[str]:
         out.append(f"TC ({p['tc_levels']})" if p["tc_levels"] else "TC")
     if p["brake_bias"]:
         out.append("Brake bias")
-    if p["drs"]:
+    if has_drs(p):
         out.append("DRS")
-    if p["ers"]:
-        out.append(f"ERS ({p['deploy_modes']} deploy modes)" if p["deploy_modes"] else "ERS")
-    elif p["battery"]:
-        out.append("KERS")
+    if has_battery(p):
+        if p["ers"]:
+            out.append(f"ERS ({p['deploy_modes']} deploy modes)" if p["deploy_modes"] else "ERS")
+        else:
+            out.append("KERS")
     if p["engine_brake_maps"]:
         out.append(f"Engine braking ({p['engine_brake_maps']} maps)")
     return out

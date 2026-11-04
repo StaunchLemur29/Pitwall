@@ -41,6 +41,7 @@ export function DrillCard() {
           stopped: "",
           teleporting: "Teleporting…",
           teleported: "You're there — pull away when ready",
+          teleported_cold: "You're there — tyres are cold (this CSP can't warm them)",
           no_teleport: "Couldn't teleport — only works in offline practice",
         }[retry.state] ?? ""
       : "";
