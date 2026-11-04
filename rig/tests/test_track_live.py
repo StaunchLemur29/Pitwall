@@ -195,16 +195,24 @@ def test_corner_report_compares_with_the_best_lap(demo, clock, config, store):
         rig.tick()
         if len(store.valid_lap_ids("demo", rig.session.track_key, rig.session.car)) >= 3:
             break
-    rep = rig.corner_report()
-    assert rep["compare_lap_id"] is not None and rep["compare_lap_id"] != rep["lap_id"]
-    assert rep["compare_label"]
+    rig._optimal_run(rig._live_ctx(), wait=True)  # the benchmark, ready
+    best = rig.reference.lap_id
+    best_ms = store.lap(best)["lap_time_ms"]
+    # Any lap slower than your best: compared with your best.
+    slower = next(i for i in store.valid_lap_ids("demo", rig.session.track_key, rig.session.car)
+                  if store.lap(i)["lap_time_ms"] > best_ms)
+    rep = rig.corner_report(slower)
+    assert rep["compare_lap_id"] == best and rep["compare_label"] == "your best lap" and rep["compare_kind"] == "lap"
     row = rep["lap"][0]
     assert "vs_s" in row and isinstance(row["notes"], list)
     assert {"brake_m", "entry_kmh", "exit_kmh", "throttle_m", "peak_brake"} <= row.keys()
-    # Looking at the best lap itself compares with the next best.
-    best = rig.reference.lap_id
+    # Your best lap: never against a slower lap; against the benchmark, the optimal run.
     rep = rig.corner_report(best)
-    assert rep["compare_lap_id"] not in (None, best)
+    assert rep["compare_kind"] == "optimal" and rep["compare_label"] == "the optimal run"
+    assert rep["compare_lap_id"] is None and rep["compare"]
+    assert all("vs_s" in r for r in rep["lap"])
+    # Asking for the optimal run on any lap works too.
+    assert rig.corner_report(slower, -1)["compare_kind"] == "optimal"
 
 
 def test_braking_point_moves_with_approach_speed(demo):
@@ -247,7 +255,7 @@ def test_analysis_works_for_a_past_car_and_track(demo, clock, config, store):
     assert combos[0]["valid_laps"] >= 2 and combos[0]["live"] is False
     rep = later.corner_report(game=s.game, car=s.car, track_key=s.track_key)
     assert rep["lap"] and rep["live"] is False and rep["track_key"] == s.track_key
-    assert rep["compare_lap_id"] is not None
+    assert rep["compare_label"]  # your best lap, or the optimal run on your best
     assert later.track_geometry(s.game, s.car, s.track_key)["corners"]
     # Asking by lap id alone finds its car + track too.
     assert later.corner_report(rep["lap_id"])["lap"] == rep["lap"]

@@ -53,7 +53,7 @@ def main() -> None:
     cases = []
     # latest lap; the slowest valid lap against the best and the second best; the best (vs next best)
     for lap_id in [None, by_time[-1], by_time[0], by_time[len(by_time) // 2]]:
-        for compare in [None, by_time[1]]:
+        for compare in [None, by_time[1], -1]:  # -1: the optimal run
             if compare is not None and compare == lap_id:
                 continue
             rep = rig.corner_report(lap_id, compare)
