@@ -144,7 +144,7 @@ def _signed_curvature(line: TrackLine, window_m: float = 12.0) -> list[float]:
     """1/radius along the line; positive = right-hand turn (AC's world)."""
     n = len(line)
     spacing = line.length / max(1, n - 1)
-    k = max(2, int(round(window_m / max(spacing, 0.1))))
+    k = max(2, round(window_m / max(spacing, 0.1)))
     out = []
     for i in range(n):
         a, b = (i - k) % n, (i + k) % n

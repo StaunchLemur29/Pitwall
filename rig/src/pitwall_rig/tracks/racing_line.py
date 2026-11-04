@@ -301,7 +301,7 @@ def optimal_offsets(line: TrackLine, margin_m: float = 1.2) -> list[float]:
     prev_ds: list[float] | None = None
     prev_alpha: list[float] = []
     for step in LEVELS:
-        count = int(round(loop / step))
+        count = round(loop / step)
         if count < 40 and step != LEVELS[-1]:
             continue  # short track: skip levels coarser than its corners
         count = max(count, 40)

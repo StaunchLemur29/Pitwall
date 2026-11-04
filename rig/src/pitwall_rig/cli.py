@@ -52,12 +52,11 @@ def _fine_timers() -> None:
     """Windows ticks timers every ~15.6 ms by default, which turns a 60 Hz loop
     into an uneven ~30 Hz. Ask for 1 ms resolution while Pitwall runs."""
     if sys.platform == "win32":
-        try:
-            import ctypes
+        import contextlib
+        import ctypes
 
+        with contextlib.suppress(Exception):  # finer timers on Windows; fine without
             ctypes.windll.winmm.timeBeginPeriod(1)
-        except Exception:  # noqa: BLE001
-            pass
 
 
 def _install_csp_app(config: Config) -> None:

@@ -3,9 +3,10 @@ and timing for a practice section (drill)."""
 
 from __future__ import annotations
 
+import itertools
 import math
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from ..analysis import LapView, analyse_lap
 from ..laps import JumpDetector
@@ -67,7 +68,7 @@ class YawCalibrator:
     raw heading with the direction of travel and keep the mapping that fits.
     """
 
-    CANDIDATES = [(s, o) for s in (1, -1) for o in (0.0, 90.0, 180.0, -90.0)]
+    CANDIDATES: ClassVar[list[tuple[int, float]]] = [(s, o) for s in (1, -1) for o in (0.0, 90.0, 180.0, -90.0)]
 
     def __init__(self) -> None:
         self.err = [0.0] * len(self.CANDIDATES)
@@ -176,7 +177,7 @@ class TrackState:
             return []
         tr, idx = v.trace, v.idx
         bands: dict[int, list[float]] = {}
-        for a, b in zip(idx, idx[1:]):
+        for a, b in itertools.pairwise(idx):
             dt = tr["t"][b] - tr["t"][a]
             if dt <= 0 or tr["gas"][a] < 0.9 or tr["brake"][a] > 0.05:
                 continue

@@ -10,7 +10,7 @@ import time
 import zlib
 from array import array
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 from .models import Lap
 
@@ -149,7 +149,7 @@ class _LockedConnection:
         with self._lock:
             self._conn.close()
 
-    def __enter__(self) -> _LockedConnection:  # a transaction (the caller holds the lock)
+    def __enter__(self) -> Self:  # a transaction (the caller holds the lock)
         self._conn.__enter__()
         return self
 

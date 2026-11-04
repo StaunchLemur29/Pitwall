@@ -62,6 +62,7 @@ Status: design agreed, not yet built. Owner: single user (for now).
 - **Hub (TypeScript/React, hosted on Vercel)**: history, progress, comparison, guides, lessons, quizzes, AI debrief; works when the rig PC is off.
 - **Cloud (Supabase)**: lap summaries, corner stats, progress, lesson state, downsampled traces (10–20 Hz). Full-res traces stay on the PC. Data model keeps a `user_id` everywhere so sharing/public profile can come later.
 - **AI**: Claude, called server-side only (Supabase edge function / rig service) so the API key is never in the browser. All AI features toggleable; everything else works without a key.
+- **Local API safety**: the rig service listens on this PC only (unless `--lan`) and refuses browser requests whose Origin isn't its own pages or the dev server, including the WebSocket, so another website open in Chrome can't drive Pitwall, read live data or spend the API key (2026-11-04).
 - **Config without code**: layouts, widgets, thresholds, button mappings, verbosity, toggles — all editable in a settings UI (backed by a config file).
 - **Demo mode**: replay recorded sessions through the same pipeline (dev, Mac, portfolio).
 

@@ -18,10 +18,10 @@ class FakeSock:
 
 
 def frame(**kw):
-    base = dict(t=12.5, status=GameStatus.LIVE, gear=4, rpm=11500, speed_kmh=243.4, gas=1.0, brake=0.0,
-                fuel_l=42.5, brake_bias=0.57, abs=3, tc=2, lap=2, lap_time_ms=61_234, last_lap_ms=478_901,
-                lap_progress=0.25, sector=1, drs_open=True, tyre_core_temp_c=[85.0, 86.0, 80.0, 81.0],
-                tyre_pressure_psi=[27.1, 27.2, 26.1, 26.2])
+    base = {"t": 12.5, "status": GameStatus.LIVE, "gear": 4, "rpm": 11500, "speed_kmh": 243.4, "gas": 1.0, "brake": 0.0,
+                "fuel_l": 42.5, "brake_bias": 0.57, "abs": 3, "tc": 2, "lap": 2, "lap_time_ms": 61_234, "last_lap_ms": 478_901,
+                "lap_progress": 0.25, "sector": 1, "drs_open": True, "tyre_core_temp_c": [85.0, 86.0, 80.0, 81.0],
+                "tyre_pressure_psi": [27.1, 27.2, 26.1, 26.2]}
     base.update(kw)
     return Frame(**base)
 
@@ -36,10 +36,10 @@ def test_packet_sizes_match_the_f1_23_spec():
 def test_header_and_your_car_carry_the_right_values():
     w = Sf1000("10.0.0.5", sock=FakeSock())
     pkt = w.telemetry(frame(), SESSION, 3.0)
-    fmt, year, major, minor, ver, pid, uid, t, fid, ofid, me, second = HEADER.unpack_from(pkt)
+    fmt, year, _major, _minor, _ver, pid, _uid, _t, _fid, _ofid, me, second = HEADER.unpack_from(pkt)
     assert (fmt, year, pid, me, second) == (2023, 23, 6, 0, 255)
     car = TELEMETRY.unpack_from(pkt, HEADER.size)
-    speed, throttle, steer, brake, clutch, gear, rpm, drs, rev = car[:9]
+    speed, _throttle, _steer, _brake, _clutch, gear, rpm, drs, rev = car[:9]
     assert (speed, gear, rpm, drs) == (243, 4, 11500, 1)
     assert 0 < rev <= 100  # 11500 of 12000 rpm: most of the lights
     pressures = car[-8:-4]

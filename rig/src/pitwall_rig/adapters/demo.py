@@ -7,6 +7,7 @@ lap-to-lap variation (and the occasional track-limits cut).
 
 from __future__ import annotations
 
+import itertools
 import math
 import random
 import time
@@ -63,7 +64,7 @@ class DemoTrack:
         # Resample at a uniform step (interpolating, so points really are
         # step_m apart and positions agree with the car's speed).
         loop = dense + dense[:1]
-        total = sum(math.dist(a, b) for a, b in zip(loop, loop[1:], strict=False))
+        total = sum(math.dist(a, b) for a, b in itertools.pairwise(loop))
         count = max(3, int(total / step_m))
         pts = []
         j, along = 0, 0.0  # segment j starts at distance `along`

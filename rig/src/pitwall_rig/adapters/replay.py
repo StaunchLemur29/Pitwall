@@ -39,7 +39,7 @@ class Recorder:
         flush_every_s: float = 1.0,
         clock: Callable[[], float] = time.perf_counter,
     ) -> None:
-        self._f = gzip.open(path, "wb")
+        self._f = gzip.open(path, "wb")  # noqa: SIM115 -- open for the whole recording; close() shuts it
         self._clock = clock
         self._flush_every = flush_every_s
         self._flushed_at = clock()

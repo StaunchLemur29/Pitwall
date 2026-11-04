@@ -1,3 +1,4 @@
+import itertools
 import math
 
 from pitwall_rig.laps import LapRecorder
@@ -177,7 +178,7 @@ def test_a_rewind_after_a_mistake_is_a_normal_lap_but_never_a_best():
     lap = laps[0]
     assert lap.valid and lap.rewound and not lap.out_lap  # the cut was rewound away
     ps = lap.trace["p"]
-    assert all(b > a for a, b in zip(ps, ps[1:], strict=False))  # the erased bit is gone
+    assert all(b > a for a, b in itertools.pairwise(ps))  # the erased bit is gone
     assert len(lap.sector_ms) == 3 and sum(lap.sector_ms) == lap.lap_time_ms
 
 
