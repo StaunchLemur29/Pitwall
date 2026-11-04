@@ -22,6 +22,7 @@ describe("hub report matches the rig's", () => {
       expect(ts.theoretical_best_ms).toBe(py.theoretical_best_ms);
       expect(ts.car_systems).toEqual(py.car_systems);
       expect(ts.systems).toEqual(py.systems);
+      expect(ts.review ?? null).toEqual(py.review ?? null);
       expect(ts.lap?.length).toBe(py.lap?.length);
       py.lap?.forEach((pc, i) => {
         const tc = ts.lap![i];

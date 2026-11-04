@@ -226,7 +226,25 @@ export interface OptimalCorner {
   exit_kmh: number | null;
 }
 
+/** One thing about a lap: a mistake or something that went well. */
+export interface ReviewItem {
+  corner: number | null; // null: off a corner (e.g. went off on a straight)
+  label: string;
+  kind: "off" | "spin" | "slow" | "good";
+  /** against your usual lap through there (negative = gained) */
+  lost_s: number | null;
+  text: string;
+}
+
+/** The good and the bad of a lap, against your usual. */
+export interface LapReview {
+  wrong: ReviewItem[];
+  well: ReviewItem[];
+}
+
 export interface CornerReport {
+  /** where the shown lap went wrong and what went well (worked out on the PC) */
+  review?: LapReview | null;
   chapters: Chapter[];
   practice: PracticeSection[];
   mastery: Mastery[];
