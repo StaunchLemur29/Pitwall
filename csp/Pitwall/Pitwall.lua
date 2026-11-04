@@ -251,7 +251,7 @@ end
 -- fades in with the turn ahead and a countdown bar; at the braking point it
 -- flashes BRAKE; once you're past, it fades away. Nothing else.
 
--- What to show is set in Pitwall's Settings (General > In-game overlay) and
+-- What to show is set in Pitwall's Settings (Coaching > In-game overlay) and
 -- arrives with each sync; these are the defaults until then.
 settings = settings or { showTurn = true, showTurnName = true, showBrake = true, showFromM = 250 }
 local preview = false -- settings: sample content, to position the window
@@ -362,7 +362,7 @@ function script.windowSettings(dt)
   end
   if track == nil and connected then ui.text('Waiting for the track layout...') end
   ui.separator()
-  ui.textWrapped('Choose what the overlay shows in Pitwall: Settings > General > In-game overlay.')
+  ui.textWrapped('Choose what the overlay shows in Pitwall: Settings > Coaching > In-game overlay.')
   ui.textWrapped('Keep this window open: it stays invisible until a braking point is coming up.')
   ui.separator()
   if ui.checkbox('Preview (to position the window)', preview) then preview = not preview end
