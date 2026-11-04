@@ -95,6 +95,7 @@ class Rig:
         self.session: SessionInfo | None = None
         self._ctx_cache: dict[tuple[str, str, str], AnalysisCtx] = {}
         self._opt_runs: dict[tuple[str, str, str], dict[str, Any]] = {}  # optimal run per car + track
+        self._post_lap: Any = None  # queue of laps for the post-lap worker (None: do it straight away)
         self._ttb: dict[tuple[str, str, str], dict[str, Any]] = {}  # time to beat per car + track (cached)
         self.time_to_beat_ms: int | None = None  # the live car + track's lap time to beat
         # The side screen's coach strip: one focus for the session, the last lap's
@@ -244,27 +245,62 @@ class Rig:
         secs = self.store.best_sectors(s.game, s.track_key, s.car)
         self.theoretical_best_ms = sum(secs) if secs else None
 
+    def start_post_lap_worker(self) -> None:
+        """Do the work after each lap (saving, analysis, the review) on its own
+        thread, so crossing the line never stalls the live data. On a long lap
+        (the Nordschleife) that work takes a few hundred ms. Without the worker
+        (tests, scripts) it happens straight away, in order."""
+        if self._post_lap is not None:
+            return
+        import queue
+
+        self._post_lap = q = queue.Queue()
+
+        def run() -> None:
+            while True:
+                lap = q.get()
+                try:
+                    self._finish_lap(lap)
+                except Exception:  # noqa: BLE001 - never lose the worker
+                    log.exception("Couldn't finish lap %s", lap.lap_number)
+
+        threading.Thread(target=run, name="pitwall-post-lap", daemon=True).start()
+
     def _on_lap(self, lap: Lap) -> None:
-        self.store.add_lap(lap)
-        self._learn_tyre_temp(lap)
-        self.on_lap_saved()
-        new_best = lap.valid and not lap.rewound and (
-            self.reference is None or lap.lap_time_ms < self.reference.lap_time_ms)
-        if new_best:
-            self.reference = ReferenceLap(lap.trace, lap.lap_time_ms, lap.id)
-        if self.track is None or (self.track.model.source == "laps" and new_best):
-            self._load_track()  # a first (or better) lap lets us draw a learnt map
-        elif self.track is not None:
+        # Called from the telemetry thread as you cross the line: hand it on.
+        if self._post_lap is not None:
+            self._post_lap.put(lap)
+        else:
+            self._finish_lap(lap)
+
+    def _finish_lap(self, lap: Lap) -> None:
+        """Save and analyse a finished lap. Holds the rig lock only for the quick
+        state updates, so the live data keeps flowing meanwhile."""
+        self.store.add_lap(lap)  # the store has its own lock
+        with self.lock:
+            self._learn_tyre_temp(lap)
+            self.on_lap_saved()
+            new_best = lap.valid and not lap.rewound and (
+                self.reference is None or lap.lap_time_ms < self.reference.lap_time_ms)
             if new_best:
-                self.track.set_reference(lap.trace)
-                self.csp.touch()
+                self.reference = ReferenceLap(lap.trace, lap.lap_time_ms, lap.id)
+            track = self.track
+            reload = track is None or (track.model.source == "laps" and new_best)
+            if reload:
+                self._load_track()  # a first (or better) lap lets us draw a learnt map
+        if not reload and track is not None:
+            if new_best:
+                track.set_reference(lap.trace)
+                with self.lock:
+                    self.csp.touch()
             if lap.id is not None:  # every lap: the corners it drove well count, finished or not
-                self._analyse(lap.id, lap.trace)
+                self._analyse(lap.id, lap.trace, track)
             self._emit_corners(lap.id)
-        s = self.session
-        if s is not None:
-            secs = self.store.best_sectors(s.game, s.track_key, s.car)
-            self.theoretical_best_ms = sum(secs) if secs else None
+        with self.lock:
+            s = self.session
+            if s is not None:
+                secs = self.store.best_sectors(s.game, s.track_key, s.car)
+                self.theoretical_best_ms = sum(secs) if secs else None
         log.info(
             "Lap %d: %s%s%s",
             lap.lap_number,
@@ -557,9 +593,10 @@ class Rig:
         the best lap itself). The live session's car + track unless another is asked for."""
         ctx = self.analysis_ctx(game, car, track_key, lap_id)
         if ctx is not None and not ctx.live:
-            self._optimal_run(ctx, wait=True)  # outside the lock: reads a few laps
-        with self.lock:
-            return self._corner_report(ctx, lap_id, compare_id)
+            self._optimal_run(ctx, wait=True)  # reads a few laps
+        # Not under the rig lock: on a long track this takes a moment, and the
+        # live data mustn't wait for it. It works from ``ctx`` and the store.
+        return self._corner_report(ctx, lap_id, compare_id)
 
     def _corner_report(self, ctx: AnalysisCtx | None, lap_id: int | None, compare_id: int | None) -> Event:
         if ctx is None:
@@ -703,7 +740,7 @@ class Rig:
             return None  # runs over the line: needs two laps
 
         lap_trace = self.store.trace(lap_id) if lap_id is not None else None
-        view = LapView(lap_trace) if lap_trace else None
+        view = LapView.of(lap_trace) if lap_trace else None
         ref = ctx.track.ref_view
         out = []
         for ch in ctx.track.model.chapters:
@@ -718,20 +755,22 @@ class Rig:
         best clean drill attempt."""
 
         lap_trace = self.store.trace(lap_id) if lap_id is not None else None
-        view = LapView(lap_trace) if lap_trace else None
+        view = LapView.of(lap_trace) if lap_trace else None
         ref = ctx.track.ref_view
 
         def span(v: LapView | None, a: float, b: float) -> float | None:
             return round(v.time_at(b) - v.time_at(a), 3) if v and b > a and _covers(v, a, b) else None
 
         out = []
+        drilled = self.store.best_sections(ctx.game, ctx.car, ctx.track_key)  # one query, not one per section
+        tb = self._time_to_beat(ctx)
         for ps in ctx.track.model.practice:
             d = ps.to_dict()
             d["time_s"] = span(view, ps.start, ps.end)
             d["ref_s"] = span(ref, ps.start, ps.end)
-            best = self.store.best_section_ms(ctx.game, ctx.car, ctx.track_key, ps.start, ps.end)
+            best = next((ms for a, b, ms in drilled if abs(a - ps.start) < 1e-4 and abs(b - ps.end) < 1e-4), None)
             d["drill_best_s"] = best / 1000 if best else None
-            stretch = self._span_to_beat(ctx, ps.start, ps.end)
+            stretch = self._span_to_beat(ctx, ps.start, ps.end, tb)
             d["to_beat_s"] = stretch["to_beat_s"] if stretch else None
             out.append(d)
         return out
@@ -839,8 +878,9 @@ class Rig:
 
     def _emit_corners(self, lap_id: int | None) -> None:
         tb = None
-        if self.track is not None:
-            self.track.mastery = self._mastery()
+        track = self.track
+        if track is not None:
+            track.mastery = self._mastery()
             tb = self._time_to_beat(self._live_ctx())
             self.time_to_beat_ms = tb["lap_ms"] if tb else None
         rep = self.corner_report(lap_id)
@@ -985,16 +1025,18 @@ class Rig:
         self._ttb[key] = {"sig": sig, "tb": tb, "ids": ids, "views": None}
         return tb
 
-    def _span_to_beat(self, ctx: AnalysisCtx | None, start_p: float, end_p: float) -> dict[str, float] | None:
+    def _span_to_beat(self, ctx: AnalysisCtx | None, start_p: float, end_p: float,
+                      tb: dict[str, Any] | None | bool = True) -> dict[str, float] | None:
         """Time to beat for a stretch of track (a drill, a practice section):
         your usual time through it over recent clean laps, minus what the
         corners in it ask of you. Seconds; None without enough laps."""
-        tb = self._time_to_beat(ctx)
+        if tb is True:  # not worked out by the caller (it passes it, or None, to save asking again)
+            tb = self._time_to_beat(ctx)
         if tb is None or ctx is None or not end_p > start_p:
             return None
         known = self._ttb[(ctx.game, ctx.car, ctx.track_key)]
         if known["views"] is None:
-            known["views"] = [LapView(t) for t in (self.store.trace(i) for i in known["ids"]) if t]
+            known["views"] = [LapView.of(t) for t in (self.store.trace(i) for i in known["ids"]) if t]
         spans = [v.time_at(end_p) - v.time_at(start_p) for v in known["views"] if v]
         spans = [s for s in spans if s > 0]
         if len(spans) < 3:

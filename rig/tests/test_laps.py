@@ -256,3 +256,27 @@ def test_a_restart_keeps_what_you_drove_but_not_a_few_metres():
     d.lap, d.p, d.lap_ms = -1, 0.0, 0.0
     d.frame()
     assert len(laps) == 1 and laps[0].unfinished
+def test_lap_end_work_happens_off_the_telemetry_thread(demo, clock, config, store):
+    """Crossing the line hands the lap to a worker: the frame that finished the
+    lap returns at once, and the lap is saved and analysed shortly after."""
+    import time
+
+    from pitwall_rig.rig import Rig
+
+    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
+    rig.start_post_lap_worker()
+    slowest, laps = 0.0, 0
+    while laps < 2:
+        clock.advance(1 / 60)
+        a = time.perf_counter()
+        with rig.lock:
+            rig.tick()
+        slowest = max(slowest, time.perf_counter() - a)
+        laps = len(store.laps(limit=10))
+    for _ in range(200):
+        if rig._post_lap.empty():
+            break
+        time.sleep(0.01)
+    assert len(store.laps(limit=10)) >= 2
+    assert rig.corner_report()["lap"]  # analysed
+    assert slowest < 0.25  # no frame waited for the lap's analysis
