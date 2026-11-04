@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { cancelBinding, inputDevices, resetConfig, saveConfig, startBinding, useRig } from "../lib/rig";
 import type { Binding, Config, WidgetId, WidgetSlot } from "../lib/types";
 import { WIDGETS } from "../widgets";
+import { FullscreenButton } from "../widgets/Fullscreen";
 
 type Tab = "general" | "layout" | "controls" | "cloud" | "ai" | "advanced";
 
@@ -47,6 +48,7 @@ export function Settings() {
         </a>
         <h1>Settings</h1>
         <div className="settings__actions">
+          <FullscreenButton className="btn btn--ghost" />
           {saved && !dirty && <span className="ok">Saved</span>}
           <button
             className="btn btn--ghost"
