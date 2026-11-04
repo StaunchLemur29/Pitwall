@@ -338,6 +338,16 @@ function General({ draft, edit }: EditProps) {
         </select>
       </Field>
 
+      <Field
+        label="Braking points from"
+        hint="Where “brake in” counts down to, here and in the game. The optimal run is the car at its grip on the optimal line: where to get to. Until it's worked out (a few clean laps), your best lap is used."
+      >
+        <select value={draft.coach.brake_cue} onChange={(e) => edit((c) => (c.coach.brake_cue = e.target.value as Config["coach"]["brake_cue"]))}>
+          <option value="optimal">The optimal run (push yourself)</option>
+          <option value="best">Your best lap</option>
+        </select>
+      </Field>
+
       <h2>In-game overlay</h2>
       <p className="field__hint">
         Pitwall's app inside Assetto Corsa: open it from the app bar and leave it open. It stays invisible until a

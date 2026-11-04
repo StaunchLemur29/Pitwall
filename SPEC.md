@@ -161,6 +161,7 @@ Known gap: no free source of other drivers' telemetry exists for AC/EVO.
 - Pick a section: one corner, a dragged range on the map, or a named section from a pack.
 - Section gets its own timer, delta, all-time best; every pass is an attempt.
 - **Retry** (AC + CSP, offline): rewind mod if it can be triggered (keeps momentum), else teleport slightly before section start. **Retry is button-only by default**; auto-retry-after-mistake optional per drill.
+- **Brake cue aims at the optimal run** (decided 2026-11-04, owner: "the goal isn't to compare myself to myself, it's to become better"): "brake in" (side screen and in-game overlay) and the corner's target speed come from the optimal run's braking points, still adjusted for your arrival speed; gears stay from your best lap (the optimal run has none). Your best lap until the optimal run is worked out. Setting: Settings → General → Braking points from.
 - **No pass targets** (decided 2026-11-04, owner: resetting when a run isn't close enough "ignores the whole point of a drill"): every run counts and nothing resets. The card shows the last run against your best, the best, how many runs, and the recent runs as bars.
 - End-of-drill summary ("12 attempts, best −0.4 s, consistency ↑").
 

@@ -61,7 +61,7 @@ def test_track_change_tells_the_app_to_refetch(demo, clock, config, store):
     drive(rig, clock)
     v = rig.csp_sync({})["track_version"]
     rig._load_track()
-    assert rig.csp_sync({})["track_version"] == v + 1
+    assert rig.csp_sync({})["track_version"] > v  # (the optimal run arriving can bump it again)
 
 
 def test_app_installs_and_updates(tmp_path):

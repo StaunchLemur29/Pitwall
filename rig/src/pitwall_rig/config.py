@@ -59,6 +59,11 @@ DEFAULTS: dict[str, Any] = {
     # lead_in_s: a drill retry rewinds to this many seconds of driving before
     # the section starts, so you have a moment to settle before it begins.
     "drills": {"lead_in_s": 4},
+    # brake_cue: where "brake in" counts down to. "optimal" = the optimal run's
+    # braking points (the car at its grip on the optimal line: where to get to);
+    # "best" = your best lap's (where you are). Falls back to "best" until the
+    # optimal run has been worked out.
+    "coach": {"brake_cue": "optimal"},
     # The in-game overlay (CSP app): what it shows as a braking point approaches.
     "overlay": {
         "show_turn": True,  # rally-style: direction + how sharp (R3) and the gear

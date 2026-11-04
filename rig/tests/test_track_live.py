@@ -331,3 +331,34 @@ def test_teleport_point_lets_you_reach_reference_speed_from_a_standstill(demo):
     assert acc and all(abs(a - 8.0) < 0.5 for _, a in acc)
     want = 50**2 / (2 * 8.0 * ts.STANDING_MARGIN)  # ~184 m
     assert abs(ts.standing_start_m(d) - want) < 10
+
+
+def test_brake_cue_aims_at_the_optimal_run(demo, clock, config, store):
+    """With the optimal run worked out, "brake in" counts down to its braking
+    points, not your best lap's; the setting switches back."""
+    from tests.test_csp import drive
+
+    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
+    drive(rig, clock)
+    s = rig.session
+    rig.corner_report()  # works out the optimal run (in the background)
+    for _ in range(200):
+        if rig._opt_runs.get((s.game, s.car, s.track_key), {}).get("trace"):
+            break
+        import time
+
+        time.sleep(0.05)
+    run = rig._opt_runs[(s.game, s.car, s.track_key)]
+    assert run.get("rows"), "no optimal run"
+    with rig.lock:
+        rig._apply_target()
+    corners, _ = rig.track.cue()
+    braked = [n for n, r in run["rows"].items() if r.get("brake_p") is not None]
+    assert braked and all(corners[n]["brake_p"] == run["rows"][n]["brake_p"] for n in braked)
+    track = rig.csp_track()
+    assert all(c["brake_p"] == run["rows"][c["n"]]["brake_p"] for c in track["corners"] if c["n"] in braked)
+    assert any(c["gear"] for c in track["corners"])  # gears still come from your laps
+    rig.config.update({"coach": {"brake_cue": "best"}})
+    rig.tick()
+    corners, _ = rig.track.cue()
+    assert corners is rig.track.ref_corners
