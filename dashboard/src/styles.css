@@ -2787,3 +2787,48 @@ select {
     transform: translateY(8px);
   }
 }
+
+/* -- the coach strip (side screen, no drill running) ----------------------- */
+.coach {
+  justify-content: center;
+}
+
+.coach__warn {
+  color: var(--warn);
+  font-weight: 700;
+  font-size: calc(var(--u) * 2.6);
+}
+
+.coach__lap,
+.coach__focus {
+  font-size: calc(var(--u) * 2.4);
+  line-height: 1.35;
+}
+
+.coach__head {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--u) * 1.2);
+  flex-wrap: wrap;
+}
+
+.coach__head .btn {
+  margin-left: auto;
+}
+
+.coach__tag {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: calc(var(--u) * 1.7);
+  margin-right: calc(var(--u) * 0.8);
+}
+
+.coach__target {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.coach__why {
+  color: var(--muted);
+}

@@ -224,6 +224,26 @@ export interface CornerLap {
   to_beat_s?: number | null;
 }
 
+/** What the side screen's coach strip shows. */
+export interface CoachLive {
+  /** the session's one focus corner: most time to gain against its time to beat */
+  focus: {
+    corner: number;
+    label: string;
+    to_beat_s: number;
+    usual_s: number;
+    gain_s: number;
+    why: string;
+    fix: string | null;
+    beaten: number;
+    section: { number: number; name: string } | null;
+  } | null;
+  /** the lap just finished: its biggest mistake (null: none) */
+  last_lap: { lap: number | null; wrong: { label: string; text: string; lost_s: number | null } | null } | null;
+  /** tyres well under the temperature this car's usually work at */
+  tyres: { cold: boolean; avg_c: number | null; working_c: number } | null;
+}
+
 /** A realistic stretch target for one corner. */
 export interface CornerToBeat {
   corner: number;
@@ -422,6 +442,8 @@ export interface Live {
   ref_lap_ms: number | null;
   theoretical_best_ms: number | null;
   time_to_beat_ms?: number | null;
+  /** the side screen's coach strip */
+  coach?: CoachLive | null;
   driving_s: number;
   track: TrackLive | null;
 }
