@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { cancelBinding, inputDevices, resetConfig, saveConfig, startBinding, useRig } from "../lib/rig";
 import type { Binding, Config, WidgetId, WidgetSlot } from "../lib/types";
 import { WIDGETS } from "../widgets";
+import { hasUnseenNews } from "./WhatsNew";
 import { FullscreenButton } from "../widgets/Fullscreen";
 
 type Tab = "general" | "coaching" | "layout" | "controls" | "cloud" | "ai" | "advanced";
@@ -49,6 +50,9 @@ export function Settings() {
         <h1>Settings</h1>
         <a href="#/tools" className="settings__back" title="Hardware checks: force feedback clipping, brake pedal">
           Tools
+        </a>
+        <a href="#/news" className="settings__back" title="What changed in Pitwall, and anything you need to do">
+          What's new{hasUnseenNews() && <span className="news__dot" aria-label="unread" />}
         </a>
         <div className="settings__actions">
           <FullscreenButton className="btn btn--ghost" />

@@ -243,6 +243,7 @@ Reads AC `cfg/*.ini`; writes only after one-click confirm, with automatic backup
   - done: car systems strip (DRS, battery, deploy, engine brake), battery & DRS along the lap in analysis ("ran out of battery", "DRS available but not opened"), per-car profile of which systems a car has (used by the UI now, by coaching later)
   - FFB clipping meter from AC's `finalFF` (per lap, per car, with a gain suggestion) for the TS-PC — **done 2026-11-04** (Tools page: % of the time clipping over your last 10 clean laps, where, and how much to change the car's gain)
   - T-LCM pedal check: peak brake per stop vs 100 %, consistency, release smoothness; calibration advice — **done 2026-11-04** (Tools page)
+  - "What's new" page (`#/news`, linked from Settings with a dot when there's something unread): each change in plain words plus anything you have to do yourself; add an entry at the top of `views/WhatsNew.tsx` when a change ships — **done 2026-11-04**
 - **SF1000 wheel screen** (big feature): Pitwall drives the SF1000's built-in display with its own data, so key info sits on the wheel in your eyeline.
   - **Status (2026-11-04):** USB/Native mode isn't open to other programs (no public SDK; docs/research/sf1000-screen.md). Built the **Wi-Fi UDP** route: Pitwall sends F1 23 packets itself (rig `sf1000.py`), making the wheel's own pages work in AC; Settings → Controls → SF1000 wheel screen (IP, on/off, test pattern). Next: the owner's page checklist, then Pitwall's own values on the wheel.
   - Two possible routes:
