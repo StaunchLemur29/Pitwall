@@ -172,6 +172,7 @@ class Rig:
         if self.car_profile is not None and frame.status == GameStatus.LIVE and car_profile.note_frame(self.car_profile, frame):
             self._save_car_profile()
         self.laps.max_tyres_out = self.config["laps"]["max_tyres_out"]
+        self.laps.practising = self.track is not None and self.track.drill is not None
         self.laps.feed(frame, session)
         if self.recorder is not None and frame.status != GameStatus.OFF:
             self.recorder.add(frame, session)
@@ -216,7 +217,8 @@ class Rig:
     def _on_lap(self, lap: Lap) -> None:
         self.store.add_lap(lap)
         self.on_lap_saved()
-        new_best = lap.valid and (self.reference is None or lap.lap_time_ms < self.reference.lap_time_ms)
+        new_best = lap.valid and not lap.rewound and (
+            self.reference is None or lap.lap_time_ms < self.reference.lap_time_ms)
         if new_best:
             self.reference = ReferenceLap(lap.trace, lap.lap_time_ms, lap.id)
         if self.track is None or (self.track.model.source == "laps" and new_best):
@@ -422,8 +424,9 @@ class Rig:
         if len(clean) < MIN_CLEAN_LAPS:
             return None
         start = sess[0]["started_at"]
-        best = min(clean, key=lambda l: l["lap_time_ms"])
-        before = [l["lap_time_ms"] for l in laps if l["valid"] and l["started_at"] < start]
+        # A lap with a rewind in it is never a best (falls back to one if that's all there is).
+        best = min([l for l in clean if not l.get("rewound")] or clean, key=lambda l: l["lap_time_ms"])
+        before = [l["lap_time_ms"] for l in laps if l["valid"] and not l.get("rewound") and l["started_at"] < start]
         times = sorted(l["lap_time_ms"] for l in clean)
         mid = len(times) // 2
         median = times[mid] if len(times) % 2 else (times[mid - 1] + times[mid]) / 2
@@ -457,7 +460,7 @@ class Rig:
             "session": {
                 "start": start,
                 "laps": [{"lap": l["lap_number"], "time": fmt_ms(l["lap_time_ms"]), "clean": l["valid"],
-                          "out_lap": l["out_lap"]} for l in sess],
+                          "out_lap": l["out_lap"], "rewound": bool(l.get("rewound"))} for l in sess],
                 "clean_laps": len(clean),
                 "best": fmt_ms(best["lap_time_ms"]),
                 "typical": fmt_ms(int(median)),

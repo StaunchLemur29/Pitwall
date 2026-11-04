@@ -29,7 +29,7 @@ export function LapTimes() {
         </div>
         {flash && (
           <div className={`laps__flash ${flash.newBest ? "laps__flash--best" : ""}`}>
-            {flash.newBest ? "New personal best" : flash.lap.out_lap ? "Out lap" : flash.lap.valid ? "Lap complete" : "Lap invalid (track limits)"}
+            {flash.newBest ? "New personal best" : flash.lap.out_lap ? "Out lap" : flash.lap.rewound && flash.lap.valid ? "Rewind used: not a best" : flash.lap.valid ? "Lap complete" : "Lap invalid (track limits)"}
           </div>
         )}
       </div>

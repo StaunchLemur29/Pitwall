@@ -37,7 +37,8 @@ export function Progress() {
 
   const sessions = useMemo(() => (laps ? sessionsOf(laps) : []), [laps]);
   const valid = useMemo(() => (laps ?? []).filter((l) => l.valid).sort((a, b) => a.started_at - b.started_at), [laps]);
-  const pb = valid.length ? valid.reduce((a, b) => (b.lap_time_ms < a.lap_time_ms ? b : a)) : null;
+  const bestable = valid.filter((l) => !l.rewound); // a lap with a rewind in it is never a personal best
+  const pb = bestable.length ? bestable.reduce((a, b) => (b.lap_time_ms < a.lap_time_ms ? b : a)) : null;
 
   if (!combos.length) return <div className="card"><div className="upcoming">No laps uploaded yet.</div></div>;
   return (
@@ -110,7 +111,7 @@ function LapChart({ valid, pbId }: { valid: LapSummary[]; pbId: number }) {
   const [box, { w }] = useSize<HTMLDivElement>();
   const [hover, setHover] = useState<LapSummary | null>(null);
   const h = 260;
-  const pb = Math.min(...valid.map((l) => l.lap_time_ms));
+  const pb = Math.min(...valid.filter((l) => !l.rewound).map((l) => l.lap_time_ms));
   // Keep the scale on the laps that matter: slower than PB + 8 % sits on the top edge.
   const cap = pb * 1.08;
   const ys = valid.map((l) => Math.min(l.lap_time_ms, cap));
@@ -123,7 +124,7 @@ function LapChart({ valid, pbId }: { valid: LapSummary[]; pbId: number }) {
   let best = Infinity;
   const steps: string[] = [];
   valid.forEach((l, i) => {
-    if (l.lap_time_ms < best) {
+    if (!l.rewound && l.lap_time_ms < best) {
       if (best !== Infinity) steps.push(`L${sx(i).toFixed(1)},${sy(best).toFixed(1)}`);
       best = l.lap_time_ms;
       steps.push(`${steps.length ? "L" : "M"}${sx(i).toFixed(1)},${sy(best).toFixed(1)}`);
@@ -190,6 +191,7 @@ function LapChart({ valid, pbId }: { valid: LapSummary[]; pbId: number }) {
               lap {hover.lap_number} · {when(hover.started_at)}
             </span>
             {hover.lap_time_ms > pb && <span className="muted">{delta((hover.lap_time_ms - pb) / 1000, 3)} on your best</span>}
+            {hover.rewound && <span className="muted">rewind used: not a best</span>}
           </div>
         )}
       </div>

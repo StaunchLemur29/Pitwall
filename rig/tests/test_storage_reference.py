@@ -90,3 +90,35 @@ def test_store_is_safe_from_several_threads(tmp_path):
         t.join()
     assert errors == []
     assert store.unsynced_count() == 200
+
+
+def test_a_rewound_lap_is_never_the_best(store):
+    store.add_lap(make_lap(61_000, sectors=[20_000, 20_000, 21_000]))
+    fast = make_lap(59_000, sectors=[19_000, 19_000, 21_000])
+    fast.rewound = True
+    store.add_lap(fast)
+    assert store.best_lap("ac", "spa", "car_a")["lap_time_ms"] == 61_000
+    assert store.best_sectors("ac", "spa", "car_a") == [20_000, 20_000, 21_000]
+    assert store.combos()[0]["best_ms"] == 61_000
+    assert store.combos()[0]["valid_laps"] == 2  # still counts as a lap
+    assert sorted(lap["rewound"] for lap in store.laps()) == [False, True]
+
+
+def test_old_databases_get_the_rewound_column(tmp_path):
+    import sqlite3
+
+    from pitwall_rig.storage import Store
+
+    path = tmp_path / "old.sqlite"
+    db = sqlite3.connect(path)
+    db.execute("""CREATE TABLE laps (id INTEGER PRIMARY KEY, game TEXT NOT NULL, car TEXT NOT NULL,
+                  track_key TEXT NOT NULL, lap_number INTEGER NOT NULL, lap_time_ms INTEGER NOT NULL,
+                  valid INTEGER NOT NULL, out_lap INTEGER NOT NULL, started_at REAL NOT NULL,
+                  sector_ms TEXT NOT NULL, trace BLOB NOT NULL, synced_at REAL)""")
+    db.execute("INSERT INTO laps (game, car, track_key, lap_number, lap_time_ms, valid, out_lap, started_at,"
+               " sector_ms, trace) VALUES ('ac','car_a','spa',1,60000,1,0,1.0,'[]',x'')")
+    db.commit()
+    db.close()
+    s = Store(path)
+    assert s.laps()[0]["rewound"] is False
+    assert s.best_lap("ac", "spa", "car_a")["lap_time_ms"] == 60_000

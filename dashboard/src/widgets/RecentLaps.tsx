@@ -6,10 +6,11 @@ export function RecentLaps() {
   const laps = useRig((s) => s.laps);
   const session = useRig((s) => s.session);
   const valid = laps.filter((l) => l.valid);
-  const best = valid.length ? Math.min(...valid.map((l) => l.lap_time_ms)) : null;
+  const bestable = valid.filter((l) => !l.rewound); // a lap with a rewind in it is never a best
+  const best = bestable.length ? Math.min(...bestable.map((l) => l.lap_time_ms)) : null;
   const sectorCount = Math.max(0, ...laps.map((l) => l.sector_ms.length));
   const bestSectors = Array.from({ length: sectorCount }, (_, i) =>
-    Math.min(...valid.filter((l) => l.sector_ms.length === sectorCount).map((l) => l.sector_ms[i])),
+    Math.min(...bestable.filter((l) => l.sector_ms.length === sectorCount).map((l) => l.sector_ms[i])),
   );
 
   return (
@@ -31,16 +32,17 @@ export function RecentLaps() {
             </thead>
             <tbody>
               {laps.map((l) => (
-                <tr key={l.id} className={`${!l.valid ? "rlaps--invalid" : ""} ${l.lap_time_ms === best && l.valid ? "rlaps--best" : ""}`}>
+                <tr key={l.id} className={`${!l.valid ? "rlaps--invalid" : ""} ${l.lap_time_ms === best && l.valid && !l.rewound ? "rlaps--best" : ""}`}>
                   <td>{l.lap_number}</td>
                   <td>
                     {lapTime(l.lap_time_ms)}
                     {l.out_lap && <span className="tag">out</span>}
+                    {l.rewound && <span className="tag" title="Used a rewind: counts as a lap, never as a best">rewind</span>}
                     {!l.valid && !l.out_lap && <span className="tag tag--bad">cut</span>}
                   </td>
-                  <td>{best && l.valid ? (l.lap_time_ms === best ? "—" : delta((l.lap_time_ms - best) / 1000, 3)) : ""}</td>
+                  <td>{best && l.valid ? (l.lap_time_ms === best && !l.rewound ? "—" : delta((l.lap_time_ms - best) / 1000, 3)) : ""}</td>
                   {bestSectors.map((bs, i) => (
-                    <td key={i} className={l.valid && l.sector_ms[i] === bs ? "rlaps--purple" : ""}>
+                    <td key={i} className={l.valid && !l.rewound && l.sector_ms[i] === bs ? "rlaps--purple" : ""}>
                       {l.sector_ms[i] ? (l.sector_ms[i] / 1000).toFixed(2) : ""}
                     </td>
                   ))}

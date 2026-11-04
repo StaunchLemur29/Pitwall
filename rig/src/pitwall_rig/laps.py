@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -26,6 +27,48 @@ TRACE_CHANNELS = (
 )
 
 
+REWIND = "rewind"  # jumped back along the track (Time Shift, a drill retry)
+TELEPORT = "teleport"  # jumped forward, or somewhere else entirely
+
+
+class JumpDetector:
+    """Spots the car jumping instead of driving: a teleport, a rewind (Time
+    Shift, a drill retry) or a reset. Feed it live frames in order; ``step``
+    says whether this frame jumped from the last one: REWIND, TELEPORT or None.
+
+    A jump is moving further than the car's speed allows, or going backwards
+    along the track faster than a car can reverse. Paused or replay frames in
+    between don't count as time to cover ground (the comparison spans them).
+    """
+
+    BACK = 0.003  # lap fraction backwards in one frame (~15 m): only a rewind does that
+    MAX_REWIND = 0.2  # further back than this (a fifth of a lap) is a teleport, not a Time Shift rewind
+    SLACK_M = 8.0
+
+    def __init__(self) -> None:
+        self._prev: Frame | None = None
+
+    def reset(self) -> None:
+        self._prev = None
+
+    def step(self, f: Frame) -> str | None:
+        prev, self._prev = self._prev, f
+        if prev is None or f.packet_id == prev.packet_id:
+            return None
+        back = (prev.lap_progress - f.lap_progress) % 1.0
+        if self.BACK < back < 0.5:
+            return REWIND if back <= self.MAX_REWIND else TELEPORT
+        if f.world is None or prev.world is None:
+            return None
+        moved = math.dist(f.world, prev.world)
+        game_dt = (f.lap_time_ms - prev.lap_time_ms) / 1000 if f.lap == prev.lap else 0.0
+        dt = max(game_dt, min(max(f.t - prev.t, 0.0), 0.25))
+        v = max(f.speed_kmh, prev.speed_kmh) / 3.6
+        if moved <= v * dt * 1.5 + self.SLACK_M:
+            return None
+        return REWIND if 0.0 < back <= self.MAX_REWIND else TELEPORT
+
+
 @dataclass
 class _LapBuffer:
     lap_number: int
@@ -36,11 +79,30 @@ class _LapBuffer:
     trace: dict[str, list[float]] = field(default_factory=lambda: {c: [] for c in TRACE_CHANNELS})
     sector_ms: list[int] = field(default_factory=list)
     last_sector: int = 0
-    max_tyres_out: int = 0
+    cuts: list[float] = field(default_factory=list)  # where too many wheels were off (lap progress)
     last_packet: int = -1
     last_lap_ms_at_start: int = 0
+    jumped: bool = False  # teleported, or practised (drill retries): not a lap driven start to finish
+    rewound: bool = False  # used a rewind after a mistake: a normal lap, but never a best
+    discard: bool = False  # the leftover of a rewind back over the line: not a lap at all
 
-    def add(self, f: Frame) -> None:
+    def rewind_to(self, f: Frame) -> None:
+        """Time Shift took the car back: forget what it erased (samples, sector
+        times and cuts past where it landed), as if the mistake never happened."""
+        p = f.lap_progress
+        tr = self.trace
+        n = len(tr["p"])
+        while n and tr["p"][n - 1] >= p:
+            n -= 1
+        for ch in tr.values():
+            del ch[n:]
+        if f.sector < self.last_sector:
+            del self.sector_ms[f.sector:]
+            self.last_sector = f.sector
+        self.cuts = [c for c in self.cuts if c < p]
+        self.rewound = True
+
+    def add(self, f: Frame, max_tyres_out: int = 2) -> None:
         if f.packet_id == self.last_packet:
             return
         self.last_packet = f.packet_id
@@ -59,7 +121,8 @@ class _LapBuffer:
         tr["rpm"].append(f.rpm)
         tr["batt"].append(round(f.battery, 3) if f.battery is not None else 0.0)
         tr["drs"].append(2 if f.drs_open else 1 if f.drs_available else 0)
-        self.max_tyres_out = max(self.max_tyres_out, f.tyres_out)
+        if f.tyres_out > max_tyres_out:
+            self.cuts.append(f.lap_progress)
         if f.sector != self.last_sector:
             # crossed into a new sector: time of the previous ones so far
             self.sector_ms.append(f.lap_time_ms - sum(self.sector_ms))
@@ -74,8 +137,15 @@ class LapRecorder:
     """Feed it frames; it calls ``on_lap`` with each completed lap.
 
     A lap counts as *valid* when no more than ``max_tyres_out`` wheels left the
-    track (AC's own cut rule is "more than two"), and it didn't start in the pits
-    or partway round (those are flagged ``out_lap``).
+    track (AC's own cut rule is "more than two"), and it was driven from the
+    line to the line: laps started in the pits or partway round, or with a
+    teleport or drill practice in them, are flagged ``out_lap`` and never
+    count as valid, so they can't become a best lap or a reference.
+
+    A lap where you rewound after a mistake (Time Shift, not in a drill) is a
+    normal lap flagged ``rewound``: the erased bit is dropped from it, it
+    counts in your stats, but it's never a best lap, a reference or part of
+    the best sectors. Set ``practising`` while a drill runs.
     """
 
     def __init__(
@@ -93,11 +163,14 @@ class LapRecorder:
         self._session: SessionInfo | None = None
         self._buf: _LapBuffer | None = None
         self._pending: tuple[_LapBuffer, int, float] | None = None  # buffer, prev last_lap_ms, t
+        self._jumps = JumpDetector()
+        self.practising = False  # a drill is running: rewinds there are practice, not mistakes
 
     def feed(self, frame: Frame, session: SessionInfo | None) -> None:
         if session is None or frame.status == GameStatus.OFF:
             self._buf = None
             self._pending = None
+            self._jumps.reset()
             return
 
         key = (session.game, session.car, session.track_key)
@@ -105,6 +178,7 @@ class LapRecorder:
             self._session_key = key
             self._buf = None
             self._pending = None
+            self._jumps.reset()
         self._session = session
 
         self._maybe_finalize(frame)
@@ -113,8 +187,19 @@ class LapRecorder:
             return  # paused / replay: don't record, keep the buffer
 
         buf = self._buf
+        jump = self._jumps.step(frame)
+        if jump == REWIND and not self.practising:
+            if buf is not None and frame.lap == buf.lap_number:
+                buf.rewind_to(frame)
+        elif jump and buf is not None:
+            buf.jumped = True
         if buf is not None and frame.lap < buf.lap_number:
-            buf = None  # session restarted
+            # Session restarted, or rewound back over the line: the lap before
+            # is already saved, and this bit until the line isn't a lap.
+            buf = None
+            if jump == REWIND:
+                buf = self._new_buffer(frame, jumped=False)
+                buf.discard = True
 
         if buf is not None and frame.lap > buf.lap_number:
             self._pending = (buf, buf.last_lap_ms_at_start, frame.t)
@@ -122,17 +207,21 @@ class LapRecorder:
             self._maybe_finalize(frame)
 
         if buf is None:
-            buf = _LapBuffer(
-                lap_number=frame.lap,
-                started_at=self._wall(),
-                started_in_pit=frame.in_pit_box or frame.in_pit_lane,
-                first_progress=frame.lap_progress,
-                first_lap_time_ms=frame.lap_time_ms,
-                last_sector=frame.sector,
-                last_lap_ms_at_start=frame.last_lap_ms,
-            )
-            self._buf = buf
-        buf.add(frame)
+            buf = self._new_buffer(frame, jumped=bool(jump))
+        self._buf = buf
+        buf.add(frame, self.max_tyres_out)
+
+    def _new_buffer(self, frame: Frame, jumped: bool) -> _LapBuffer:
+        return _LapBuffer(
+            lap_number=frame.lap,
+            started_at=self._wall(),
+            started_in_pit=frame.in_pit_box or frame.in_pit_lane,
+            first_progress=frame.lap_progress,
+            first_lap_time_ms=frame.lap_time_ms,
+            last_sector=frame.sector,
+            last_lap_ms_at_start=frame.last_lap_ms,
+            jumped=jumped,
+        )
 
     def _maybe_finalize(self, frame: Frame) -> None:
         if self._pending is None or self._session is None:
@@ -147,7 +236,7 @@ class LapRecorder:
             lap_ms = frame.last_lap_ms
         else:
             lap_ms = int(buf.trace["t"][-1] * 1000) if buf.samples else 0
-        if buf.samples < 10 or lap_ms <= 0:
+        if buf.samples < 10 or lap_ms <= 0 or buf.discard:
             return
         sectors = list(buf.sector_ms)
         if sectors:
@@ -155,15 +244,16 @@ class LapRecorder:
         # Joined partway round (e.g. the rig service started mid-lap) or from the pits.
         # The lap clock was already running when we started recording it.
         partial = buf.first_lap_time_ms > 5000
-        out_lap = buf.started_in_pit or partial
+        out_lap = buf.started_in_pit or partial or buf.jumped
         lap = Lap(
             game=self._session.game,
             car=self._session.car,
             track_key=self._session.track_key,
             lap_number=buf.lap_number + 1,
             lap_time_ms=lap_ms,
-            valid=(not out_lap) and buf.max_tyres_out <= self.max_tyres_out,
+            valid=(not out_lap) and not buf.cuts,
             out_lap=out_lap,
+            rewound=buf.rewound and not out_lap,
             started_at=buf.started_at,
             sector_ms=sectors,
             trace=buf.trace,

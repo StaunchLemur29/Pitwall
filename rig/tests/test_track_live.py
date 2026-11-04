@@ -270,6 +270,38 @@ def test_brake_cue_holds_at_the_braking_point(demo):
     assert brake_at(50) is None  # well past it: cleared
 
 
+def test_teleporting_through_a_drill_section_records_nothing(demo):
+    m = demo_model(demo)
+    st = TrackState(m)
+    attempts = []
+    st.on_attempt = attempts.append
+    st.start_drill(Drill("Test", 0.20, 0.30), best_ms=None)
+    packet = 0
+
+    def at(p, t):
+        nonlocal packet
+        packet += 1
+        i = m.index_at(p)
+        f = Frame(t=t, status=GameStatus.LIVE, packet_id=packet, lap_progress=p, lap_time_ms=int(t * 1000),
+                  speed_kmh=150, world=(m.line.x[i], 0.0, m.line.z[i]))
+        st.update(f)
+
+    t = 0.0
+    p = 0.17
+    while p < 0.25:  # drive into the section...
+        at(p, t)
+        p, t = p + 0.0005, t + 0.05
+    at(0.32, t + 0.05)  # ...and teleport out past its end
+    assert attempts == []
+    at(0.10, t + 0.1)  # teleport before the start (e.g. the run-up) and land inside the section
+    at(0.25, t + 0.15)
+    p, t = 0.25, t + 0.15
+    while p < 0.32:
+        p, t = p + 0.0005, t + 0.05
+        at(p, t)
+    assert attempts == []  # never crossed the start line driving
+
+
 def test_teleport_point_lets_you_reach_reference_speed_from_a_standstill(demo):
     m = demo_model(demo)
     ts = TrackState(m)

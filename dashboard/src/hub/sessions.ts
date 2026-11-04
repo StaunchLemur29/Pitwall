@@ -7,7 +7,7 @@ export interface Session {
   start: number;
   laps: LapSummary[]; // valid laps, in order
   all: number; // every lap, valid or not
-  best: number;
+  best: number; // best lap without a rewind in it (any clean lap if every one had one)
   median: number;
   spread: number; // standard deviation of valid laps (ms)
 }
@@ -28,7 +28,9 @@ export function sessionsOf(laps: LapSummary[]): Session[] {
       const median = s.length % 2 ? s[s.length >> 1] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
       const mean = v.reduce((a, b) => a + b, 0) / v.length;
       const spread = Math.sqrt(v.reduce((a, b) => a + (b - mean) ** 2, 0) / v.length);
-      return { start: g[0].started_at, laps: g.filter((l) => l.valid), all: g.length, best: s[0], median, spread };
+      const bestable = g.filter((l) => l.valid && !l.rewound).map((l) => l.lap_time_ms);
+      const best = bestable.length ? Math.min(...bestable) : s[0];
+      return { start: g[0].started_at, laps: g.filter((l) => l.valid), all: g.length, best, median, spread };
     })
     .filter((x): x is Session => x !== null);
 }

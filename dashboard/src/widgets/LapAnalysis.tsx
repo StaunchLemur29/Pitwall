@@ -362,7 +362,7 @@ export function LapAnalysis({
       {valid.map((l) => (
         <option key={l.id} value={l.id}>
           Lap {l.lap_number} · {lapTime(l.lap_time_ms)}
-          {l.id === report?.reference_lap_id ? " (best)" : ""}
+          {l.id === report?.reference_lap_id ? " (best)" : l.rewound ? " (rewind)" : ""}
         </option>
       ))}
     </select>
@@ -379,7 +379,7 @@ export function LapAnalysis({
               .map((l) => (
                 <option key={l.id} value={l.id}>
                   Lap {l.lap_number} · {lapTime(l.lap_time_ms)}
-                  {l.id === report?.reference_lap_id ? " (best)" : ""}
+                  {l.id === report?.reference_lap_id ? " (best)" : l.rewound ? " (rewind)" : ""}
                 </option>
               ))}
           </select>

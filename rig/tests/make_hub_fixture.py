@@ -32,13 +32,17 @@ def main() -> None:
         clock.advance(1 / 60)
         rig.tick()
     s = rig.session
+    # One of the fastest laps used a rewind: it must never be the best, on the PC or the hub.
+    fastest = store.fastest_valid_lap_ids(s.game, s.track_key, s.car, limit=1)[0]
+    store._db.execute("UPDATE laps SET rewound=1 WHERE id=?", (fastest,))
+    rig._load_reference()
     sync = CloudSync(store, tmp, geometry_for=rig.track_geometry, extras_for=rig.cloud_extras)
     sync.settings["rig_id"] = "fixture"
     rows = []
     for info in store.laps(s.game, s.track_key, s.car, limit=100):
         r = sync._lap_row(info["id"], "fixture")
         rows.append({
-            "id": info["id"], "lap_number": r["lap_number"], "lap_time_ms": r["lap_time_ms"], "valid": r["valid"], "out_lap": r["out_lap"],
+            "id": info["id"], "lap_number": r["lap_number"], "lap_time_ms": r["lap_time_ms"], "valid": r["valid"], "out_lap": r["out_lap"], "rewound": r["rewound"],
             "started_at": info["started_at"], "sector_ms": r["sector_ms"], "corners": r["corners"],
             "systems": r["systems"],
             "trace": {"t": r["trace"]["t"], "p": r["trace"]["p"]} if r["trace"] else None,

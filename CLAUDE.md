@@ -13,6 +13,6 @@ A sim-racing coach and racing hub for one driver (the owner). `SPEC.md` is the p
 ## Working conventions
 
 - One branch per piece of work, from the latest `main`; the owner merges pull requests. Before pushing to a branch, check whether its pull request is still open: once merged, follow-up work goes on a fresh branch and a new pull request.
-- Verify before reporting: `rig` tests (`uv run pytest`), dashboard type-check, tests and build, and for the in-game app `csp/harness.py` (runs the Lua app outside AC against a live service). For UI changes, screenshot with Playwright and look.
+- Verify before reporting: `rig` tests (`uv run pytest`), dashboard type-check, tests and build, and for the in-game app `csp/harness.py` (runs the Lua app outside AC against a live service). For UI changes, screenshot with Playwright and look: the main app at 1080×1920 portrait (it lives on the side screen), the analysis window and the hub at landscape sizes.
 - The in-game CSP app (`csp/Pitwall`) uses only CSP Lua APIs confirmed in CSP's own app sources; check there before using a new call.
 - Things the owner turned down stay out: car-system controls from Pitwall (AC binds them itself), copying third-party HUD styles.

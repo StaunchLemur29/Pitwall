@@ -10,10 +10,10 @@ const laps: HubLap[] = fx.laps.map((l: HubLap & { trace: Trace | null }) => ({ .
 const traces = new Map<number, Trace>(fx.laps.filter((l: { trace: Trace | null }) => l.trace).map((l: { id: number; trace: Trace }) => [l.id, l.trace]));
 const input = { game: fx.game, car: fx.car, track_key: fx.track_key, laps, geometry: fx.geometry, profile: fx.profile, traces };
 
-/** Same values, numbers within 0.01 (section times use 20 Hz telemetry on the hub). */
+/** Same values; numbers within 0.01, section times within 0.06 (the hub has 20 Hz telemetry, the rig 60). */
 function close(a: unknown, b: unknown, path = ""): void {
   if (typeof a === "number" && typeof b === "number") {
-    expect(Math.abs(a - b), path).toBeLessThan(0.011);
+    expect(Math.abs(a - b), path).toBeLessThan(path.startsWith(".practice_sections") ? 0.06 : 0.011);
   } else if (Array.isArray(a) && Array.isArray(b)) {
     expect(a.length, path).toBe(b.length);
     a.forEach((x, i) => close(x, b[i], `${path}[${i}]`));

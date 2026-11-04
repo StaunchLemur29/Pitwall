@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS laps (
     lap_time_ms INTEGER NOT NULL,
     valid INTEGER NOT NULL,
     out_lap INTEGER NOT NULL,
+    rewound INTEGER NOT NULL DEFAULT 0,  -- used a rewind after a mistake: never a best lap
     started_at REAL NOT NULL,
     sector_ms TEXT NOT NULL,
     trace BLOB NOT NULL,
@@ -142,6 +143,9 @@ class Store:
         self._db = _LockedConnection(conn, self._lock)
         with self._lock, self._db:
             self._db.executescript(SCHEMA)
+            cols = {r["name"] for r in self._db.execute("PRAGMA table_info(laps)").fetchall()}
+            if "rewound" not in cols:  # databases from before rewinds were tracked
+                self._db.execute("ALTER TABLE laps ADD COLUMN rewound INTEGER NOT NULL DEFAULT 0")
             self._db.execute(
                 "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
                 (SCHEMA_VERSION,),
@@ -153,7 +157,7 @@ class Store:
         with self._lock, self._db:
             cur = self._db.execute(
                 """INSERT INTO laps (game, car, track_key, lap_number, lap_time_ms, valid,
-                   out_lap, started_at, sector_ms, trace) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                   out_lap, rewound, started_at, sector_ms, trace) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     lap.game,
                     lap.car,
@@ -162,6 +166,7 @@ class Store:
                     lap.lap_time_ms,
                     int(lap.valid),
                     int(lap.out_lap),
+                    int(lap.rewound),
                     lap.started_at,
                     json.dumps(lap.sector_ms),
                     pack_trace(lap.trace),
@@ -179,7 +184,7 @@ class Store:
     ) -> list[dict[str, Any]]:
         where, args = self._filter(game, track_key, car)
         rows = self._db.execute(
-            f"""SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap,
+            f"""SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap, rewound,
                 started_at, sector_ms FROM laps {where} ORDER BY started_at DESC LIMIT ?""",
             (*args, limit),
         ).fetchall()
@@ -190,7 +195,7 @@ class Store:
         rows = self._db.execute(
             """SELECT game, car, track_key, COUNT(*) AS laps, SUM(valid) AS valid_laps,
                       MAX(started_at) AS last_driven,
-                      MIN(CASE WHEN valid=1 THEN lap_time_ms END) AS best_ms
+                      MIN(CASE WHEN valid=1 AND rewound=0 THEN lap_time_ms END) AS best_ms
                FROM laps GROUP BY game, car, track_key ORDER BY last_driven DESC"""
         ).fetchall()
         return [dict(r) for r in rows]
@@ -272,7 +277,7 @@ class Store:
 
     def lap(self, lap_id: int) -> dict[str, Any] | None:
         row = self._db.execute(
-            """SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap,
+            """SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap, rewound,
                started_at, sector_ms FROM laps WHERE id=?""",
             (lap_id,),
         ).fetchone()
@@ -280,9 +285,9 @@ class Store:
 
     def best_lap(self, game: str, track_key: str, car: str) -> dict[str, Any] | None:
         row = self._db.execute(
-            """SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap,
+            """SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap, rewound,
                started_at, sector_ms FROM laps
-               WHERE game=? AND track_key=? AND car=? AND valid=1
+               WHERE game=? AND track_key=? AND car=? AND valid=1 AND rewound=0
                ORDER BY lap_time_ms ASC LIMIT 1""",
             (game, track_key, car),
         ).fetchone()
@@ -291,7 +296,7 @@ class Store:
     def best_sectors(self, game: str, track_key: str, car: str) -> list[int]:
         """Best time for each sector over valid laps (for the theoretical best)."""
         rows = self._db.execute(
-            "SELECT sector_ms FROM laps WHERE game=? AND track_key=? AND car=? AND valid=1",
+            "SELECT sector_ms FROM laps WHERE game=? AND track_key=? AND car=? AND valid=1 AND rewound=0",
             (game, track_key, car),
         ).fetchall()
         best: list[int] = []
@@ -312,7 +317,7 @@ class Store:
         falling back to any complete lap."""
         row = self._db.execute(
             """SELECT id FROM laps WHERE game=? AND track_key=?
-               ORDER BY valid DESC, out_lap ASC, lap_time_ms ASC LIMIT 1""",
+               ORDER BY valid DESC, out_lap ASC, rewound ASC, lap_time_ms ASC LIMIT 1""",
             (game, track_key),
         ).fetchone()
         return int(row["id"]) if row else None
@@ -336,7 +341,7 @@ class Store:
 
     def fastest_valid_lap_ids(self, game: str, track_key: str, car: str, limit: int = 8) -> list[int]:
         rows = self._db.execute(
-            """SELECT id FROM laps WHERE game=? AND track_key=? AND car=? AND valid=1
+            """SELECT id FROM laps WHERE game=? AND track_key=? AND car=? AND valid=1 AND rewound=0
                ORDER BY lap_time_ms ASC, id ASC LIMIT ?""",
             (game, track_key, car, limit),
         ).fetchall()
@@ -406,6 +411,7 @@ class Store:
         d = dict(r)
         d["valid"] = bool(d["valid"])
         d["out_lap"] = bool(d["out_lap"])
+        d["rewound"] = bool(d.get("rewound", 0))
         d["sector_ms"] = json.loads(d["sector_ms"])
         return d
 
