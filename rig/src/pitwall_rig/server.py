@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import threading
-import time
 import json
 import logging
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -435,7 +435,7 @@ def _summ(xs: list[float]) -> dict[str, float] | None:
     if not xs:
         return None
     s = sorted(xs)
-    pick = lambda q: round(s[min(len(s) - 1, int(q * len(s)))], 2)  # noqa: E731
+    pick = lambda q: round(s[min(len(s) - 1, int(q * len(s)))], 2)
     return {"n": len(s), "avg": round(sum(s) / len(s), 2), "p50": pick(0.5), "p95": pick(0.95), "p99": pick(0.99),
             "max": round(s[-1], 2)}
 
@@ -494,7 +494,7 @@ def _rig_thread(app: web.Application, loop: asyncio.AbstractEventLoop, stop: thr
             try:
                 with rig.lock:
                     rig.tick()
-            except Exception:  # noqa: BLE001 - never let one bad frame kill the loop
+            except Exception:
                 log.exception("Error while reading telemetry")
             next_poll = max(next_poll + 1.0 / rig.config["rates"]["poll_hz"], now)
             # Send straight after a fresh read. (Separate schedules at the same

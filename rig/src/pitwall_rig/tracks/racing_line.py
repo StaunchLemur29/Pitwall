@@ -72,7 +72,7 @@ class _Problem:
         self.n, self.xs, self.zs, self.lo, self.hi = n, xs, zs, lo, hi
         self._memo: dict[tuple, list[float]] = {}
         self.nrm = nrm = _normals(xs, zs)
-        dot = lambda i, j: nrm[i][0] * nrm[j][0] + nrm[i][1] * nrm[j][1]  # noqa: E731
+        dot = lambda i, j: nrm[i][0] * nrm[j][0] + nrm[i][1] * nrm[j][1]
         self.h0 = [6.0 for _ in range(n)]
         self.h1 = [-4.0 * dot(i, (i + 1) % n) for i in range(n)]  # H[i][i+1]
         self.h2 = [1.0 * dot(i, (i + 2) % n) for i in range(n)]  # H[i][i+2]
@@ -208,7 +208,7 @@ class _Problem:
             for i in range(n):
                 off = h1[i] * alpha[(i + 1) % n] + h1[i - 1] * alpha[i - 1] + h2[i] * alpha[(i + 2) % n] + h2[i - 2] * alpha[i - 2]
                 a = alpha[i] + 1.6 * (-(g[i] + off) / h0[i] - alpha[i])
-                a = lo[i] if a < lo[i] else hi[i] if a > hi[i] else a
+                a = lo[i] if a < lo[i] else min(a, hi[i])
                 biggest = max(biggest, abs(a - alpha[i]))
                 alpha[i] = a
             if biggest < 1e-6:

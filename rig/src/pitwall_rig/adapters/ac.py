@@ -9,7 +9,6 @@ from collections.abc import Callable
 from typing import Protocol
 
 from ..models import Capabilities, Frame, GameStatus, SessionInfo, SessionType
-from .base import GameAdapter
 from .ac_structs import (
     AC_LIVE,
     AC_PAUSE,
@@ -23,6 +22,7 @@ from .ac_structs import (
     SPageFileStatic,
     decode_wstr,
 )
+from .base import GameAdapter
 
 _STATUS = {AC_REPLAY: GameStatus.REPLAY, AC_LIVE: GameStatus.LIVE, AC_PAUSE: GameStatus.PAUSED}
 

@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .ac_files import Section, TrackLine, lateral_position
-from .racing_line import optimal_offsets, offsets_to_points
+from .racing_line import offsets_to_points, optimal_offsets
 
 # Optimal lines already worked out, by track (models get rebuilt; the line doesn't change).
 _OPTIMAL: dict[tuple[str, int, float], list[float]] = {}
@@ -119,7 +119,7 @@ class TrackModel:
         left, right = line.edges() if self.has_edges else ([], [])
         off = self.optimal(compute=compute_optimal)
         opt = offsets_to_points(line, off) if off else []
-        r2 = lambda v: round(v, 1)  # noqa: E731
+        r2 = lambda v: round(v, 1)
         return {
             "track_key": self.track_key,
             "length_m": round(self.length_m, 1),
@@ -190,7 +190,7 @@ def detect_corners(
     spacing = line.length / (n - 1)
     curv = _smooth(_signed_curvature(line), max(1, int(15 / spacing)))
     thr = 1.0 / min_radius_m
-    sign = lambda i: (1 if curv[i] > 0 else -1) if abs(curv[i]) > thr else 0  # noqa: E731
+    sign = lambda i: (1 if curv[i] > 0 else -1) if abs(curv[i]) > thr else 0
 
     # Start scanning on a straight so no corner straddles index 0.
     start = next((i for i in range(n) if sign(i) == 0), 0)
@@ -212,7 +212,7 @@ def detect_corners(
             continue
         apex = max(idx, key=lambda i: abs(curv[i]))
         radius = 1.0 / abs(curv[apex]) if curv[apex] else 1e9
-        prog = lambda i: line.dist[i] / line.length  # noqa: E731
+        prog = lambda i: line.dist[i] / line.length
         entry_p, exit_p = prog(idx[0]), prog(idx[-1])
         if exit_p < entry_p:  # runs over the start line: end it at the line
             exit_p = 0.99999

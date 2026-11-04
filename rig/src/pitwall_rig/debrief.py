@@ -194,7 +194,7 @@ class Debriefer:
                 self.write_now(game, car, track_key)
             except DebriefError as e:
                 log.warning("Debrief: %s", e)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.exception("Debrief failed")
 
         threading.Thread(target=run, name="pitwall-debrief", daemon=True).start()

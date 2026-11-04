@@ -26,10 +26,10 @@ def _monotonic(trace: dict[str, list[float]]) -> list[int]:
 class LapView:
     """Lookups into one lap trace by track progress."""
 
-    _recent: list[tuple[dict[str, list[float]], "LapView"]] = []  # (trace, view), newest last
+    _recent: list[tuple[dict[str, list[float]], LapView]] = []  # (trace, view), newest last
 
     @classmethod
-    def of(cls, trace: dict[str, list[float]]) -> "LapView":
+    def of(cls, trace: dict[str, list[float]]) -> LapView:
         """The view of this exact trace object, made once: building one for a long
         lap (the Nordschleife) takes a while, and the same lap is looked at
         several times after it's driven. Traces never change once saved."""

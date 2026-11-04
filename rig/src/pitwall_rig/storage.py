@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-import struct
-from array import array
 import sqlite3
+import struct
 import threading
 import time
 import zlib
+from array import array
 from pathlib import Path
 from typing import Any
 
@@ -153,7 +153,7 @@ class _LockedConnection:
         self._conn.__enter__()
         return self
 
-    def __exit__(self, *exc: Any) -> None:
+    def __exit__(self, *exc: object) -> None:
         self._conn.__exit__(*exc)
 
 

@@ -81,7 +81,7 @@ def test_width_advice_for_a_right_hander():
 
 
 def test_mastery_grades():
-    lap = lambda t: [{"corner": 1, "time_s": t}]  # noqa: E731
+    lap = lambda t: [{"corner": 1, "time_s": t}]
     steady = corner_mastery([lap(5.0), lap(5.02), lap(4.98), lap(5.01)])
     assert steady[1]["grade"] == "green"
     messy = corner_mastery([lap(5.0), lap(5.6), lap(4.9), lap(5.9)])

@@ -11,7 +11,13 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .browser import close_all, close_window, minimize_window, open_analysis, open_dashboard
+from .browser import (
+    close_all,
+    close_window,
+    minimize_window,
+    open_analysis,
+    open_dashboard,
+)
 from .config import Config, ConfigError, default_data_dir
 from .input import InputService
 from .rig import Rig
