@@ -86,6 +86,88 @@ bar (the Pitwall icon). It adds:
 The app needs the Pitwall service running. If it says "Pitwall isn't
 running", start `scripts\start.bat`.
 
+### Cloud hub (laps on the MacBook)
+
+Pitwall can upload your laps to your own free Supabase project, so the hub can
+show them while the PC is off. One-time setup:
+
+1. Create a project at [supabase.com](https://supabase.com) (free tier is plenty).
+2. In the project: **SQL Editor → New query**, paste all of
+   [`cloud/schema.sql`](cloud/schema.sql), **Run**. That creates the tables and
+   the rules that only let your login see your data.
+3. **Authentication → Users → Add user → Create new user**: your email and a
+   password, with **Auto Confirm User** ticked.
+4. **Project Settings → API**: copy the **Project URL** and the **anon public** key.
+5. In Pitwall: **Settings → Cloud**, paste both, enter the email and password,
+   **Connect**.
+
+From then on every lap uploads in the background (with its corner analysis,
+telemetry at ~20 samples a second, the track layout and the car's profile).
+Laps driven offline upload when you're back online. Your password isn't
+stored; Pitwall keeps a sign-in token in `%APPDATA%\Pitwall\cloud.json`.
+Demo and replay laps stay on the PC.
+
+**The hub website** (your laps on the MacBook or phone) is hosted free on
+Vercel. One-time setup:
+
+1. Sign in at [vercel.com](https://vercel.com) with GitHub, then **Add New →
+   Project** and import the Pitwall repository.
+2. **Root Directory**: `dashboard`. Leave the framework as **Other**: the
+   build settings come from `dashboard/vercel.json`.
+3. **Environment Variables**: `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`,
+   the same Project URL and anon key you gave Pitwall.
+4. **Deploy**, open the address it gives you, and sign in with the same email
+   and password.
+
+It redeploys by itself whenever `main` changes on GitHub. Run it locally with
+`npm run dev:hub` (in `dashboard`, with the two variables set).
+
+**Database updates apply themselves.** When a change to `cloud/schema.sql`
+reaches `main`, a GitHub Action applies it to your Supabase database. One-time
+setup:
+
+1. In Supabase, click **Connect** (top of the project), choose **Session
+   pooler** and copy the URI. Put your database password in place of
+   `[YOUR-PASSWORD]` (forgotten it? **Project Settings → Database → Reset
+   database password**).
+2. On GitHub: the Pitwall repository → **Settings → Secrets and variables →
+   Actions → New repository secret**. Name `SUPABASE_DB_URL`, value the URI.
+3. **Actions → Apply database schema → Run workflow** once, to check it works.
+
+If Pitwall's Settings → Cloud ever says the tables are out of date, check
+that the Action ran (GitHub → Actions), or run it again from there.
+
+### AI debrief
+
+After a session with at least 3 clean laps, Claude writes a short
+race-engineer debrief: the one change worth the most time (where, what to do,
+a target), a couple of smaller notes, what's going well, and a section to
+drill. It shows in the analysis (PC and hub). Setup: create an API key at
+[console.anthropic.com](https://console.anthropic.com) (API Keys, and add some
+credit under Billing), then paste it into **Settings → AI**. It's checked,
+then kept on the PC only (`%APPDATA%\Pitwall\ai.json`). Each debrief costs
+roughly 10 cents. Turn automatic debriefs off in the same tab; the
+**Write debrief** button in the analysis still works.
+
+**Debriefs from the hub (PC off).** The hub can write one too, for your latest
+session on the car + track you're looking at. The key then also lives in
+Supabase as a hidden secret (never in the browser), and a GitHub Action puts
+it there. One-time setup, in GitHub under **Settings → Secrets and variables →
+Actions → New repository secret**:
+
+1. `SUPABASE_ACCESS_TOKEN`: make one at
+   [supabase.com/dashboard/account/tokens](https://supabase.com/dashboard/account/tokens)
+   (**Generate new token**).
+2. `ANTHROPIC_API_KEY`: the same key as on the PC.
+3. `PITWALL_EMAIL`: the email you sign in to the hub with. Only that account
+   can write debriefs, so nobody else can spend your credit.
+
+Then **Actions → Deploy hub function → Run workflow**. When it's green, the
+hub's analysis has a **Write debrief** button. It uses `SUPABASE_DB_URL` (from
+the database step above) to know which project; if it can't tell, it asks for
+a `SUPABASE_PROJECT_REF` secret. New key later? Update the secret and run the
+workflow again.
+
 ### Recording a session (helps development)
 
 ```bat

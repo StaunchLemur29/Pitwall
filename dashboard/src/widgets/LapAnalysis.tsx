@@ -3,10 +3,13 @@ import { delta, lapTime } from "../lib/format";
 import { fitTrack, type Pt } from "../lib/geometry";
 import { timeLookup, type Trace } from "../lib/profile";
 import { prettyName } from "../lib/format";
-import { fetchCombos, fetchCorners, fetchGeometry, fetchLaps, fetchTrace, rig, startDrill, useRig, type Combo } from "../lib/rig";
+import { rig, startDrill, useRig, type Combo } from "../lib/rig";
+import { useSource } from "../lib/source";
 import { GRADE_COLORS, indexAt, pathOf, type P } from "../lib/track";
 import type { CornerLap, CornerReport, LapSummary, TrackGeometry } from "../lib/types";
 import { CornerDetail } from "./CornerDetail";
+import { DebriefCard } from "./DebriefCard";
+import { Panel, useSplit } from "./Panel";
 import { Card, useSize } from "./common";
 
 type Mode = "phase" | "speed" | "delta" | "grade" | "systems";
@@ -18,15 +21,19 @@ const MODES: [Mode, string][] = [
 ];
 
 /** Post-session view: a lap summary, your line on the map, and any corner in detail against another lap. */
+const NO_LAPS: LapSummary[] = [];
 const comboKey = (c: Combo | null) => (c ? `${c.game}|${c.car}|${c.track_key}` : "live");
 
 export function LapAnalysis({
   wide = false,
   onShowing,
 }: { wide?: boolean; onShowing?: (c: { car: string; track_key: string } | null) => void } = {}) {
-  const liveG = useRig((s) => s.track);
-  const latest = useRig((s) => s.corners);
-  const liveLaps = useRig((s) => s.laps);
+  const src = useSource();
+  // The live session (rig PC only); the hub has none and starts from your last car + track.
+  const liveG = useRig((s) => (src.live ? s.track : null));
+  const latest = useRig((s) => (src.live ? s.corners : null));
+  const rigLaps = useRig((s) => s.laps);
+  const liveLaps = src.live ? rigLaps : NO_LAPS;
   const liveTheo = useRig((s) => s.live.theoretical_best_ms);
   // Which car + track: the one you're driving, or any you've driven before.
   const [combos, setCombos] = useState<Combo[]>([]);
@@ -34,7 +41,7 @@ export function LapAnalysis({
   const [comboG, setComboG] = useState<TrackGeometry | null>(null);
   const [comboLaps, setComboLaps] = useState<LapSummary[]>([]);
   useEffect(() => {
-    fetchCombos().then(setCombos);
+    src.combos().then(setCombos);
   }, [liveLaps.length, liveG]);
   const active = combo ?? (!liveG && combos[0] ? combos[0] : null);
   const activeKey = comboKey(active);
@@ -42,8 +49,8 @@ export function LapAnalysis({
     if (!active) return;
     let ok = true;
     setComboG(null);
-    fetchGeometry(active).then((x) => ok && setComboG(x));
-    fetchLaps(active).then((x) => ok && setComboLaps(x));
+    src.geometry(active).then((x) => ok && setComboG(x));
+    src.laps(active).then((x) => ok && setComboLaps(x));
     return () => {
       ok = false;
     };
@@ -63,7 +70,7 @@ export function LapAnalysis({
   useEffect(() => {
     if (requested === null && !active) return;
     let live = true;
-    fetchCorners(requested, compareId, active).then((r) => live && setReport(r));
+    src.corners(requested, compareId, active).then((r) => live && setReport(r));
     return () => {
       live = false;
     };
@@ -72,7 +79,7 @@ export function LapAnalysis({
   useEffect(() => {
     if (shownId === null) return;
     let live = true;
-    fetchTrace(shownId, 30).then((t) => live && setTrace(t));
+    src.trace(shownId, 30).then((t) => live && setTrace(t));
     return () => {
       live = false;
     };
@@ -81,7 +88,7 @@ export function LapAnalysis({
   useEffect(() => {
     onShowing?.(report?.car && report.track_key ? { car: report.car, track_key: report.track_key } : null);
   }, [report?.car, report?.track_key]); // eslint-disable-line react-hooks/exhaustive-deps
-  const canDrill = !active; // drills run on the car + track you're driving
+  const canDrill = src.live && !active; // drills run on the car + track you're driving
   const pickCombo = (key: string) => {
     const c = combos.find((x) => comboKey(x) === key) ?? null;
     setCombo(c && !c.live ? c : null);
@@ -107,7 +114,7 @@ export function LapAnalysis({
   useEffect(() => {
     if (otherId === null) return setOtherTrace(null);
     let live = true;
-    fetchTrace(otherId, 30).then((t) => live && setOtherTrace(t));
+    src.trace(otherId, 30).then((t) => live && setOtherTrace(t));
     return () => {
       live = false;
     };
@@ -124,6 +131,8 @@ export function LapAnalysis({
         .slice(0, 3),
     [rows, g],
   );
+
+  const [split, startSplit, resetSplit] = useSplit("split", 46);
 
   if (!g) {
     return (
@@ -209,9 +218,9 @@ export function LapAnalysis({
                   Practise {section.name}
                 </button>
               )}
-              <button className="btn btn--sm btn--ghost" onClick={() => rig.action("open_analysis")}>
+              {src.live && <button className="btn btn--sm btn--ghost" onClick={() => rig.action("open_analysis")}>
                 Full breakdown ↗
-              </button>
+              </button>}
             </div>
           </div>
         )}
@@ -235,7 +244,7 @@ export function LapAnalysis({
   const systemsBlock =
     report && (systemNotes.length > 0 || report.car_systems?.length) ? (
       <div className="sysnotes">
-        <div className="chapters__title">Car systems</div>
+        {!wide && <div className="chapters__title">Car systems</div>}
         {report.car_systems?.length ? <div className="sysnotes__car">{report.car_systems.join(" · ")}</div> : null}
         {systemNotes.map((n) => (
           <div key={n} className="sysnotes__note">{n}</div>
@@ -276,7 +285,7 @@ export function LapAnalysis({
         </>
       )}
       {!wide && systemsBlock}
-      <div className="chapters__title">Sections{wide ? " · click a corner for the detail" : ""}</div>
+      {!wide && <div className="chapters__title">Sections</div>}
       {(report?.practice?.length ? report.practice : g.practice).map((ps) => {
         const d = ps.time_s != null && ps.ref_s != null ? ps.time_s - ps.ref_s : null;
         return (
@@ -334,15 +343,19 @@ export function LapAnalysis({
     <Card title="Lap analysis" right={wide ? pickers : lapPicker}>
       {!wide && comboPicker && <div className="la__combo">{comboPicker}</div>}
       {wide ? (
-        <div className="la la--wide">
+        <div className="la la--wide" style={{ gridTemplateColumns: `minmax(0, ${split}%) 12px minmax(340px, 1fr)` }}>
           <div className="la__left">
-            {summary}
-            {systemsBlock}
-            {modes}
-            <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />
-            <Legend mode={mode} label={label} />
-            {list}
+            <Panel id="summary" title="Lap summary">{summary}</Panel>
+            <DebriefCard panel combo={report?.game && report.car && report.track_key ? { game: report.game, car: report.car, track_key: report.track_key } : null} />
+            {systemsBlock && <Panel id="systems" title="Car systems">{systemsBlock}</Panel>}
+            <Panel id="map" title="Map" height={420} minHeight={220}>
+              {modes}
+              <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} />
+              <Legend mode={mode} label={label} />
+            </Panel>
+            <Panel id="sections" title="Sections" right={<span className="muted pnl__hint">click a corner for the detail</span>}>{list}</Panel>
           </div>
+          <div className="la__split" role="separator" aria-label="Resize columns" title="Drag to resize · double-click to reset" onPointerDown={startSplit} onDoubleClick={resetSplit} />
           <div className="la__right">
             {corner && mine ? (
               <CornerDetail

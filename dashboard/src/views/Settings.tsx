@@ -3,7 +3,7 @@ import { cancelBinding, inputDevices, resetConfig, saveConfig, startBinding, use
 import type { Binding, Config, WidgetId, WidgetSlot } from "../lib/types";
 import { WIDGETS } from "../widgets";
 
-type Tab = "general" | "layout" | "controls" | "advanced";
+type Tab = "general" | "layout" | "controls" | "cloud" | "ai" | "advanced";
 
 export function Settings() {
   const live = useRig((s) => s.config);
@@ -74,9 +74,9 @@ export function Settings() {
       )}
 
       <nav className="tabs">
-        {(["general", "layout", "controls", "advanced"] as Tab[]).map((t) => (
+        {(["general", "layout", "controls", "cloud", "ai", "advanced"] as Tab[]).map((t) => (
           <button key={t} className={`tabs__tab ${tab === t ? "tabs__tab--on" : ""}`} onClick={() => setTab(t)}>
-            {t[0].toUpperCase() + t.slice(1)}
+            {t === "ai" ? "AI" : t[0].toUpperCase() + t.slice(1)}
           </button>
         ))}
       </nav>
@@ -87,6 +87,8 @@ export function Settings() {
       {tab === "controls" && (
         <Controls draft={draft} edit={edit} actions={actions} bindingAction={bindingAction} dirty={dirty} />
       )}
+      {tab === "cloud" && <Cloud />}
+      {tab === "ai" && <AI />}
       {tab === "advanced" && (
         <Advanced
           draft={draft}
@@ -100,6 +102,177 @@ export function Settings() {
         />
       )}
       </div>
+    </div>
+  );
+}
+
+interface CloudStatus {
+  connected: boolean;
+  state: "off" | "idle" | "syncing" | "error";
+  error?: string | null;
+  email?: string | null;
+  url?: string | null;
+  last_sync?: number | null;
+  pending?: number;
+  demo?: boolean;
+}
+
+/** Cloud sync to the hub: connect once, then laps upload in the background. */
+function Cloud() {
+  const [st, setSt] = useState<CloudStatus | null>(null);
+  const [form, setForm] = useState({ url: "", anon_key: "", email: "", password: "" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const load = () => fetch("/api/cloud").then((r) => r.json()).then(setSt).catch(() => {});
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 3000);
+    return () => clearInterval(id);
+  }, []);
+  const post = async (path: string, body?: unknown) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+      const j = await r.json();
+      if (!r.ok) setErr(j.error ?? "Something went wrong");
+      else {
+        setSt(j);
+        setForm((f) => ({ ...f, password: "" }));
+      }
+    } catch {
+      setErr("Couldn't reach the Pitwall service");
+    }
+    setBusy(false);
+  };
+  if (!st) return <div className="panel">Loading…</div>;
+  if (st.demo) return <div className="panel"><p className="field__hint">Cloud sync is off in demo mode (demo laps stay on this PC).</p></div>;
+
+  if (st.connected) {
+    const when = st.last_sync ? new Date(st.last_sync * 1000).toLocaleString("en-NZ") : "not yet";
+    return (
+      <div className="panel">
+        <p>
+          <span className={st.state === "error" ? "bad" : "good"}>●</span> Syncing to the hub as <b>{st.email}</b>
+        </p>
+        <p className="field__hint">
+          Project: {st.url}
+          <br />
+          Last upload: {when} · Laps waiting: {st.pending ?? 0}
+          {st.state === "syncing" ? " · uploading now…" : ""}
+        </p>
+        {st.state === "error" && st.error && <p className="warn">Last try failed: {st.error}. It retries on its own.</p>}
+        <div className="row">
+          <button className="btn" disabled={busy} onClick={() => post("/api/cloud/sync")}>Sync now</button>
+          <button className="btn btn--ghost" disabled={busy} onClick={() => confirm("Stop syncing to the hub? Laps stay on this PC.") && post("/api/cloud/disconnect")}>
+            Disconnect
+          </button>
+        </div>
+      </div>
+    );
+  }
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  return (
+    <div className="panel">
+      <p className="field__hint">
+        Uploads your laps to your own Supabase project so the hub (on the MacBook) can show them while this PC is off.
+        Set-up steps are in the README under “Cloud hub”. Your password is only used to sign in once; it isn't saved.
+      </p>
+      <Field label="Supabase project URL" hint="Project Settings → API → Project URL, like https://abcd1234.supabase.co">
+        <input className="textin" value={form.url} onChange={set("url")} placeholder="https://….supabase.co" />
+      </Field>
+      <Field label="Anon (public) key" hint="Project Settings → API → anon public key. It's meant to be public: the database only lets your login see your data.">
+        <input className="textin" value={form.anon_key} onChange={set("anon_key")} />
+      </Field>
+      <Field label="Email">
+        <input className="textin" type="email" value={form.email} onChange={set("email")} />
+      </Field>
+      <Field label="Password">
+        <input className="textin" type="password" value={form.password} onChange={set("password")} />
+      </Field>
+      {err && <p className="warn">{err}</p>}
+      <div className="row">
+        <button className="btn" disabled={busy} onClick={() => post("/api/cloud/connect", form)}>
+          {busy ? "Connecting…" : "Connect"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface AIStatus {
+  configured: boolean;
+  key_hint?: string | null;
+  auto?: boolean;
+  model?: string;
+  state?: string;
+  error?: string | null;
+  available?: boolean;
+}
+
+/** The AI debrief: your Anthropic API key (kept on this PC only) and automatic debriefs. */
+function AI() {
+  const [st, setSt] = useState<AIStatus | null>(null);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/ai").then((r) => r.json()).then(setSt).catch(() => {});
+  }, []);
+  const post = async (body: unknown) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok) setErr(j.error ?? "Something went wrong");
+      else {
+        setSt(j);
+        setKey("");
+      }
+    } catch {
+      setErr("Couldn't reach the Pitwall service");
+    }
+    setBusy(false);
+  };
+  if (!st) return <div className="panel">Loading…</div>;
+  return (
+    <div className="panel">
+      <p className="field__hint">
+        After a session with at least 3 clean laps, Claude writes a short race-engineer debrief: the one thing worth the most
+        time, a couple of smaller notes, what's going well, and a section to drill. It appears in the analysis here and in the hub.
+        Each debrief costs roughly 10 cents, billed to your Anthropic account.
+      </p>
+      {st.configured ? (
+        <>
+          <p>
+            <span className="good">●</span> API key saved ({st.key_hint}) · model {st.model}
+          </p>
+          {st.state === "error" && st.error && <p className="warn">Last debrief failed: {st.error}</p>}
+          <Field label="Write a debrief automatically when a session ends">
+            <input type="checkbox" checked={!!st.auto} disabled={busy} onChange={(e) => post({ auto: e.target.checked })} />
+          </Field>
+          <Field label="Replace the key">
+            <input className="textin" type="password" value={key} placeholder="sk-ant-…" onChange={(e) => setKey(e.target.value)} />
+          </Field>
+          <div className="row">
+            <button className="btn" disabled={busy || !key} onClick={() => post({ api_key: key })}>{busy ? "Checking…" : "Save key"}</button>
+            <button className="btn btn--ghost" disabled={busy} onClick={() => confirm("Remove the API key from this PC?") && post({ clear: true })}>
+              Remove key
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <Field label="Anthropic API key" hint="Create one at console.anthropic.com → API Keys (and add some credit under Billing). It's checked, then kept on this PC only.">
+            <input className="textin" type="password" value={key} placeholder="sk-ant-…" onChange={(e) => setKey(e.target.value)} />
+          </Field>
+          <div className="row">
+            <button className="btn" disabled={busy || !key} onClick={() => post({ api_key: key })}>{busy ? "Checking…" : "Save key"}</button>
+          </div>
+        </>
+      )}
+      {err && <p className="warn">{err}</p>}
     </div>
   );
 }

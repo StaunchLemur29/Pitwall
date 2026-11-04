@@ -45,8 +45,11 @@ class Hub:
             running = None
         if running is self._loop:
             self._loop.create_task(self.broadcast(event))
-        else:
-            asyncio.run_coroutine_threadsafe(self.broadcast(event), self._loop)
+        elif not self._loop.is_closed():
+            try:
+                self._loop.call_soon_threadsafe(_send_on_loop, self, self._loop, event)
+            except RuntimeError:  # the server stopped meanwhile
+                pass
 
     async def broadcast(self, event: Event) -> None:
         if not self.clients:
@@ -186,6 +189,116 @@ async def csp_track(request: web.Request) -> web.Response:
     return web.json_response(request.app[RIG_KEY].csp_track())
 
 
+# -- cloud sync ---------------------------------------------------------------------
+
+
+def _cloud(request: web.Request) -> Any:
+    cloud = request.app.get(CLOUD_KEY)
+    if cloud is None:
+        raise web.HTTPNotFound(text="Cloud sync is off in demo mode")
+    return cloud
+
+
+async def get_cloud(request: web.Request) -> web.Response:
+    cloud = request.app.get(CLOUD_KEY)
+    return web.json_response(cloud.status() if cloud else {"connected": False, "state": "off", "demo": True})
+
+
+async def cloud_connect(request: web.Request) -> web.Response:
+    from .cloud import CloudError
+
+    cloud = _cloud(request)
+    try:
+        b = await request.json()
+    except json.JSONDecodeError:
+        b = {}
+    fields = [str(b.get(k) or "").strip() for k in ("url", "anon_key", "email", "password")]
+    if not all(fields):
+        return web.json_response({"error": "Fill in the project URL, anon key, email and password."}, status=400)
+    try:
+        await asyncio.get_running_loop().run_in_executor(None, cloud.connect, *fields)
+    except CloudError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    return web.json_response(cloud.status())
+
+
+async def cloud_disconnect(request: web.Request) -> web.Response:
+    cloud = _cloud(request)
+    cloud.disconnect()
+    return web.json_response(cloud.status())
+
+
+async def cloud_sync_now(request: web.Request) -> web.Response:
+    cloud = _cloud(request)
+    cloud.sync_soon()
+    return web.json_response(cloud.status())
+
+
+# -- AI debrief -----------------------------------------------------------------------
+
+
+def _ai(request: web.Request) -> Any:
+    ai = request.app.get(AI_KEY)
+    if ai is None:
+        raise web.HTTPNotFound(text="AI debriefs aren't available here")
+    return ai
+
+
+async def get_ai(request: web.Request) -> web.Response:
+    ai = request.app.get(AI_KEY)
+    return web.json_response(ai.status() if ai else {"configured": False, "available": False})
+
+
+async def post_ai(request: web.Request) -> web.Response:
+    """Save the API key (checked first) and/or the auto setting. The key never comes back out."""
+    from .debrief import DebriefError, check_key
+
+    ai = _ai(request)
+    try:
+        b = await request.json()
+    except json.JSONDecodeError:
+        b = {}
+    if b.get("clear"):
+        ai.settings.api_key = None
+    key = str(b.get("api_key") or "").strip()
+    if key:
+        try:
+            await asyncio.get_running_loop().run_in_executor(None, check_key, key, ai.client_factory)
+        except DebriefError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        ai.settings.api_key = key
+    if "auto" in b:
+        ai.settings.auto = bool(b["auto"])
+    ai.settings.save()
+    return web.json_response(ai.status())
+
+
+async def post_debrief(request: web.Request) -> web.Response:
+    from .debrief import DebriefError
+
+    ai = _ai(request)
+    try:
+        b = await request.json()
+    except json.JSONDecodeError:
+        b = {}
+    args = [str(b.get(k) or "") for k in ("game", "car", "track_key")]
+    if not all(args):
+        return web.json_response({"error": "Which car + track?"}, status=400)
+    try:
+        d = await asyncio.get_running_loop().run_in_executor(None, ai.write_now, *args)
+    except DebriefError as e:
+        return web.json_response({"error": str(e)}, status=400)
+    return web.json_response(d)
+
+
+async def get_debriefs(request: web.Request) -> web.Response:
+    q = request.query
+    rig = request.app[RIG_KEY]
+    if not all(q.get(k) for k in ("game", "car", "track_key")):
+        return web.json_response([])
+    return web.json_response(rig.store.debriefs(q["game"], q["car"], q["track_key"]))
+
+
 async def get_combos(request: web.Request) -> web.Response:
     return web.json_response(request.app[RIG_KEY].combos())
 
@@ -315,9 +428,16 @@ ON_CONFIG_KEY: web.AppKey[Any] = web.AppKey("on_config")
 INPUT_KEY: web.AppKey[Any] = web.AppKey("input")
 TASK_KEY: web.AppKey[Any] = web.AppKey("rig_task")
 LOOP_GAPS_KEY: web.AppKey[Any] = web.AppKey("loop_gaps")
+CLOUD_KEY: web.AppKey[Any] = web.AppKey("cloud")
+AI_KEY: web.AppKey[Any] = web.AppKey("ai")
 
 
 # -- app --------------------------------------------------------------------
+
+
+def _send_on_loop(hub: Hub, loop: asyncio.AbstractEventLoop, payload: Event) -> None:
+    if hub.clients:
+        loop.create_task(hub.broadcast(payload))
 
 
 def _rig_thread(app: web.Application, loop: asyncio.AbstractEventLoop, stop: threading.Event) -> None:
@@ -346,7 +466,14 @@ def _rig_thread(app: web.Application, loop: asyncio.AbstractEventLoop, stop: thr
             if now >= next_send - 0.004:
                 with rig.lock:
                     payload = rig.live()
-                asyncio.run_coroutine_threadsafe(hub.broadcast(payload), loop)
+                if stop.is_set() or loop.is_closed():
+                    break  # shutting down: the web server is gone
+                try:
+                    # Start the send inside the server's loop, so nothing is left
+                    # half-made if the server stops in the meantime.
+                    loop.call_soon_threadsafe(_send_on_loop, hub, loop, payload)
+                except RuntimeError:  # loop closed between the check and the call
+                    break
                 next_send = max(next_send + 1.0 / rig.config["rates"]["broadcast_hz"], now)
         else:
             try:
@@ -401,6 +528,14 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_get("/api/track", get_track)
     app.router.add_get("/api/corners", get_corners)
     app.router.add_get("/api/combos", get_combos)
+    app.router.add_get("/api/cloud", get_cloud)
+    app.router.add_post("/api/cloud/connect", cloud_connect)
+    app.router.add_post("/api/cloud/disconnect", cloud_disconnect)
+    app.router.add_post("/api/cloud/sync", cloud_sync_now)
+    app.router.add_get("/api/ai", get_ai)
+    app.router.add_post("/api/ai", post_ai)
+    app.router.add_post("/api/debrief", post_debrief)
+    app.router.add_get("/api/debriefs", get_debriefs)
     app.router.add_post("/api/csp/sync", csp_sync)
     app.router.add_get("/api/csp/track", csp_track)
     app.router.add_post("/api/drill", post_drill)

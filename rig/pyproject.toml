@@ -5,6 +5,7 @@ description = "Pitwall rig service: reads sim telemetry, records laps, serves th
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.9",
+    "anthropic==1.15.0",
 ]
 
 [project.optional-dependencies]

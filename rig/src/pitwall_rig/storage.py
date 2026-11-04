@@ -58,6 +58,19 @@ CREATE TABLE IF NOT EXISTS section_attempts (
     created_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS debriefs (
+    id INTEGER PRIMARY KEY,
+    game TEXT NOT NULL,
+    car TEXT NOT NULL,
+    track_key TEXT NOT NULL,
+    session_start REAL NOT NULL,
+    created_at REAL NOT NULL,
+    model TEXT NOT NULL,
+    body TEXT NOT NULL,
+    synced_at REAL,
+    UNIQUE (game, car, track_key, session_start)
+);
+
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
@@ -72,13 +85,61 @@ def unpack_trace(blob: bytes) -> dict[str, list[float]]:
     return json.loads(zlib.decompress(blob))
 
 
+class _Result:
+    """A query's rows, already fetched (so the connection is free again)."""
+
+    def __init__(self, rows: list[sqlite3.Row], lastrowid: int | None) -> None:
+        self._rows = rows
+        self.lastrowid = lastrowid
+
+    def fetchone(self) -> sqlite3.Row | None:
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self) -> list[sqlite3.Row]:
+        return self._rows
+
+
+class _LockedConnection:
+    """One SQLite connection shared by the telemetry thread, the web server and
+    the cloud sync: every statement takes the lock, reads included."""
+
+    def __init__(self, conn: sqlite3.Connection, lock: threading.RLock) -> None:
+        self._conn = conn
+        self._lock = lock
+
+    def execute(self, sql: str, args: Any = ()) -> _Result:
+        with self._lock:
+            cur = self._conn.execute(sql, args)
+            return _Result(cur.fetchall(), cur.lastrowid)
+
+    def executemany(self, sql: str, rows: Any) -> None:
+        with self._lock:
+            self._conn.executemany(sql, rows)
+
+    def executescript(self, sql: str) -> None:
+        with self._lock:
+            self._conn.executescript(sql)
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def __enter__(self) -> _LockedConnection:  # a transaction (the caller holds the lock)
+        self._conn.__enter__()
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self._conn.__exit__(*exc)
+
+
 class Store:
     def __init__(self, path: Path | str) -> None:
         if str(path) != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(str(path), check_same_thread=False)
-        self._db.row_factory = sqlite3.Row
-        self._lock = threading.Lock()
+        conn = sqlite3.connect(str(path), check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        self._lock = threading.RLock()
+        self._db = _LockedConnection(conn, self._lock)
         with self._lock, self._db:
             self._db.executescript(SCHEMA)
             self._db.execute(
@@ -133,6 +194,68 @@ class Store:
                FROM laps GROUP BY game, car, track_key ORDER BY last_driven DESC"""
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # -- AI debriefs --------------------------------------------------------------
+
+    def add_debrief(self, game: str, car: str, track_key: str, session_start: float, model: str, body: str,
+                    created_at: float) -> int:
+        with self._lock, self._db:
+            cur = self._db.execute(
+                """INSERT OR REPLACE INTO debriefs (game, car, track_key, session_start, created_at, model, body)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (game, car, track_key, session_start, created_at, model, body),
+            )
+            return int(cur.lastrowid or 0)
+
+    def debriefs(self, game: str, car: str, track_key: str, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            """SELECT id, game, car, track_key, session_start, created_at, model, body FROM debriefs
+               WHERE game=? AND car=? AND track_key=? ORDER BY session_start DESC LIMIT ?""",
+            (game, car, track_key, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def has_debrief(self, game: str, car: str, track_key: str, session_start: float) -> bool:
+        return self._db.execute(
+            "SELECT 1 FROM debriefs WHERE game=? AND car=? AND track_key=? AND session_start=?",
+            (game, car, track_key, session_start),
+        ).fetchone() is not None
+
+    def unsynced_debriefs(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            """SELECT id, game, car, track_key, session_start, created_at, model, body FROM debriefs
+               WHERE synced_at IS NULL ORDER BY created_at LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_debriefs_synced(self, ids: list[int], when: float) -> None:
+        with self._lock, self._db:
+            self._db.executemany("UPDATE debriefs SET synced_at=? WHERE id=?", [(when, i) for i in ids])
+
+    # -- cloud sync -------------------------------------------------------------
+
+    def unsynced_lap_ids(self, limit: int = 10) -> list[int]:
+        rows = self._db.execute(
+            "SELECT id FROM laps WHERE synced_at IS NULL ORDER BY started_at LIMIT ?", (limit,)
+        ).fetchall()
+        return [int(r["id"]) for r in rows]
+
+    def mark_all_unsynced(self) -> None:
+        with self._lock, self._db:
+            self._db.execute("UPDATE laps SET synced_at=NULL")
+
+    def unsynced_count(self) -> int:
+        return int(self._db.execute("SELECT COUNT(*) FROM laps WHERE synced_at IS NULL").fetchone()[0])
+
+    def mark_synced(self, lap_ids: list[int], when: float) -> None:
+        with self._lock, self._db:
+            self._db.executemany("UPDATE laps SET synced_at=? WHERE id=?", [(when, i) for i in lap_ids])
+
+    def latest_lap_corners(self, lap_id: int) -> list[dict[str, Any]] | None:
+        """The lap's corner analysis, whichever track-model version made it."""
+        row = self._db.execute("SELECT data FROM lap_corners WHERE lap_id=?", (lap_id,)).fetchone()
+        return json.loads(row["data"]) if row else None
 
     # -- car profiles (which systems each car has), kept in the meta table --
 
@@ -202,6 +325,8 @@ class Store:
                 "INSERT OR REPLACE INTO lap_corners (lap_id, model_sig, data) VALUES (?,?,?)",
                 (lap_id, model_sig, json.dumps(data, separators=(",", ":"))),
             )
+            # The hub should get the new analysis: upload the lap again.
+            self._db.execute("UPDATE laps SET synced_at=NULL WHERE id=?", (lap_id,))
 
     def lap_corners(self, lap_id: int, model_sig: str) -> list[dict[str, Any]] | None:
         row = self._db.execute(

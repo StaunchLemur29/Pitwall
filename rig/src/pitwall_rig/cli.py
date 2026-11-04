@@ -102,6 +102,32 @@ def cmd_run(args: argparse.Namespace) -> None:
     static = Path(args.static) if args.static else REPO_DASHBOARD
     app = make_app(rig, hub, static_dir=static)
 
+    # Cloud sync (only does anything once connected in Settings -> Cloud).
+    # Demo and replay laps stay local: they'd only clutter the hub.
+    from .cloud import CloudSync
+    from .server import CLOUD_KEY
+
+    cloud = (
+        CloudSync(store, data_dir, geometry_for=rig.track_geometry, extras_for=rig.cloud_extras)
+        if game not in ("demo", "replay")
+        else None
+    )
+    if cloud is not None:
+        app[CLOUD_KEY] = cloud
+        rig.on_lap_saved = cloud.sync_soon
+        cloud.start()
+
+    # AI debriefs (need an Anthropic API key, added in Settings -> AI). Written
+    # automatically when a real session ends; on request from the analysis.
+    from .debrief import AISettings, Debriefer
+    from .server import AI_KEY
+
+    debriefer = Debriefer(store, AISettings(data_dir), summary_for=rig.session_summary,
+                          on_saved=cloud.sync_soon if cloud is not None else (lambda: None))
+    app[AI_KEY] = debriefer
+    if game not in ("demo", "replay"):
+        rig.on_session_end = debriefer.session_ended
+
     def on_action(a: str, pressed: bool = True) -> None:
         loop = hub._loop
         if loop is not None:
@@ -143,6 +169,8 @@ def cmd_run(args: argparse.Namespace) -> None:
         close_all()
         rig.keys.up()
         inp.stop()
+        if cloud is not None:
+            cloud.stop()
         if recorder:
             recorder.close()
         adapter.close()

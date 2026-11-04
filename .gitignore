@@ -8,6 +8,7 @@ __pycache__/
 # Node
 node_modules/
 dashboard/dist/
+dashboard/dist-hub/
 
 # Local data / recordings
 *.sqlite
