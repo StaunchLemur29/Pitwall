@@ -580,9 +580,6 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_post("/api/drill", post_drill)
     app.router.add_get("/api/sf1000", get_sf1000)
     app.router.add_post("/api/sf1000/test", post_sf1000_test)
-    return web.json_response(out)
-
-
     app.router.add_get("/api/tools", get_tools)
     app.router.add_delete("/api/drill", delete_drill)
 
