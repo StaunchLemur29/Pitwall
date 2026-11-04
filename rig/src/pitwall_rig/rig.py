@@ -24,6 +24,7 @@ from .analysis import (
     analyse_systems,
     compare_notes,
     corner_mastery,
+    counts,
     lap_review,
     line_vs_optimal,
     time_to_beat,
@@ -246,7 +247,7 @@ class Rig:
             if new_best:
                 self.track.set_reference(lap.trace)
                 self.csp.touch()
-            if lap.valid and lap.id is not None:
+            if lap.id is not None:  # every lap: the corners it drove well count, finished or not
                 self._analyse(lap.id, lap.trace)
             self._emit_corners(lap.id)
         s = self.session
@@ -318,24 +319,42 @@ class Rig:
         m = track.model if track else None
         if m is None:
             return ""
-        return f"v4:{m.source}:{len(m.corners)}:{round(m.length_m)}"
+        return f"v5:{m.source}:{len(m.corners)}:{round(m.length_m)}"  # v5: driven / clean per corner
 
     def _analyse(self, lap_id: int, trace: dict[str, list[float]], track: TrackState | None = None) -> None:
         track = track or self.track
         if track is None:
             return
-        self.store.set_lap_corners(lap_id, self._model_sig(track), analyse_lap(trace, track.model))
+        self.store.set_lap_corners(lap_id, self._model_sig(track),
+                                   analyse_lap(trace, track.model, self.config["laps"]["max_tyres_out"]))
+
+    def _history(self, ctx: AnalysisCtx, exclude: int | None = None, limit: int = 30) -> list[list[dict[str, Any]]]:
+        """Your recent driving through each corner, newest lap first: the corners
+        that count (driven all the way, clean) from any lap, finished or not,
+        valid or cut somewhere else. Analyses laps that haven't been yet."""
+        sig = self._model_sig(ctx.track)
+        out: list[list[dict[str, Any]]] = []
+        for info in self.store.laps(ctx.game, ctx.track_key, ctx.car, limit=limit * 3):
+            if info["id"] == exclude:
+                continue
+            data = self.store.lap_corners(info["id"], sig)
+            if data is None:
+                tr = self.store.trace(info["id"])
+                if tr:
+                    self._analyse(info["id"], tr, ctx.track)
+                    data = self.store.lap_corners(info["id"], sig)
+            good = [c for c in data or [] if counts(c, info["valid"])]
+            if good:
+                out.append(good)
+            if len(out) >= limit:
+                break
+        return out
 
     def _mastery(self, ctx: AnalysisCtx | None = None) -> dict[int, dict[str, Any]]:
         ctx = ctx or self._live_ctx()
         if ctx is None:
             return {}
-        history = []
-        for lap_id in self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=30):
-            data = self.store.lap_corners(lap_id, self._model_sig(ctx.track))
-            if data:
-                history.append(data)
-        return corner_mastery(history)
+        return corner_mastery(self._history(ctx))
 
     # -- analysis for any car + track ----------------------------------------
 
@@ -552,8 +571,8 @@ class Rig:
                 track.mastery = self._mastery(ctx)
             for i, data in enumerate(lap):
                 c = m.corners[i] if i < len(m.corners) else None
-                if c is None:
-                    continue
+                if c is None or data.get("driven") is False:
+                    continue  # not driven on this lap (didn't finish it, or jumped past): nothing to say
                 nxt = m.corners[(i + 1) % len(m.corners)]
                 gap = ((nxt.entry - c.exit) % 1.0) * m.length_m
                 line = line_vs_optimal(c, data, m)
@@ -567,7 +586,7 @@ class Rig:
         if lap and run and run.get("rows"):
             for data in lap:
                 o = run["rows"].get(data["corner"])
-                if o:
+                if o and data.get("driven") is not False:
                     data["opt"] = {k: o.get(k) for k in OPT_KEYS}
                     data["opt_notes"] = compare_notes(data, o, "the optimal run")[:3]
         compare, compare_label = None, None
@@ -599,7 +618,7 @@ class Rig:
                         other["line"] = line
                 for data in lap:
                     other = by_num.get(data["corner"])
-                    if other:
+                    if other and data.get("driven") is not False and other.get("driven") is not False:
                         data["vs_s"] = round(data["time_s"] - other["time_s"], 3)
                         data["notes"] = compare_notes(data, other, compare_label)
         chapters = self._chapter_times(lap_id, ctx)
@@ -609,10 +628,8 @@ class Rig:
         systems = analyse_systems(lap_trace, track.model, profile) if lap_trace else None
         review = None
         if lap:
-            # Your usual: your recent clean laps, not counting this one.
-            history = [d for d in (self.store.lap_corners(i, sig)
-                                   for i in self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=31)
-                                   if i != lap_id) if d][:30]
+            # Your usual: your recent driving, not counting this lap.
+            history = self._history(ctx, exclude=lap_id)
             review = lap_review(lap, history, lap_trace, track.model, self.config["laps"]["max_tyres_out"])
         secs = self.store.best_sectors(ctx.game, ctx.track_key, ctx.car)
         tb = self._time_to_beat(ctx)
@@ -650,8 +667,8 @@ class Rig:
             return []
 
         def span(view: LapView | None, a: float, b: float) -> float | None:
-            if not view:
-                return None
+            if not view or not _covers(view, a, b):
+                return None  # an unfinished lap that didn't drive all of it
             if b > a:
                 return round(view.time_at(b) - view.time_at(a), 3)
             return None  # runs over the line: needs two laps
@@ -676,7 +693,7 @@ class Rig:
         ref = ctx.track.ref_view
 
         def span(v: LapView | None, a: float, b: float) -> float | None:
-            return round(v.time_at(b) - v.time_at(a), 3) if v and b > a else None
+            return round(v.time_at(b) - v.time_at(a), 3) if v and b > a and _covers(v, a, b) else None
 
         out = []
         for ps in ctx.track.model.practice:
@@ -1197,6 +1214,11 @@ def _summary_targets(rep: dict[str, Any], model_corners: dict[int, Any]) -> dict
         "practice_sections": [{"name": ps["name"], "to_beat_s": ps.get("to_beat_s")}
                               for ps in rep.get("practice", []) if ps.get("to_beat_s")],
     }
+
+
+def _covers(view: LapView, a: float, b: float) -> bool:
+    """The lap's telemetry runs from ``a`` to ``b`` (an unfinished lap may stop short)."""
+    return bool(view.p) and view.p[0] <= a + 0.002 and view.p[-1] >= b - 0.002
 
 
 def fmt_ms(ms: int) -> str:

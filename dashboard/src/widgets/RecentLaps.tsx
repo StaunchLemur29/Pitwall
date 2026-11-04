@@ -36,7 +36,11 @@ export function RecentLaps() {
                   <td>{l.lap_number}</td>
                   <td>
                     {lapTime(l.lap_time_ms)}
-                    {l.out_lap && <span className="tag">out</span>}
+                    {l.unfinished ? (
+                      <span className="tag" title="Didn't get to the line: its clean corners still count">unfinished</span>
+                    ) : (
+                      l.out_lap && <span className="tag">out</span>
+                    )}
                     {l.rewound && <span className="tag" title="Used a rewind: counts as a lap, never as a best">rewind</span>}
                     {!l.valid && !l.out_lap && <span className="tag tag--bad">cut</span>}
                   </td>

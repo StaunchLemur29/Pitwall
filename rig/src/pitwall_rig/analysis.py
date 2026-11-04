@@ -67,8 +67,33 @@ class LapView:
         return self.idx[a:b]
 
 
+GAP_M = 25.0  # no telemetry for longer than this inside a corner: a jump (teleport), not driving
+
+
+def driven_through(view: LapView, c: Corner, length: float, max_tyres_out: int = 2) -> tuple[bool, bool | None]:
+    """Whether this lap drove the whole corner (telemetry from entry to exit
+    with no jump in it), and whether it stayed on track there (None: this lap
+    didn't record wheels-off). Lets a lap you didn't finish, or cut somewhere
+    else, still count for the corners it drove properly."""
+    tr = view.trace
+    tol = 15.0 / length
+    if not view.p or view.p[0] > c.entry + tol or view.p[-1] < c.exit - tol:
+        return False, None
+    seg = view.range(c.entry - tol, c.exit + tol)
+    if len(seg) < 3:
+        return False, None
+    for a, b in zip(seg, seg[1:], strict=False):
+        if (tr["p"][b] - tr["p"][a]) * length > GAP_M or tr["t"][b] < tr["t"][a]:
+            return False, None
+    off = tr.get("off")
+    if not off:
+        return True, None
+    return True, max(off[i] for i in seg) <= max_tyres_out
+
+
 def analyse_corner(
-    view: LapView, model: TrackModel, c: Corner, lead_m: float = 250.0, prev_apex: float | None = None
+    view: LapView, model: TrackModel, c: Corner, lead_m: float = 250.0, prev_apex: float | None = None,
+    max_tyres_out: int = 2,
 ) -> dict[str, Any]:
     tr = view.trace
     length = model.length_m or 1.0
@@ -121,6 +146,7 @@ def analyse_corner(
         "brake_p": brake_p,
         "coast_s": round(_coast_time(tr, view.range(look_from, c.exit)), 2),
     }
+    out["driven"], out["clean"] = driven_through(view, c, length, max_tyres_out)
     if model.has_edges:
         for key, p in (("entry", c.entry), ("apex", c.apex), ("exit", c.exit)):
             i = view.at(p)
@@ -139,12 +165,28 @@ def _coast_time(tr: dict[str, list[float]], idx: list[int]) -> float:
     return total
 
 
-def analyse_lap(trace: dict[str, list[float]], model: TrackModel) -> list[dict[str, Any]]:
+def analyse_lap(trace: dict[str, list[float]], model: TrackModel, max_tyres_out: int = 2) -> list[dict[str, Any]]:
+    """Every corner of the track on this lap, in order. Each says whether this
+    lap actually ``driven`` it (a lap you didn't finish only drove some) and
+    whether it was ``clean`` there; the numbers of corners it didn't drive
+    mean nothing."""
     view = LapView(trace)
     if not view or not model.corners:
         return []
     cs = model.corners
-    return [analyse_corner(view, model, c, prev_apex=cs[i - 1].apex if i > 0 else None) for i, c in enumerate(cs)]
+    return [analyse_corner(view, model, c, prev_apex=cs[i - 1].apex if i > 0 else None, max_tyres_out=max_tyres_out)
+            for i, c in enumerate(cs)]
+
+
+def counts(c: dict[str, Any], lap_valid: bool) -> bool:
+    """Whether this corner of this lap counts towards your usual and your bests:
+    driven all the way through, and clean (judged per corner when the lap
+    recorded wheels-off; else by the whole lap). So the good corners of a lap
+    you cut elsewhere, or didn't finish, count too."""
+    if c.get("driven") is False:
+        return False
+    clean = c.get("clean")
+    return clean if clean is not None else lap_valid
 
 
 def compare_notes(mine: dict[str, Any], other: dict[str, Any], label: str) -> list[str]:
@@ -510,6 +552,8 @@ def lap_review(
                           "text": f"Went off {where} ({wheels}, {run['seconds']:.1f} s)."})
 
     for c in lap:
+        if c.get("driven") is False:
+            continue  # a lap you didn't finish (or jumped out of): only what you drove
         num = c["corner"]
         t = typical.get(num)
         run = off_corner.get(num)
