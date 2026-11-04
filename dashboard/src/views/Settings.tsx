@@ -4,7 +4,7 @@ import type { Binding, Config, WidgetId, WidgetSlot } from "../lib/types";
 import { WIDGETS } from "../widgets";
 import { FullscreenButton } from "../widgets/Fullscreen";
 
-type Tab = "general" | "layout" | "controls" | "cloud" | "ai" | "advanced";
+type Tab = "general" | "coaching" | "layout" | "controls" | "cloud" | "ai" | "advanced";
 
 export function Settings() {
   const live = useRig((s) => s.config);
@@ -76,7 +76,7 @@ export function Settings() {
       )}
 
       <nav className="tabs">
-        {(["general", "layout", "controls", "cloud", "ai", "advanced"] as Tab[]).map((t) => (
+        {(["general", "coaching", "layout", "controls", "cloud", "ai", "advanced"] as Tab[]).map((t) => (
           <button key={t} className={`tabs__tab ${tab === t ? "tabs__tab--on" : ""}`} onClick={() => setTab(t)}>
             {t === "ai" ? "AI" : t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -85,6 +85,7 @@ export function Settings() {
 
       <div className="settings__card">
       {tab === "general" && <General draft={draft} edit={edit} />}
+      {tab === "coaching" && <Coaching draft={draft} edit={edit} />}
       {tab === "layout" && <Layout draft={draft} edit={edit} />}
       {tab === "controls" && (
         <Controls draft={draft} edit={edit} actions={actions} bindingAction={bindingAction} dirty={dirty} />
@@ -314,15 +315,6 @@ function General({ draft, edit }: EditProps) {
       <Field label="Accent colour">
         <input type="color" value={draft.display.accent} onChange={(e) => edit((c) => (c.display.accent = e.target.value))} />
       </Field>
-      <Field label="Break reminder" hint="Minutes of driving before a gentle reminder. 0 = off.">
-        <input
-          type="number"
-          min={0}
-          max={600}
-          value={draft.session_timer.break_reminder_min}
-          onChange={(e) => edit((c) => (c.session_timer.break_reminder_min = Number(e.target.value)))}
-        />
-      </Field>
       <h2>Vertical monitor</h2>
       <Field label="Open the dashboard automatically" hint="Starts Chrome (or Edge) full-screen on the vertical monitor when the service starts.">
         <input
@@ -340,6 +332,14 @@ function General({ draft, edit }: EditProps) {
         </select>
       </Field>
 
+    </div>
+  );
+}
+
+function Coaching({ draft, edit }: EditProps) {
+  // Everything about how Pitwall coaches you, in one place.
+  return (
+    <div className="panel">
       <Field
         label="Braking points from"
         hint="Where “brake in” counts down to, here and in the game. The optimal run is the car at its grip on the optimal line: where to get to. Until it's worked out (a few clean laps), your best lap is used."
@@ -350,6 +350,29 @@ function General({ draft, edit }: EditProps) {
         </select>
       </Field>
 
+      <Field
+        label="Drill run-up (seconds)"
+        hint="A drill retry rewinds to this much driving before the section starts, so you've got a moment to settle in."
+      >
+        <input
+          className="textin"
+          type="number"
+          min={0}
+          max={15}
+          step={0.5}
+          value={draft.drills.lead_in_s}
+          onChange={(e) => edit((c) => (c.drills.lead_in_s = Number(e.target.value)))}
+        />
+      </Field>
+      <Field label="Break reminder" hint="Minutes of driving before a gentle reminder. 0 = off.">
+        <input
+          type="number"
+          min={0}
+          max={600}
+          value={draft.session_timer.break_reminder_min}
+          onChange={(e) => edit((c) => (c.session_timer.break_reminder_min = Number(e.target.value)))}
+        />
+      </Field>
       <h2>In-game overlay</h2>
       <p className="field__hint">
         Pitwall's app inside Assetto Corsa: open it from the app bar and leave it open. It stays invisible until a
@@ -638,20 +661,6 @@ function Controls({
             className="textin"
             value={draft.games.ac.rewind_key}
             onChange={(e) => edit((c) => (c.games.ac.rewind_key = e.target.value.trim()))}
-          />
-        </Field>
-        <Field
-          label="Drill run-up (seconds)"
-          hint="A drill retry rewinds to this much driving before the section starts, so you've got a moment to settle in."
-        >
-          <input
-            className="textin"
-            type="number"
-            min={0}
-            max={15}
-            step={0.5}
-            value={draft.drills.lead_in_s}
-            onChange={(e) => edit((c) => (c.drills.lead_in_s = Number(e.target.value)))}
           />
         </Field>
 
