@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from ..analysis import LapView, analyse_lap
+from ..laps import JumpDetector
 from ..models import Frame, GameStatus
 from .model import TrackModel
 
@@ -117,6 +118,7 @@ class TrackState:
         self._prev_p: float | None = None
         self._prev_t: float | None = None
         self._prev_lap: tuple[int, int] | None = None  # (lap, lap_time_ms)
+        self._jumps = JumpDetector()  # spans pauses, so a rewind while paused is still caught
         self.yaw = YawCalibrator()
         self._shift_corner: int | None = None  # corner the braking-point shift belongs to
         self._shift = 0.0  # metres earlier (+) than the reference braking point
@@ -159,14 +161,18 @@ class TrackState:
     def stop_drill(self) -> None:
         self.drill = None
 
-    def _drill_step(self, f: Frame, p: float, dt: float) -> dict[str, Any] | None:
+    def _drill_step(self, f: Frame, p: float, dt: float, jumped: bool = False) -> dict[str, Any] | None:
         st = self.drill
         if st is None:
             return None
         d = st.drill
         prev = self._prev_p
         attempt = None
-        if prev is not None:
+        if jumped:
+            # Teleported, rewound or reset: this run wasn't driven through, so
+            # abandon it; the next pass over the start line arms a new one.
+            st.running, st.elapsed_s = False, 0.0
+        elif prev is not None:
             step = (p - prev) % 1.0
             if step > 0.5 and (1.0 - step) > 0.002:
                 # Rewound (Time Shift) or reset: abandon the attempt, re-arm.
@@ -245,7 +251,7 @@ class TrackState:
                 "apex_kmh": ref.get("min_speed_kmh"),
                 "grade_mastery": mast.get("grade"),
             }
-        attempt = self._drill_step(f, p, dt)
+        attempt = self._drill_step(f, p, dt, self._jumps.step(f))
         if self.drill is not None:
             out["drill"] = self.drill.to_wire()
         if attempt is not None:

@@ -1,3 +1,5 @@
+import math
+
 from pitwall_rig.laps import LapRecorder
 from pitwall_rig.models import Frame, GameStatus, SessionInfo
 
@@ -93,3 +95,101 @@ def test_demo_produces_several_laps(demo, clock):
     assert any(lap.valid for lap in laps[1:])
     for lap in laps:
         assert 40_000 < lap.lap_time_ms < 90_000
+
+
+# -- practice: teleports and rewinds -------------------------------------------
+
+LENGTH_M = 4000.0
+
+
+class Driver:
+    """Drives a 4 km round track at a steady speed, frame by frame, with real positions."""
+
+    def __init__(self, rec, kmh=200.0, hz=60):
+        self.rec, self.kmh, self.hz = rec, kmh, hz
+        self.t, self.packet, self.lap, self.lap_ms, self.p, self.last_ms = 0.0, 0, 0, 0.0, 0.0, 0
+
+    def frame(self, status=GameStatus.LIVE):
+        self.packet += 1
+        r = LENGTH_M / (2 * math.pi)  # a round track
+        a = 2 * math.pi * self.p
+        self.rec.feed(Frame(t=self.t, status=status, packet_id=self.packet, lap=self.lap, lap_time_ms=int(self.lap_ms),
+                            last_lap_ms=self.last_ms, lap_progress=self.p, speed_kmh=self.kmh,
+                            world=(r * math.cos(a), 0.0, r * math.sin(a))),
+                      SESSION)
+
+    def drive_to(self, p_end):
+        step_s = 1 / self.hz
+        step_p = self.kmh / 3.6 * step_s / LENGTH_M
+        while self.p < p_end:
+            self.t += step_s
+            self.lap_ms += step_s * 1000
+            self.p = min(1.0, self.p + step_p)
+            if self.p >= 1.0:  # over the line
+                self.last_ms, self.lap, self.lap_ms, self.p = int(self.lap_ms), self.lap + 1, 0.0, 0.0
+                self.frame()
+                return
+            self.frame()
+
+    def lap_from_line(self):
+        self.drive_to(1.0)
+
+
+def test_full_speed_laps_are_not_mistaken_for_jumps():
+    laps = []
+    d = Driver(LapRecorder(laps.append), kmh=330)
+    d.lap_from_line()
+    d.lap_from_line()
+    d.drive_to(0.05)  # identical lap times: the recorder waits a second for AC's lap time
+    assert [lap.valid for lap in laps] == [True, True]
+
+
+def test_teleport_forward_doesnt_make_a_fake_fast_lap():
+    laps = []
+    d = Driver(LapRecorder(laps.append))
+    d.drive_to(0.2)
+    d.p, d.t = 0.9, d.t + 1 / 60  # teleport most of the way round
+    d.frame()
+    d.lap_from_line()
+    d.drive_to(0.01)
+    assert len(laps) == 1
+    assert laps[0].lap_time_ms < 40_000  # AC would time it as a lap...
+    assert not laps[0].valid and laps[0].out_lap  # ...but it never counts
+
+
+def test_rewind_invalidates_the_lap_even_across_a_pause():
+    laps = []
+    d = Driver(LapRecorder(laps.append))
+    d.drive_to(0.5)
+    for _ in range(30):  # Time Shift: the game isn't live while it rewinds
+        d.t += 1 / 60
+        d.frame(GameStatus.REPLAY)
+    d.p, d.lap_ms = 0.42, d.lap_ms - 6000
+    d.frame()
+    d.lap_from_line()
+    d.drive_to(0.01)
+    assert len(laps) == 1 and not laps[0].valid and laps[0].out_lap
+
+
+def test_pausing_doesnt_invalidate_a_lap():
+    laps = []
+    d = Driver(LapRecorder(laps.append))
+    d.drive_to(0.5)
+    for _ in range(600):  # ten seconds in the pause menu
+        d.t += 1 / 60
+        d.frame(GameStatus.PAUSED)
+    d.lap_from_line()
+    d.drive_to(0.01)
+    assert len(laps) == 1 and laps[0].valid
+
+
+def test_the_lap_after_a_teleport_counts_again():
+    laps = []
+    d = Driver(LapRecorder(laps.append))
+    d.drive_to(0.3)
+    d.p = 0.95
+    d.frame()
+    d.lap_from_line()  # the teleported lap
+    d.lap_from_line()  # a proper one
+    d.drive_to(0.01)
+    assert [lap.valid for lap in laps] == [False, True]
