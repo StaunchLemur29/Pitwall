@@ -34,6 +34,9 @@ export function DrillCard() {
           no_rewind: "Time Shift didn't rewind — check its key matches Settings → Controls",
           timeout: "Rewind took too long — stopped",
           stopped: "",
+          teleporting: "Teleporting…",
+          teleported: "You're there — pull away when ready",
+          no_teleport: "Couldn't teleport — only works in offline practice",
         }[retry.state] ?? ""
       : "";
   return (

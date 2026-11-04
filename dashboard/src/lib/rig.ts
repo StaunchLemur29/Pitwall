@@ -349,16 +349,19 @@ export async function cancelBinding(): Promise<void> {
   await fetch("/api/bind", { method: "DELETE" });
 }
 
+/** Start a drill; with `teleport`, the in-game app also takes you there (stopped, before the section). */
 export async function startDrill(
-  body: { corner: number } | { section: number } | { chapter: number } | { start_p: number; end_p: number; name: string },
+  body: ({ corner: number } | { section: number } | { chapter: number } | { start_p: number; end_p: number; name: string }) & {
+    teleport?: boolean;
+  },
 ): Promise<string[]> {
   const r = await fetch("/api/drill", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (r.ok) return [];
-  return (await r.json().catch(() => ({ errors: [`HTTP ${r.status}`] }))).errors;
+  const out = await r.json().catch(() => ({ errors: r.ok ? [] : [`HTTP ${r.status}`] }));
+  return out.errors ?? [];
 }
 
 export async function stopDrill(): Promise<void> {

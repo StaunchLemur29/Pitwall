@@ -77,3 +77,33 @@ def test_app_installs_and_updates(tmp_path):
     (dest / "Pitwall.lua").write_text("-- old version")
     assert install_app(root) == "updated"
 
+
+
+def test_go_to_a_drill_teleports_once_then_retries_rewind(demo, clock, config, store):
+    events = []
+    rig = Rig(demo, store, config, emit=events.append, clock=clock)
+    drive(rig, clock)
+    assert rig.drill_corner(1)
+    assert not rig.teleport_to_drill()  # no in-game app yet
+    assert rig.live()["can_teleport"] is False
+    rig.csp_sync({"reset_allowed": True})
+    assert rig.live()["can_teleport"] is True
+
+    assert rig.teleport_to_drill()
+    (cmd,) = rig.csp_sync({"reset_allowed": True})["commands"]
+    d = rig.track.drill.drill
+    length = rig.track.model.length_m
+    back_m = ((d.start_p - cmd["p"]) % 1.0) * length
+    run_up_m = rig.track.lead_in_m(d, config["drills"]["lead_in_s"])
+    assert cmd["cmd"] == "teleport" and cmd["key"] == rig._drill_key()
+    # Parked before the Time Shift run-up, far enough back to be up to speed by the section.
+    assert back_m >= run_up_m + rig.TELEPORT_EXTRA_M - 0.01
+    assert back_m >= rig.track.standing_start_m(d) - 1
+    rig.csp_sync({"reset_allowed": True, "events": [{"type": "teleport", "ok": True}]})
+    assert [e["state"] for e in events if e["type"] == "retry"] == ["teleporting", "teleported"]
+
+    # Retrying is the rewind as before, not another teleport.
+    held = []
+    rig.keys.down = lambda key: held.append(key) or True
+    assert rig.start_retry()
+    assert held == ["insert"] and rig.csp_sync({"reset_allowed": True})["commands"] == []
