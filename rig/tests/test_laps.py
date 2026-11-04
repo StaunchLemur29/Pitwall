@@ -108,13 +108,15 @@ class Driver:
     def __init__(self, rec, kmh=200.0, hz=60):
         self.rec, self.kmh, self.hz = rec, kmh, hz
         self.t, self.packet, self.lap, self.lap_ms, self.p, self.last_ms = 0.0, 0, 0, 0.0, 0.0, 0
+        self.tyres_out = 0
 
     def frame(self, status=GameStatus.LIVE):
         self.packet += 1
         r = LENGTH_M / (2 * math.pi)  # a round track
         a = 2 * math.pi * self.p
         self.rec.feed(Frame(t=self.t, status=status, packet_id=self.packet, lap=self.lap, lap_time_ms=int(self.lap_ms),
-                            last_lap_ms=self.last_ms, lap_progress=self.p, speed_kmh=self.kmh,
+                            last_lap_ms=self.last_ms, lap_progress=self.p, speed_kmh=self.kmh, tyres_out=self.tyres_out,
+                            sector=min(2, int(self.p * 3)),
                             world=(r * math.cos(a), 0.0, r * math.sin(a))),
                       SESSION)
 
@@ -157,18 +159,52 @@ def test_teleport_forward_doesnt_make_a_fake_fast_lap():
     assert not laps[0].valid and laps[0].out_lap  # ...but it never counts
 
 
-def test_rewind_invalidates_the_lap_even_across_a_pause():
+def test_a_rewind_after_a_mistake_is_a_normal_lap_but_never_a_best():
     laps = []
     d = Driver(LapRecorder(laps.append))
-    d.drive_to(0.5)
-    for _ in range(30):  # Time Shift: the game isn't live while it rewinds
+    d.drive_to(0.35)  # into sector 2
+    d.tyres_out = 4
+    d.drive_to(0.38)  # went off...
+    d.tyres_out = 0
+    for _ in range(30):  # ...Time Shift: the game isn't live while it rewinds
         d.t += 1 / 60
         d.frame(GameStatus.REPLAY)
-    d.p, d.lap_ms = 0.42, d.lap_ms - 6000
+    d.p, d.lap_ms = 0.30, d.lap_ms - 6000  # back to before the mistake, in sector 1 again
     d.frame()
     d.lap_from_line()
     d.drive_to(0.01)
-    assert len(laps) == 1 and not laps[0].valid and laps[0].out_lap
+    assert len(laps) == 1
+    lap = laps[0]
+    assert lap.valid and lap.rewound and not lap.out_lap  # the cut was rewound away
+    ps = lap.trace["p"]
+    assert all(b > a for a, b in zip(ps, ps[1:], strict=False))  # the erased bit is gone
+    assert len(lap.sector_ms) == 3 and sum(lap.sector_ms) == lap.lap_time_ms
+
+
+def test_rewinding_in_a_drill_is_practice_not_a_lap():
+    laps = []
+    rec = LapRecorder(laps.append)
+    d = Driver(rec)
+    d.drive_to(0.5)
+    rec.practising = True
+    d.p = 0.42
+    d.frame()
+    d.lap_from_line()
+    d.drive_to(0.01)
+    assert len(laps) == 1 and laps[0].out_lap and not laps[0].valid and not laps[0].rewound
+
+
+def test_rewinding_back_over_the_line_leaves_no_stray_lap():
+    laps = []
+    d = Driver(LapRecorder(laps.append))
+    d.lap_from_line()
+    d.drive_to(0.02)
+    d.lap, d.p, d.lap_ms = 0, 0.98, 59_000.0  # Time Shift back into the last lap
+    d.frame()
+    d.lap_from_line()  # over the line again
+    d.lap_from_line()  # and a full lap
+    d.drive_to(0.01)
+    assert [(lap.valid, lap.out_lap) for lap in laps] == [(True, False), (True, False)]
 
 
 def test_pausing_doesnt_invalidate_a_lap():

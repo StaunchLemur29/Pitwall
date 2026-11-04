@@ -16,6 +16,7 @@ export interface HubLap {
   lap_time_ms: number;
   valid: boolean;
   out_lap?: boolean;
+  rewound?: boolean; // used a rewind: never a best lap
   started_at: number; // unix seconds
   sector_ms: number[];
   corners: CornerLap[] | null;
@@ -129,7 +130,7 @@ export interface ReportInput {
 export function buildReport(inp: ReportInput, lapId: number | null, compareId: number | null): CornerReport {
   const valid = inp.laps.filter((l) => l.valid).sort((a, b) => b.started_at - a.started_at);
   const byId = new Map(inp.laps.map((l) => [l.id, l]));
-  const best = [...valid].sort((a, b) => a.lap_time_ms - b.lap_time_ms || a.id - b.id)[0] ?? null;
+  const best = valid.filter((l) => !l.rewound).sort((a, b) => a.lap_time_ms - b.lap_time_ms || a.id - b.id)[0] ?? null;
   const refId = best?.id ?? null;
   const shownId = lapId ?? valid[0]?.id ?? null;
   const shown = shownId !== null ? byId.get(shownId) ?? null : null;
@@ -186,6 +187,7 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
   // Best sectors combined.
   let sectors: number[] = [];
   for (const l of valid) {
+    if (l.rewound) continue;
     if (!sectors.length) sectors = [...l.sector_ms];
     else if (l.sector_ms.length === sectors.length) sectors = sectors.map((s, i) => Math.min(s, l.sector_ms[i]));
   }

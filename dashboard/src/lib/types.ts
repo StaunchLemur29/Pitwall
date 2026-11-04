@@ -70,6 +70,8 @@ export interface LapSummary {
   lap_time_ms: number;
   valid: boolean;
   out_lap: boolean;
+  /** used a rewind after a mistake: a normal lap, but never a best one */
+  rewound?: boolean;
   started_at: number;
   sector_ms: number[];
 }

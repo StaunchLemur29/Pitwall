@@ -30,6 +30,7 @@ interface LapRow {
   lap_time_ms: number;
   valid: boolean;
   out_lap: boolean;
+  rewound?: boolean;
   started_at: string;
   sector_ms: number[];
   corners?: HubLap["corners"];
@@ -47,7 +48,7 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     if (!lapsByCombo.has(k)) {
       lapsByCombo.set(k, all<LapRow>((a, b) =>
         sb.from("laps")
-          .select("id,game,car,track_key,lap_number,lap_time_ms,valid,out_lap,started_at,sector_ms,corners,systems")
+          .select("id,game,car,track_key,lap_number,lap_time_ms,valid,out_lap,rewound,started_at,sector_ms,corners,systems")
           .eq("game", c.game).eq("car", c.car).eq("track_key", c.track_key)
           .order("started_at", { ascending: false }).range(a, b)));
     }
@@ -78,7 +79,7 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
 
   const hubLaps = async (c: Combo): Promise<HubLap[]> =>
     (await comboLaps(c)).map((r) => ({
-      id: r.id, lap_number: r.lap_number, lap_time_ms: r.lap_time_ms, valid: r.valid, out_lap: r.out_lap,
+      id: r.id, lap_number: r.lap_number, lap_time_ms: r.lap_time_ms, valid: r.valid, out_lap: r.out_lap, rewound: !!r.rewound,
       started_at: unix(r.started_at), sector_ms: r.sector_ms, corners: r.corners ?? null, systems: r.systems ?? null,
     }));
   const report = async (combo: Combo, lapId: number | null, compareId: number | null): Promise<CornerReport> => {
@@ -101,15 +102,15 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     live: false,
 
     async combos() {
-      const rows = await all<{ game: string; car: string; track_key: string; lap_time_ms: number; valid: boolean; started_at: string }>((a, b) =>
-        sb.from("laps").select("game,car,track_key,lap_time_ms,valid,started_at").range(a, b));
+      const rows = await all<{ game: string; car: string; track_key: string; lap_time_ms: number; valid: boolean; rewound?: boolean; started_at: string }>((a, b) =>
+        sb.from("laps").select("game,car,track_key,lap_time_ms,valid,rewound,started_at").range(a, b));
       const by = new Map<string, Combo>();
       for (const r of rows) {
         const c = by.get(key(r)) ?? { game: r.game, car: r.car, track_key: r.track_key, laps: 0, valid_laps: 0, best_ms: null, last_driven: 0 };
         c.laps! += 1;
         if (r.valid) {
           c.valid_laps! += 1;
-          c.best_ms = c.best_ms == null ? r.lap_time_ms : Math.min(c.best_ms, r.lap_time_ms);
+          if (!r.rewound) c.best_ms = c.best_ms == null ? r.lap_time_ms : Math.min(c.best_ms, r.lap_time_ms);
         }
         c.last_driven = Math.max(c.last_driven ?? 0, unix(r.started_at));
         by.set(key(r), c);
@@ -122,7 +123,7 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     async laps(c) {
       return (await comboLaps(c)).map<LapSummary>((r) => ({
         id: r.id, game: r.game, car: r.car, track_key: r.track_key, lap_number: r.lap_number,
-        lap_time_ms: r.lap_time_ms, valid: r.valid, out_lap: r.out_lap, started_at: unix(r.started_at), sector_ms: r.sector_ms,
+        lap_time_ms: r.lap_time_ms, valid: r.valid, out_lap: r.out_lap, rewound: !!r.rewound, started_at: unix(r.started_at), sector_ms: r.sector_ms,
       }));
     },
 

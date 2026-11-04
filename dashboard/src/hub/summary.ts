@@ -28,12 +28,18 @@ export function latestSession(laps: HubLap[]): HubLap[] | null {
   return sess.length ? sess : null;
 }
 
+/** The fastest lap of these, leaving out laps with a rewind in them unless that's all there is. */
+function bestOf(clean: HubLap[]): HubLap {
+  const pool = clean.filter((l) => !l.rewound);
+  return (pool.length ? pool : clean).reduce((a, b) => (b.lap_time_ms < a.lap_time_ms ? b : a));
+}
+
 /** The session's best clean lap, if the session has enough clean laps for a debrief. */
 export function debriefLap(laps: HubLap[]): HubLap | null {
   const sess = latestSession(laps);
   const clean = (sess ?? []).filter((l) => l.valid);
   if (clean.length < MIN_CLEAN_LAPS) return null;
-  return clean.reduce((a, b) => (b.lap_time_ms < a.lap_time_ms ? b : a));
+  return bestOf(clean);
 }
 
 /** ``rep`` is the report of the session's best lap (debriefLap) with its default comparison. */
@@ -49,8 +55,8 @@ export function sessionSummary(
   const clean = sess.filter((l) => l.valid);
   if (clean.length < MIN_CLEAN_LAPS) return null;
   const start = sess[0].started_at;
-  const best = clean.reduce((a, b) => (b.lap_time_ms < a.lap_time_ms ? b : a));
-  const before = laps.filter((l) => l.valid && l.started_at < start).map((l) => l.lap_time_ms);
+  const best = bestOf(clean);
+  const before = laps.filter((l) => l.valid && !l.rewound && l.started_at < start).map((l) => l.lap_time_ms);
   const times = clean.map((l) => l.lap_time_ms).sort((a, b) => a - b);
   const mid = times.length >> 1;
   const median = times.length % 2 ? times[mid] : (times[mid - 1] + times[mid]) / 2;
@@ -82,7 +88,7 @@ export function sessionSummary(
     track: trackKey,
     session: {
       start,
-      laps: sess.map((l) => ({ lap: l.lap_number, time: fmtMs(l.lap_time_ms), clean: l.valid, out_lap: l.out_lap ?? false })),
+      laps: sess.map((l) => ({ lap: l.lap_number, time: fmtMs(l.lap_time_ms), clean: l.valid, out_lap: l.out_lap ?? false, rewound: !!l.rewound })),
       clean_laps: clean.length,
       best: fmtMs(best.lap_time_ms),
       typical: fmtMs(Math.trunc(median)),

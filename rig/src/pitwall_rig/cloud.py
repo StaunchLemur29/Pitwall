@@ -265,6 +265,7 @@ class CloudSync:
             "lap_time_ms": info["lap_time_ms"],
             "valid": info["valid"],
             "out_lap": info["out_lap"],
+            "rewound": info.get("rewound", False),
             "started_at": _iso(info["started_at"]),
             "sector_ms": info["sector_ms"],
             "corners": extras.get("corners") or self.store.latest_lap_corners(lap_id),
