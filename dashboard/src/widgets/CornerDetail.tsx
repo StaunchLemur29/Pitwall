@@ -11,6 +11,8 @@ import { Panel } from "./Panel";
 // Validated as a pair against the card colour (colour-blind safe, enough contrast).
 export const YOU = "#f2522e";
 export const OTHER = "#a970f5";
+/** The optimal run: drawn dotted, so it's told apart by pattern as well as colour. */
+export const OPT = "var(--opt-line)";
 
 type Corner = TrackGeometry["corners"][number];
 
@@ -22,13 +24,15 @@ interface Props {
   otherLabel: string | null;
   myTrace: Trace | null;
   otherTrace: Trace | null;
+  /** the optimal run (optimal line at this car's grip), as a trace */
+  optTrace?: Trace | null;
   mastery: Mastery | undefined;
   section: PracticeSection | undefined;
   onStep: (dir: 1 | -1) => void;
 }
 
 /** Everything about one corner on this lap, side by side with the comparison lap. */
-export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, otherTrace, mastery, section, onStep }: Props) {
+export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, otherTrace, optTrace = null, mastery, section, onStep }: Props) {
   const L = g.length_m;
   const exitM = ((((c.exit - c.apex) % 1) + 1) % 1) * L;
   const brakeBack = Math.max(mine.brake_m ?? 0, other?.brake_m ?? 0);
@@ -36,6 +40,7 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
   const to = Math.min(320, exitM + 90);
   const me = useMemo(() => profile(myTrace, c.apex, L, from, to), [myTrace, c.apex, L, from, to]);
   const them = useMemo(() => profile(otherTrace, c.apex, L, from, to), [otherTrace, c.apex, L, from, to]);
+  const best = useMemo(() => profile(optTrace, c.apex, L, from, to), [optTrace, c.apex, L, from, to]);
   const dt = useMemo(() => (me && them ? timeDelta(me, them) : null), [me, them]);
   const [hover, setHover] = useState<number | null>(null);
   const label = otherLabel ?? "the other lap";
@@ -86,7 +91,7 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
         )}
       </div>
 
-      {(mine.notes?.length || mine.advice?.length) ? (
+      {(mine.notes?.length || mine.advice?.length || mine.opt_notes?.length) ? (
         <Panel id="cd-notes" title="Notes">
         <div className="cd__notes">
           {mine.notes && mine.notes.length > 0 && (
@@ -94,6 +99,16 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
               <div className="cd__sub">What was different</div>
               <ul>
                 {mine.notes.map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+            </>
+          )}
+          {mine.opt_notes && mine.opt_notes.length > 0 && (
+            <>
+              <div className="cd__sub">Against the optimal run</div>
+              <ul>
+                {mine.opt_notes.map((n) => (
                   <li key={n}>{n}</li>
                 ))}
               </ul>
@@ -117,18 +132,24 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
       <div className="cd__legend">
         <span><Key c={YOU} />You (this lap)</span>
         {them && <span><Key c={OTHER} dash />{cap(label)}</span>}
+        {g.optimal?.length ? (
+          <span title={best ? "The optimal line driven at this car's grip, learnt from your fastest laps (an estimate)" : "The smoothest path the track's edges allow: a guide for where to place the car"}>
+            <Key c={OPT} dot />
+            {best ? "Optimal run" : "Optimal line"}
+          </span>
+        ) : null}
         <span className="muted">● braking starts · numbers = slowest speed</span>
       </div>
 
-      <CloseUp g={g} corner={c} me={me} them={them} mine={mine} other={other} hover={hover} from={from} to={to} />
+      <CloseUp g={g} corner={c} me={me} them={them} best={best} mine={mine} other={other} hover={hover} from={from} to={to} />
       </Panel>
 
       <Panel id="cd-charts" title="Speed, pedals and time">
-      <Readout me={me} them={them} dt={dt} hover={hover} label={label} />
+      <Readout me={me} them={them} best={best} dt={dt} hover={hover} label={label} />
       <div className="cd__charts" onMouseLeave={() => setHover(null)}>
-        <Strip title="Speed (km/h)" x={me?.x ?? []} series={[me && { v: me.speed, c: YOU }, them && { v: them.speed, c: OTHER, dash: true }]} hover={hover} setHover={setHover} height={120} />
-        <Strip title="Brake (%)" x={me?.x ?? []} series={[me && { v: me.brake.map((b) => b * 100), c: YOU }, them && { v: them.brake.map((b) => b * 100), c: OTHER, dash: true }]} hover={hover} setHover={setHover} height={64} fixed={[0, 100]} />
-        <Strip title="Throttle (%)" x={me?.x ?? []} series={[me && { v: me.gas.map((b) => b * 100), c: YOU }, them && { v: them.gas.map((b) => b * 100), c: OTHER, dash: true }]} hover={hover} setHover={setHover} height={64} fixed={[0, 100]} />
+        <Strip title="Speed (km/h)" x={me?.x ?? []} series={[best && { v: best.speed, c: OPT, dot: true }, me && { v: me.speed, c: YOU }, them && { v: them.speed, c: OTHER, dash: true }]} hover={hover} setHover={setHover} height={120} />
+        <Strip title={best ? "Brake (%) · optimal run is an estimate" : "Brake (%)"} x={me?.x ?? []} series={[best && { v: best.brake.map((b) => b * 100), c: OPT, dot: true }, me && { v: me.brake.map((b) => b * 100), c: YOU }, them && { v: them.brake.map((b) => b * 100), c: OTHER, dash: true }]} hover={hover} setHover={setHover} height={64} fixed={[0, 100]} />
+        <Strip title={best ? "Throttle (%) · optimal run is an estimate" : "Throttle (%)"} x={me?.x ?? []} series={[best && { v: best.gas.map((b) => b * 100), c: OPT, dot: true }, me && { v: me.gas.map((b) => b * 100), c: YOU }, them && { v: them.gas.map((b) => b * 100), c: OTHER, dash: true }]} hover={hover} setHover={setHover} height={64} fixed={[0, 100]} />
         {dt && (
           <Strip title={`Time vs ${label} (s) — above the line = losing`} x={me?.x ?? []} series={[{ v: dt, c: "var(--text)" }]} hover={hover} setHover={setHover} height={80} zero axisX />
         )}
@@ -143,11 +164,11 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
   );
 }
 
-/** Line sample for legends: solid for you, dashed for the other lap (not colour alone). */
-function Key({ c, dash }: { c: string; dash?: boolean }) {
+/** Line sample for legends: solid for you, dashed for the other lap, dotted for the optimal line (not colour alone). */
+function Key({ c, dash, dot }: { c: string; dash?: boolean; dot?: boolean }) {
   return (
     <svg width="18" height="8" className="key" aria-hidden>
-      <line x1="1" x2="17" y1="4" y2="4" stroke={c} strokeWidth="3" strokeLinecap="round" strokeDasharray={dash ? "4 3" : undefined} />
+      <line x1="2" x2="17" y1="4" y2="4" stroke={c} strokeWidth="3" strokeLinecap="round" strokeDasharray={dot ? "0.1 5" : dash ? "4 3" : undefined} />
     </svg>
   );
 }
@@ -163,13 +184,14 @@ function CloseUp(props: {
   corner: Corner;
   me: Profile | null;
   them: Profile | null;
+  best: Profile | null;
   mine: CornerLap;
   other: CornerLap | null;
   hover: number | null;
   from: number;
   to: number;
 }) {
-  const { g, corner: c, me, them, mine, other, hover, from, to } = props;
+  const { g, corner: c, me, them, best, mine, other, hover, from, to } = props;
   const [box, { w, h }] = useSize<HTMLDivElement>();
   const L = g.length_m;
   const idx = useMemo(() => {
@@ -236,16 +258,19 @@ function CloseUp(props: {
             </>
           )}
           {!g.has_edges && <path d={path(idx.map((i) => g.center[i] as P))} className="cd__edge" />}
+          {g.optimal?.length ? <path d={path(idx.map((i) => g.optimal![i] as P))} className="cd__opt" /> : null}
           <text x={apexPt[0]} y={apexPt[1]} className="cd__apex" textAnchor="middle" dy="0.35em">apex</text>
           {me && <path d={line(me)} className="cd__line" stroke={YOU} />}
           {/* dashed on top, so both show where the lines overlap */}
           {them && <path d={line(them)} className="cd__line cd__line--other" stroke={OTHER} />}
+          {best && mine.opt?.brake_m != null && <Dot at={at(best, -mine.opt.brake_m)} colour={OPT} hollow small />}
           {them && other?.brake_m != null && <Dot at={at(them, -other.brake_m)} colour={OTHER} hollow />}
           {me && mine.brake_m != null && <Dot at={at(me, -mine.brake_m)} colour={YOU} />}
           {them && <SpeedTag at={at(them, them.x[slow(them)])} text={Math.round(them.speed[slow(them)])} colour={OTHER} flip />}
           {me && <SpeedTag at={at(me, me.x[slow(me)])} text={Math.round(me.speed[slow(me)])} colour={YOU} />}
           {hover !== null && me && <Dot at={at(me, hover)} colour="var(--text)" small />}
           {hover !== null && them && <Dot at={at(them, hover)} colour={OTHER} small hollow />}
+          {hover !== null && best && <Dot at={at(best, hover)} colour={OPT} small hollow />}
           <Arrow g={g} idx={idx} pr={pr} />
         </svg>
       )}
@@ -291,6 +316,7 @@ interface Series {
   v: number[];
   c: string;
   dash?: boolean;
+  dot?: boolean;
 }
 
 const PAD_L = 40;
@@ -360,7 +386,7 @@ function Strip(props: {
               </>
             )}
             {series.map((s, i) => (
-              <path key={i} d={path(s.v)} stroke={s.c} className={`strip__line ${s.dash ? "strip__line--dash" : ""}`} />
+              <path key={i} d={path(s.v)} stroke={s.c} className={`strip__line ${s.dash ? "strip__line--dash" : s.dot ? "strip__line--dot" : ""}`} />
             ))}
             {axisX &&
               xticks.map((v) => (
@@ -383,7 +409,7 @@ function AxisNote({ x }: { x: number[] }) {
   return <div className="muted strip__note">Distance runs left to right; the faint line is the apex. Hover the charts to read values.</div>;
 }
 
-function Readout({ me, them, dt, hover, label }: { me: Profile | null; them: Profile | null; dt: number[] | null; hover: number | null; label: string }) {
+function Readout({ me, them, best, dt, hover, label }: { me: Profile | null; them: Profile | null; best: Profile | null; dt: number[] | null; hover: number | null; label: string }) {
   if (!me) return null;
   if (hover === null) return <div className="cd__readout muted">Hover the charts to compare the two laps at any point.</div>;
   const i = Math.max(0, Math.min(me.x.length - 1, Math.round((hover - me.x[0]) / (me.x[1] - me.x[0]))));
@@ -395,6 +421,7 @@ function Readout({ me, them, dt, hover, label }: { me: Profile | null; them: Pro
       <b>{where}</b>
       <span><Key c={YOU} />You: {row(me)}</span>
       {them && <span><Key c={OTHER} dash />{cap(label)}: {row(them)}</span>}
+      {best && <span><Key c={OPT} dot />Optimal run: {Math.round(best.speed[i])} km/h · brake {Math.round(best.brake[i] * 100)}% · throttle {Math.round(best.gas[i] * 100)}%</span>}
       {dt && <span>{dt[i] > 0 ? `${dt[i].toFixed(2)} s down so far` : `${(-dt[i]).toFixed(2)} s up so far`}</span>}
     </div>
   );
@@ -403,10 +430,11 @@ function Readout({ me, them, dt, hover, label }: { me: Profile | null; them: Pro
 // -- numbers side by side ---------------------------------------------------------
 
 function Table({ mine, other, label }: { mine: CornerLap; other: CornerLap | null; label: string }) {
-  type Row = { name: string; a: string; b: string; diff: string; tone: "good" | "bad" | "" };
+  type Row = { name: string; a: string; b: string; o: string; diff: string; tone: "good" | "bad" | "" };
   const rows: Row[] = [];
+  const opt = mine.opt;
   const num = (v: number | null | undefined, unit: string, d = 0) => (v == null ? "–" : `${v.toFixed(d)}${unit}`);
-  const cmp = (name: string, a: number | null | undefined, b: number | null | undefined, unit: string, better: "high" | "low" | null, words: [string, string], d = 0, min = 0.5) => {
+  const cmp = (name: string, a: number | null | undefined, b: number | null | undefined, unit: string, better: "high" | "low" | null, words: [string, string], d = 0, min = 0.5, o?: number | null) => {
     let diff = "";
     let tone: Row["tone"] = "";
     if (a != null && b != null && Math.abs(a - b) >= min) {
@@ -414,17 +442,27 @@ function Table({ mine, other, label }: { mine: CornerLap; other: CornerLap | nul
       diff = `${Math.abs(a - b).toFixed(d)}${unit} ${up ? words[0] : words[1]}`;
       if (better) tone = (better === "high") === up ? "good" : "bad";
     }
-    rows.push({ name, a: num(a, unit, d), b: other ? num(b, unit, d) : "", diff, tone });
+    rows.push({ name, a: num(a, unit, d), b: other ? num(b, unit, d) : "", o: opt ? num(o, unit, d) : "", diff, tone });
   };
-  cmp("Time through the corner", mine.time_s, other?.time_s, " s", "low", ["slower", "quicker"], 2, 0.01);
-  cmp("Braking starts", mine.brake_m, other?.brake_m, " m", null, ["earlier", "later"], 0, 3);
-  cmp("Speed when braking starts", mine.entry_kmh, other?.entry_kmh, " km/h", "high", ["faster", "slower"], 0, 1);
-  cmp("Hardest braking", mine.peak_brake != null ? mine.peak_brake * 100 : null, other?.peak_brake != null ? other.peak_brake * 100 : null, " %", null, ["harder", "softer"], 0, 3);
-  cmp("Slowest point", mine.min_speed_kmh, other?.min_speed_kmh, " km/h", "high", ["faster", "slower"], 0, 1);
-  cmp("Gear at the apex", mine.apex_gear, other?.apex_gear, "", null, ["higher", "lower"], 0, 1);
-  cmp("Full throttle again", mine.throttle_m, other?.throttle_m, " m", "low", ["later", "sooner"], 0, 3);
-  cmp("Speed at the exit", mine.exit_kmh, other?.exit_kmh, " km/h", "high", ["faster", "slower"], 0, 1);
-  cmp("Coasting (no pedals)", mine.coast_s, other?.coast_s, " s", "low", ["more", "less"], 1, 0.1);
+  const pct = (v: number | null | undefined) => (v != null ? v * 100 : null);
+  cmp("Time through the corner", mine.time_s, other?.time_s, " s", "low", ["slower", "quicker"], 2, 0.01, opt?.time_s);
+  cmp("Braking starts", mine.brake_m, other?.brake_m, " m", null, ["earlier", "later"], 0, 3, opt?.brake_m);
+  cmp("Speed when braking starts", mine.entry_kmh, other?.entry_kmh, " km/h", "high", ["faster", "slower"], 0, 1, opt?.entry_kmh);
+  cmp("Hardest braking", pct(mine.peak_brake), pct(other?.peak_brake), " %", null, ["harder", "softer"], 0, 3, pct(opt?.peak_brake));
+  cmp("Slowest point", mine.min_speed_kmh, other?.min_speed_kmh, " km/h", "high", ["faster", "slower"], 0, 1, opt?.min_speed_kmh);
+  cmp("Gear at the apex", mine.apex_gear, other?.apex_gear, "", null, ["higher", "lower"], 0, 1, null);
+  cmp("Full throttle again", mine.throttle_m, other?.throttle_m, " m", "low", ["later", "sooner"], 0, 3, opt?.throttle_m);
+  cmp("Speed at the exit", mine.exit_kmh, other?.exit_kmh, " km/h", "high", ["faster", "slower"], 0, 1, opt?.exit_kmh);
+  cmp("Coasting (no pedals)", mine.coast_s, other?.coast_s, " s", "low", ["more", "less"], 1, 0.1, opt ? 0 : null);
+  // Where you were across the track compared with the optimal line.
+  const place = (v: number | undefined) =>
+    v == null ? "–" : Math.abs(v) < 0.5 ? "on it" : v > 0 ? `${v.toFixed(1)} m inside` : `${(-v).toFixed(1)} m wide`;
+  if (mine.line) {
+    const ks: ["entry" | "apex" | "exit", string][] = [["entry", "Turn-in"], ["apex", "Apex"], ["exit", "Exit"]];
+    for (const [k, name] of ks) {
+      rows.push({ name: `${name} vs the optimal line`, a: place(mine.line[k]), b: other ? place(other.line?.[k]) : "", o: opt ? "–" : "", diff: "", tone: "" });
+    }
+  }
   return (
     <table className="cd__table">
       <thead>
@@ -432,6 +470,7 @@ function Table({ mine, other, label }: { mine: CornerLap; other: CornerLap | nul
           <th />
           <th><Key c={YOU} />You</th>
           {other && <th><Key c={OTHER} dash />{cap(label)}</th>}
+          {opt && <th title="The optimal line driven at this car's grip, learnt from your fastest laps (an estimate)"><Key c={OPT} dot />Optimal run</th>}
           {other && <th>Difference</th>}
         </tr>
       </thead>
@@ -441,6 +480,7 @@ function Table({ mine, other, label }: { mine: CornerLap; other: CornerLap | nul
             <td>{r.name}{r.name === "Braking starts" ? <small> before apex</small> : r.name === "Full throttle again" ? <small> after apex</small> : null}</td>
             <td>{r.a}</td>
             {other && <td>{r.b}</td>}
+            {opt && <td>{r.o}</td>}
             {other && <td className={r.tone}>{r.diff}</td>}
           </tr>
         ))}

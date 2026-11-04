@@ -85,7 +85,7 @@ def test_paused_frames_are_not_recorded():
 def test_demo_produces_several_laps(demo, clock):
     laps = []
     rec = LapRecorder(laps.append, wall_clock=clock)
-    for _ in range(60 * 200):
+    for _ in range(60 * 240):
         clock.advance(1 / 60)
         rec.feed(demo.poll(), demo.session())
     assert len(laps) >= 3

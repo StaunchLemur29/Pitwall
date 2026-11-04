@@ -334,6 +334,14 @@ class Store:
         ).fetchone()
         return json.loads(row["data"]) if row else None
 
+    def fastest_valid_lap_ids(self, game: str, track_key: str, car: str, limit: int = 8) -> list[int]:
+        rows = self._db.execute(
+            """SELECT id FROM laps WHERE game=? AND track_key=? AND car=? AND valid=1
+               ORDER BY lap_time_ms ASC, id ASC LIMIT ?""",
+            (game, track_key, car, limit),
+        ).fetchall()
+        return [int(r["id"]) for r in rows]
+
     def valid_lap_ids(self, game: str, track_key: str, car: str, limit: int = 50) -> list[int]:
         rows = self._db.execute(
             """SELECT id FROM laps WHERE game=? AND track_key=? AND car=? AND valid=1

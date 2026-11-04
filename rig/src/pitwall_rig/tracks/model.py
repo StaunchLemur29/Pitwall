@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import math
+import threading
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .ac_files import Section, TrackLine, lateral_position
+from .racing_line import optimal_offsets, offsets_to_points
+
+# Optimal lines already worked out, by track (models get rebuilt; the line doesn't change).
+_OPTIMAL: dict[tuple[str, int, float], list[float]] = {}
+_OPTIMAL_LOCK = threading.Lock()  # one solve at a time; a second asker waits for it
 
 
 @dataclass
@@ -47,6 +53,32 @@ class TrackModel:
         if not self.practice:
             self.practice = practice_sections(self.corners, self.length_m)
 
+    def _optimal_key(self) -> tuple[str, int, float]:
+        return (self.track_key, len(self.line), round(self.line.length, 1))
+
+    def optimal_ready(self) -> bool:
+        """True once the optimal line is known (or there can't be one)."""
+        return not self.has_edges or self._optimal_key() in _OPTIMAL
+
+    def optimal(self, compute: bool = True) -> list[float] | None:
+        """The optimal racing line as metres left of the AI line, per line point.
+        None without track edges, or if not worked out yet and ``compute`` is False."""
+        if not self.has_edges:
+            return None
+        key = self._optimal_key()
+        if key in _OPTIMAL:
+            return _OPTIMAL[key]
+        if not compute:
+            return None
+        with _OPTIMAL_LOCK:
+            if key not in _OPTIMAL:
+                _OPTIMAL[key] = optimal_offsets(self.line)
+        return _OPTIMAL[key]
+
+    def optimal_at(self, progress: float) -> float | None:
+        off = self.optimal(compute=False)
+        return off[self.index_at(progress)] if off else None
+
     def progress_of(self, i: int) -> float:
         return self.line.dist[i] / self.length_m if self.length_m else 0.0
 
@@ -75,14 +107,18 @@ class TrackModel:
         c = self.corners[0]  # wrap to the next lap
         return c, (1 - progress + c.entry) * self.length_m
 
-    def geometry(self, step_m: float = 3.0) -> dict[str, Any]:
-        """Downsampled shape for the dashboard."""
+    def geometry(self, step_m: float = 3.0, compute_optimal: bool = True) -> dict[str, Any]:
+        """Downsampled shape for the dashboard. ``optimal`` (the optimal racing
+        line) is empty without track edges, or when ``compute_optimal`` is False
+        and it hasn't been worked out yet."""
         line = self.line
         idx = [0]
         for i in range(1, len(line)):
             if line.dist[i] - line.dist[idx[-1]] >= step_m:
                 idx.append(i)
         left, right = line.edges() if self.has_edges else ([], [])
+        off = self.optimal(compute=compute_optimal)
+        opt = offsets_to_points(line, off) if off else []
         r2 = lambda v: round(v, 1)  # noqa: E731
         return {
             "track_key": self.track_key,
@@ -93,6 +129,7 @@ class TrackModel:
             "center": [[r2(line.x[i]), r2(line.z[i])] for i in idx],
             "left": [[r2(left[i][0]), r2(left[i][1])] for i in idx] if left else [],
             "right": [[r2(right[i][0]), r2(right[i][1])] for i in idx] if right else [],
+            "optimal": [[r2(opt[i][0]), r2(opt[i][1])] for i in idx] if opt else [],
             "corners": [c.to_dict() for c in self.corners],
             "sections": [asdict(s) for s in self.sections],
             "chapters": [c.to_dict() for c in self.chapters],

@@ -104,6 +104,8 @@ export interface TrackGeometry {
   center: [number, number][];
   left: [number, number][];
   right: [number, number][];
+  /** optimal racing line (smoothest path the edges allow), same points as center; empty without edges */
+  optimal?: [number, number][];
   corners: Corner[];
   sections: { name: string; start: number; end: number }[];
   chapters: Chapter[];
@@ -206,6 +208,22 @@ export interface CornerLap {
   vs_s?: number;
   /** what you did differently from the comparison lap, biggest first */
   notes?: string[];
+  /** metres towards the inside of the corner vs the optimal line (negative = wider) */
+  line?: { entry: number; apex: number; exit: number };
+  /** the optimal run through this corner (same measures as yours) */
+  opt?: OptimalCorner;
+  /** what you did differently from the optimal run, biggest first */
+  opt_notes?: string[];
+}
+
+export interface OptimalCorner {
+  time_s: number;
+  brake_m: number | null;
+  entry_kmh: number | null;
+  peak_brake: number | null;
+  min_speed_kmh: number;
+  throttle_m: number | null;
+  exit_kmh: number | null;
 }
 
 export interface CornerReport {
@@ -225,6 +243,8 @@ export interface CornerReport {
   track_key: string | null;
   live: boolean;
   theoretical_best_ms: number | null;
+  /** The optimal line driven at this car's grip (learnt from your fastest laps); rig only. */
+  optimal?: { lap_s: number; laps_used: number; grip: Record<string, number> } | null;
   /** Battery and DRS use on this lap (cars that have them). */
   systems: Systems | null;
   /** e.g. ["ABS (12)", "TC (8)", "DRS", "ERS (4 deploy modes)"] */

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -16,7 +17,8 @@ from .input import InputEvent
 from .laps import LapRecorder
 from .models import Frame, GameStatus, Lap, Mode, SessionInfo, mode_for
 from .reference import ReferenceLap, downsample
-from .analysis import analyse_lap, analyse_systems, compare_notes, corner_mastery, width_advice
+from .analysis import analyse_lap, analyse_systems, compare_notes, corner_mastery, line_vs_optimal, width_advice
+from .optimal_run import lap_time, learn_grip, simulate
 from .storage import Store
 from .tracks.live import Drill, TrackState
 from .tracks.loader import from_lap_trace
@@ -37,6 +39,12 @@ class AnalysisCtx:
         self.ref_lap_id = ref_lap_id
         self.live = live
         self.lap_count = -1  # cache check for past combos
+
+
+# The optimal run learns the car's grip from this many of your fastest laps.
+OPT_LAPS = 8
+# What each corner row carries about the optimal run (also uploaded to the hub).
+OPT_KEYS = ("time_s", "brake_m", "entry_kmh", "peak_brake", "min_speed_kmh", "throttle_m", "exit_kmh")
 
 
 def _locked(fn):  # type: ignore[no-untyped-def]
@@ -61,8 +69,6 @@ class Rig:
         recorder: Recorder | None = None,
         clock: Callable[[], float] = time.perf_counter,
     ) -> None:
-        import threading
-
         self.lock = threading.RLock()
         self.adapter = adapter
         self.store = store
@@ -73,6 +79,8 @@ class Rig:
         self.frame: Frame | None = None
         self.session: SessionInfo | None = None
         self._ctx_cache: dict[tuple[str, str, str], AnalysisCtx] = {}
+        self._opt_runs: dict[tuple[str, str, str], dict[str, Any]] = {}  # optimal run per car + track
+        self._opt_busy: set[tuple[str, str, str]] = set()
         self._ac_tracks = None  # track loader for past AC tracks when another adapter is running
         self.mode: Mode = Mode.IDLE
         self.reference: ReferenceLap | None = None
@@ -265,8 +273,23 @@ class Rig:
                     self._analyse(lap_id, tr)
         self.track.mastery = self._mastery()
         self.csp.touch()
-        self.emit({"type": "track", "track": model.geometry()})
+        self.emit({"type": "track", "track": model.geometry(compute_optimal=False)})
         self._emit_corners(None)
+        if not model.optimal_ready():
+            # A few seconds on a long track: work it out off the telemetry thread,
+            # then send the map (and the corner tips that use it) again.
+            threading.Thread(target=self._optimal_line, args=(model,), daemon=True, name="optimal-line").start()
+
+    def _optimal_line(self, model: TrackModel) -> None:
+        try:
+            model.optimal()
+        except Exception:  # noqa: BLE001 - the analysis works without it
+            log.exception("Couldn't work out the optimal line for %s", model.track_key)
+            return
+        with self.lock:
+            if self.track is not None and self.track.model is model:
+                self.emit({"type": "track", "track": model.geometry()})
+                self._emit_corners(None)
 
     def _model_sig(self, track: TrackState | None = None) -> str:
         track = track or self.track
@@ -327,6 +350,11 @@ class Rig:
             trace = self.store.trace(lap_id) if lap_id is not None else None
             if trace:
                 model = from_lap_trace(track_key, trace, 0.0)
+        if model is not None:
+            try:
+                model.optimal()  # outside the lock too: seconds on a long track, once
+            except Exception:  # noqa: BLE001 - the analysis works without it
+                log.exception("Couldn't work out the optimal line for %s", track_key)
         return model
 
     def analysis_ctx(self, game: str | None = None, car: str | None = None, track_key: str | None = None,
@@ -467,6 +495,8 @@ class Rig:
         with another lap (your best by default; your next best when looking at
         the best lap itself). The live session's car + track unless another is asked for."""
         ctx = self.analysis_ctx(game, car, track_key, lap_id)
+        if ctx is not None and not ctx.live:
+            self._optimal_run(ctx, wait=True)  # outside the lock: reads a few laps
         with self.lock:
             return self._corner_report(ctx, lap_id, compare_id)
 
@@ -496,10 +526,20 @@ class Rig:
                     continue
                 nxt = m.corners[(i + 1) % len(m.corners)]
                 gap = ((nxt.entry - c.exit) % 1.0) * m.length_m
+                line = line_vs_optimal(c, data, m)
+                if line:
+                    data["line"] = line
                 data["advice"] = width_advice(c, data, gap)
                 # Time lost against your best ever through this corner (any lap).
                 best = track.mastery.get(c.number, {}).get("best_s")
                 data["loss_s"] = round(data["time_s"] - best, 3) if best is not None else None
+        run = self._optimal_run(ctx, wait=False)
+        if lap and run and run.get("rows"):
+            for data in lap:
+                o = run["rows"].get(data["corner"])
+                if o:
+                    data["opt"] = {k: o.get(k) for k in OPT_KEYS}
+                    data["opt_notes"] = compare_notes(data, o, "the optimal run")[:3]
         compare, compare_label = None, None
         if lap:
             ref_id = ctx.ref_lap_id
@@ -522,6 +562,11 @@ class Rig:
                 compare_label = "your best lap" if is_best else f"lap {info['lap_number']}" if info else "the other lap"
             if compare:
                 by_num = {c["corner"]: c for c in compare}
+                for other in compare:
+                    k = other["corner"] - 1
+                    line = line_vs_optimal(m.corners[k], other, m) if 0 <= k < len(m.corners) else None
+                    if line:
+                        other["line"] = line
                 for data in lap:
                     other = by_num.get(data["corner"])
                     if other:
@@ -551,6 +596,8 @@ class Rig:
             "lap": lap,
             "reference": list(track.ref_corners.values()),
             "reference_lap_id": ctx.ref_lap_id,
+            "optimal": {"lap_s": run["lap_s"], "grip": run["grip"], "laps_used": run["laps_used"]}
+            if run and run.get("trace") else None,
         }
 
     def _chapter_times(self, lap_id: int | None, ctx: AnalysisCtx) -> list[dict[str, Any]]:
@@ -612,6 +659,78 @@ class Rig:
             return False
         ch = next((c for c in self.track.model.chapters if c.number == number), None)
         return ch is not None and self.start_drill(ch.start, ch.end, ch.name)
+
+    # -- optimal run --------------------------------------------------------------
+
+    def _optimal_run(self, ctx: AnalysisCtx | None, wait: bool) -> dict[str, Any] | None:
+        """The optimal line driven at this car's grip (see optimal_run.py), kept
+        until your fastest laps change. ``wait=False`` never blocks: it returns
+        what's known (maybe from before your latest laps) and works out a fresh
+        one in the background, sending the live analysis again when it's done."""
+        if ctx is None:
+            return None
+        key = (ctx.game, ctx.car, ctx.track_key)
+        model = ctx.track.model
+        ids = self.store.fastest_valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=OPT_LAPS)
+        sig = (tuple(ids), model.optimal_ready())
+        known = self._opt_runs.get(key)
+        if known is not None and known["sig"] == sig:
+            return known
+        if wait:
+            self._opt_runs[key] = run = self._work_out_run(model, ids, sig)
+            return run
+        if key not in self._opt_busy:
+            self._opt_busy.add(key)
+            threading.Thread(
+                target=self._optimal_run_bg, args=(key, ctx.live, model, ids, sig), daemon=True, name="optimal-run"
+            ).start()
+        return known
+
+    def _optimal_run_bg(self, key: tuple[str, str, str], live: bool, model: TrackModel, ids: list[int], sig: tuple) -> None:
+        try:
+            run = self._work_out_run(model, ids, sig)
+        finally:
+            self._opt_busy.discard(key)
+        with self.lock:
+            self._opt_runs[key] = run
+            s = self.session
+            if live and self.track is not None and s is not None and (s.game, s.car, s.track_key) == key:
+                self._emit_corners(None)
+
+    def _work_out_run(self, model: TrackModel, ids: list[int], sig: tuple) -> dict[str, Any]:
+        run: dict[str, Any] = {"sig": sig}
+        try:
+            traces = [t for t in (self.store.trace(i) for i in ids) if t]
+            grip = learn_grip(traces)
+            tr = simulate(model, grip) if grip else None
+            if grip and tr:
+                run.update(
+                    trace=tr,
+                    lap_s=round(lap_time(tr), 3),
+                    grip=grip.to_dict(),
+                    laps_used=len(traces),
+                    rows={r["corner"]: r for r in analyse_lap(tr, model)},
+                )
+        except Exception:  # noqa: BLE001 - the analysis works without it
+            log.exception("Couldn't work out the optimal run for %s", model.track_key)
+        return run
+
+    def optimal_trace(self, game: str | None, car: str | None, track_key: str | None) -> dict[str, Any] | None:
+        """The optimal run as a lap trace for the charts (about every 4 m)."""
+        ctx = self.analysis_ctx(game, car, track_key)
+        if ctx is None:
+            return None
+        if ctx.live:
+            with self.lock:
+                run = self._optimal_run(ctx, wait=False)
+        else:
+            run = self._optimal_run(ctx, wait=True)
+        tr = run.get("trace") if run else None
+        if not tr:
+            return None
+        n = len(tr["t"])
+        step = max(1, round(4.0 / max(0.1, ctx.track.model.length_m / max(1, n))))
+        return {"lap_s": run["lap_s"], "trace": {k: v[::step] for k, v in tr.items()}}
 
     def _emit_corners(self, lap_id: int | None) -> None:
         if self.track is not None:
@@ -831,7 +950,7 @@ class Rig:
             "car_systems": car_profile.summary(self.car_profile) if self.car_profile else [],
             "started_at": self.started_at,
             "recent_laps": self.recent_laps(),
-            "track": self.track.model.geometry() if self.track else None,
+            "track": self.track.model.geometry(compute_optimal=False) if self.track else None,
             "corners": self.corner_report() if self.track else None,
             "drill": self.track.drill.to_wire() if self.track and self.track.drill else None,
         }

@@ -136,6 +136,8 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     },
 
     trace: (id) => trace(id),
+    // Worked out on the rig PC; the hub gets its per-corner numbers with each lap.
+    optimal: async () => null,
 
     async debriefs(c) {
       const { data } = await sb.from("debriefs").select("game,car,track_key,session_start,created_at,model,body")
