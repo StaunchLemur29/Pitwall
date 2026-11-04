@@ -268,7 +268,7 @@ Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
 |---|---|
 | **0 Foundation** | AC adapter, lap recording, SQLite, WebSocket, driving layout, settings UI, SF1000 input, demo/replay mode |
 | **1 Track learning core** | Auto corner detection, map, next-corner card, corner progress, section timing, drills + pass targets, CSP companion app (rewind/teleport), **mini Nordschleife pack** (corner names + chapter boundaries) |
-| **2 Cloud hub** | Supabase sync, hosted hub, history, lap comparison, AI debrief, AI time to beat. Done: sync (laps, corner analysis, ~20 Hz telemetry, track layouts, car profiles) and the hub site (same analysis screens, read-only, compares laps in the browser; Vercel). Also done: AI debrief (Claude Opus 5.5 with the owner's API key on the PC; written when a session ends with 3+ clean laps, or on request; shown in the analysis on the PC and in the hub; the hub can also write one while the PC is off, through a Supabase Edge Function holding the key, limited to the owner's email) and the hub's Progress page. Next: AI time to beat |
+| **2 Cloud hub** | Supabase sync, hosted hub, history, lap comparison, AI debrief, AI time to beat. Done: sync (laps, corner analysis, ~20 Hz telemetry, track layouts, car profiles) and the hub site (same analysis screens, read-only, compares laps in the browser; Vercel). Also done: AI debrief (Claude Opus 5.5 with the owner's API key on the PC; written when a session ends with 3+ clean laps, or on request; shown in the analysis on the PC and in the hub; the hub can also write one while the PC is off, through a Supabase Edge Function holding the key, limited to the owner's email), the hub's Progress page and the time to beat. Phase 2 is done; the recommended order for the rest is in docs/review-2026-11.md |
 | **3 Coaching** | Live tips (audio+visual), blind-spot scan, electronics + pressure advisor, music, session timer |
 | **— v1 = phases 0–3 —** | |
 | 4 Content | Full Nordschleife/Spa/Hampton Downs packs, lesson library, setup unlock tree, quiz, pace notes, drive-along, famous times |
@@ -292,7 +292,7 @@ Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
 - **Rewind mod**: name and whether it can be triggered from a CSP Lua app / externally. Affects only phase 1 retry implementation; teleport is the fallback.
 - **AC EVO fields**: confirm BB/ABS/TC levels and tyre pressures exist before building EVO electronics features.
 - **TTS voice**: audition 2–3 voices.
-- **SF1000 screen**: whether Thrustmaster's SDK (USB/Native mode) can be used by a third-party app; which F1-format fields each wheel page shows, the user's firmware version, and whether the screen accepts a second sender alongside a game's own output. Could move earlier than phase 8 if wanted, since it's independent of the rest.
+- **SF1000 screen** (USB answered 2026-11-04: not open to other programs, so Pitwall uses Wi-Fi UDP; see docs/research/sf1000-screen.md). Still open: which F1-format fields each wheel page shows, the user's firmware version, and whether the screen accepts a second sender alongside a game's own output. Could move earlier than phase 8 if wanted, since it's independent of the rest.
 
 - **GitHub Student Developer Pack** perks to check and use (offers change; verify at education.github.com/pack): free domain for the hosted hub, Azure for Students credit (Azure neural TTS as a voice candidate), Sentry for error tracking, Copilot, cloud credits as a fallback host.
 

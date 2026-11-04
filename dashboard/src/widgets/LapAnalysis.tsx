@@ -134,6 +134,10 @@ export function LapAnalysis({
     };
   }, [otherId]);
 
+  // What the gain / loss map is coloured against: the comparison lap, or the
+  // optimal run's own trace when that's the comparison (the PC has it; the hub doesn't).
+  const mapRef = report?.compare_kind === "optimal" ? optTrace : otherTrace;
+
   const rows = report?.lap ?? [];
   // Biggest losses first: where the time went.
   const losses = useMemo(
@@ -482,8 +486,8 @@ export function LapAnalysis({
             {systemsBlock && <Panel id="systems" title="Car systems">{systemsBlock}</Panel>}
             <Panel id="map" title="Map" height={420} minHeight={220}>
               {modes}
-              <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
-              <Legend mode={mode} label={label} showOpt={showOpt} />
+              <ColouredMap g={g} trace={trace} ref_={mapRef} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
+              <Legend mode={mode} label={label} showOpt={showOpt} noRef={!mapRef} />
             </Panel>
             <Panel id="sections" title="Sections" right={<span className="muted pnl__hint">click a corner for the detail</span>}>{list}</Panel>
           </div>
@@ -520,8 +524,8 @@ export function LapAnalysis({
             {optLap !== null ? <span className="nsum__theo" title={optTitle(report?.optimal)}>optimal run {lapTime(Math.round(optLap * 1000))}</span> : null}
           </div>
           {modes}
-          <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
-          <Legend mode={mode} label={label} showOpt={showOpt} />
+          <ColouredMap g={g} trace={trace} ref_={mapRef} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
+          <Legend mode={mode} label={label} showOpt={showOpt} noRef={!mapRef} />
           {list}
         </div>
       )}
@@ -551,7 +555,9 @@ function gradeColour(loss: number | null | undefined): string {
   return loss <= 0.05 ? "#3ddc84" : loss <= 0.2 ? "#ffc542" : "#ff5252";
 }
 
-function Legend({ mode, label, showOpt }: { mode: Mode; label: string | null; showOpt: boolean }) {
+function Legend({ mode, label, showOpt, noRef }: { mode: Mode; label: string | null; showOpt: boolean; noRef?: boolean }) {
+  if (mode === "delta" && noRef)
+    return <div className="legend muted">Gain / loss along the lap needs a lap to compare with: pick one above.</div>;
   const items: Record<Mode, [string, string][]> = {
     phase: [
       ["#ff5252", "braking"],

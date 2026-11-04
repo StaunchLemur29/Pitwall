@@ -2595,8 +2595,37 @@ select {
 
 @media (max-width: 700px) {
   .hub__email,
-  .hub__title {
+  .hub__title,
+  .hub__left .dash__session {
     display: none;
+  }
+
+  /* No centred title on a phone: the logo and tabs take the room, account on the right. */
+  .hub__top {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .hub__left,
+  .hub__right {
+    gap: 8px;
+  }
+
+  .hub__top {
+    align-items: start;
+  }
+
+  .hub__left {
+    flex-wrap: wrap; /* the tabs go under the logo */
+    row-gap: 10px;
+  }
+
+  .hub__left .brand {
+    white-space: nowrap;
+  }
+
+  .hub__tabs {
+    margin-left: 0;
   }
 }
 

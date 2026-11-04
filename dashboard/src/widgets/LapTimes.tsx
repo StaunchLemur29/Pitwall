@@ -25,12 +25,12 @@ export function LapTimes() {
         <div className="laps__grid">
           <Stat label="Last" value={lapTime(f?.last_lap_ms || lastLap?.lap.lap_time_ms)} tone={flash ? (flash.newBest ? "best" : flash.lap.valid ? "" : "bad") : ""} />
           <Stat label="Best" value={lapTime(live.ref_lap_ms)} />
-          <Stat label="Optimal" value={lapTime(live.theoretical_best_ms)} />
+          <Stat label="Best sectors" value={lapTime(live.theoretical_best_ms)} />
           <Stat label="To beat" value={lapTime(live.time_to_beat_ms)} tone="target" />
         </div>
         {flash && (
           <div className={`laps__flash ${flash.newBest ? "laps__flash--best" : ""}`}>
-            {flash.newBest ? "New personal best" : flash.lap.out_lap ? "Out lap" : flash.lap.rewound && flash.lap.valid ? "Rewind used: not a best" : flash.lap.valid ? "Lap complete" : "Lap invalid (track limits)"}
+            {flash.newBest ? "New personal best" : flash.lap.out_lap ? "That was an out lap" : flash.lap.rewound && flash.lap.valid ? "Rewind used: not a best" : flash.lap.valid ? "Lap complete" : "Lap invalid (track limits)"}
           </div>
         )}
       </div>
