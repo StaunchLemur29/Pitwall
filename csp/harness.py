@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -167,8 +168,14 @@ def main() -> int:
         ok &= bool(cond)
         print(("PASS " if cond else "FAIL ") + name + (f"  ({detail})" if detail and not cond else ""))
 
-    status, body = http("GET", RIG + "/api/csp/track")
-    track = json.loads(body) if status == 200 else None
+    # A freshly started demo service has no braking points until it has driven a
+    # lap: wait for them (up to two minutes) rather than failing on timing.
+    for _ in range(120):
+        status, body = http("GET", RIG + "/api/csp/track")
+        track = json.loads(body) if status == 200 else None
+        if track and any(c.get("brake_p") is not None for c in track.get("corners") or []):
+            break
+        time.sleep(1)
     check("service reachable and has a track", track and track.get("corners"), body[:200])
     if not track:
         return 1

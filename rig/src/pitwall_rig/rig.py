@@ -267,6 +267,7 @@ class Rig:
                     log.exception("Couldn't finish lap %s", lap.lap_number)
 
         threading.Thread(target=run, name="pitwall-post-lap", daemon=True).start()
+
     # -- the SF1000 wheel screen ------------------------------------------------------
 
     def _wheel(self) -> Any:
