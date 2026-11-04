@@ -616,6 +616,52 @@ function describe(b: Binding): string {
   return `${b.device_name} · axis ${b.index + 1} ${b.direction === -1 ? "−" : "+"}`;
 }
 
+/** The SF1000's own screen, fed by Pitwall over Wi-Fi. */
+function WheelScreen({ draft, edit }: EditProps) {
+  const cfg = draft.sf1000 ?? { enabled: false, ip: "", port: 20777 };
+  const [test, setTest] = useState<string | null>(null);
+  const set = (k: "enabled" | "ip", v: boolean | string) =>
+    edit((c) => {
+      c.sf1000 = { ...(c.sf1000 ?? { enabled: false, ip: "", port: 20777 }), [k]: v };
+    });
+  const run = async () => {
+    setTest("Sending…");
+    const r = await fetch("/api/sf1000/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ip: cfg.ip }),
+    });
+    const j = await r.json().catch(() => ({}));
+    setTest(
+      j.ok
+        ? "Sent. The wheel should have swept its rev lights and gears. Nothing? Check it's in UDP mode and the IP matches."
+        : j.error ?? "Couldn't send.",
+    );
+  };
+  return (
+    <>
+      <h2>SF1000 wheel screen</h2>
+      <p className="field__hint">
+        Pitwall can drive the wheel's own screen and rev lights over Wi-Fi, so its F1 pages work in Assetto Corsa: gear,
+        speed, RPM lights, lap and sector times, fuel, tyres, brake bias, ABS and TC. On the wheel: Wi-Fi on, UDP mode,
+        F1 23 format (firmware 6.27 or newer). Its Wi-Fi page shows the IP and “UDP: 20777”.
+      </p>
+      <Field label="Send to the wheel">
+        <input type="checkbox" checked={cfg.enabled} onChange={(e) => set("enabled", e.target.checked)} />
+      </Field>
+      <Field label="Wheel IP" hint="From the wheel's Wi-Fi page, like 192.168.1.50.">
+        <input className="textin" placeholder="192.168.1.50" value={cfg.ip} onChange={(e) => set("ip", e.target.value.trim())} />
+      </Field>
+      <Field label="Test">
+        <button className="btn btn--ghost" onClick={run} disabled={!cfg.ip}>
+          Send a test pattern
+        </button>
+      </Field>
+      {test && <p className="muted">{test}</p>}
+    </>
+  );
+}
+
 function Controls({
   draft,
   edit,
@@ -666,6 +712,7 @@ function Controls({
 
       </div>
       {dirty && <p className="warn">Save your other changes before binding buttons.</p>}
+      <WheelScreen draft={draft} edit={edit} />
       {Object.entries(actions).map(([action, label]) => {
         const binds = draft.bindings[action] ?? [];
         const waiting = bindingAction === action;

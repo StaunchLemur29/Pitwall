@@ -56,6 +56,9 @@ DEFAULTS: dict[str, Any] = {
     "server": {"host": "127.0.0.1", "port": 8765},
     "rates": {"poll_hz": 60, "broadcast_hz": 60},
     "laps": {"max_tyres_out": 2},
+    # The SF1000's own screen, fed over Wi-Fi in the F1 23 UDP format (wheel in
+    # UDP mode, firmware 6.27+). ip: the wheel's address, shown on its Wi-Fi page.
+    "sf1000": {"enabled": False, "ip": "", "port": 20777},
     # lead_in_s: a drill retry rewinds to this many seconds of driving before
     # the section starts, so you have a moment to settle before it begins.
     "drills": {"lead_in_s": 4},

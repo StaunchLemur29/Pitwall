@@ -355,6 +355,22 @@ async def post_drill(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def get_sf1000(request: web.Request) -> web.Response:
+    return web.json_response(request.app[RIG_KEY].sf1000_status())
+
+
+async def post_sf1000_test(request: web.Request) -> web.Response:
+    """Send a test pattern to the wheel (a couple of seconds, off the event loop)."""
+    rig = request.app[RIG_KEY]
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        body = {}
+    ip = str(body.get("ip") or "").strip() or None
+    out = await asyncio.get_running_loop().run_in_executor(None, lambda: rig.sf1000_test(ip))
+    return web.json_response(out)
+
+
 async def delete_drill(request: web.Request) -> web.Response:
     request.app[RIG_KEY].stop_drill()
     return web.json_response({"ok": True})
@@ -555,6 +571,8 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_post("/api/csp/sync", csp_sync)
     app.router.add_get("/api/csp/track", csp_track)
     app.router.add_post("/api/drill", post_drill)
+    app.router.add_get("/api/sf1000", get_sf1000)
+    app.router.add_post("/api/sf1000/test", post_sf1000_test)
     app.router.add_delete("/api/drill", delete_drill)
 
     if static_dir is not None and (static_dir / "index.html").exists():

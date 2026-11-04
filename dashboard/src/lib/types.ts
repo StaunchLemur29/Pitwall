@@ -408,6 +408,8 @@ export interface Config {
   server: { host: string; port: number };
   rates: { poll_hz: number; broadcast_hz: number };
   laps: { max_tyres_out: number };
+  /** the SF1000's own screen, fed over Wi-Fi (F1 23 UDP) */
+  sf1000?: { enabled: boolean; ip: string; port: number };
   units: { speed: string; pressure: string; temperature: string };
   display: {
     accent: string;
