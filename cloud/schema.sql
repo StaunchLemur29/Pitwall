@@ -33,6 +33,7 @@ alter table public.laps add column if not exists systems jsonb;  -- battery & DR
 alter table public.laps add column if not exists review jsonb;  -- the lap's good and bad (worked out on the PC)
 alter table public.laps add column if not exists rewound boolean not null default false;  -- used a rewind: never a best lap
 alter table public.laps add column if not exists time_to_beat jsonb;  -- the targets as they stood after this lap
+alter table public.laps add column if not exists unfinished boolean not null default false;  -- didn't get to the line
 
 create index if not exists laps_combo on public.laps (user_id, game, track_key, car, lap_time_ms);
 create index if not exists laps_recent on public.laps (user_id, started_at desc);

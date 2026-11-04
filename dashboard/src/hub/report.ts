@@ -17,6 +17,7 @@ export interface HubLap {
   valid: boolean;
   out_lap?: boolean;
   rewound?: boolean; // used a rewind: never a best lap
+  unfinished?: boolean; // didn't get to the line: only some corners driven
   started_at: number; // unix seconds
   sector_ms: number[];
   corners: CornerLap[] | null;
@@ -85,6 +86,13 @@ function pstdev(xs: number[]): number {
 }
 
 /** Per corner: best and recent times, consistency, green / amber / red. ``history`` newest first. */
+/** Whether a corner of a lap counts towards your usual and bests (analysis.py counts). */
+export function counts(c: CornerLap, lapValid: boolean): boolean {
+  if (c.driven === false) return false;
+  return c.clean ?? lapValid;
+}
+export const OPTIMAL = -1; // compare_id: the optimal run (rig.py OPTIMAL)
+
 export function cornerMastery(history: CornerLap[][], recent = 10): Map<number, Mastery> {
   const byCorner = new Map<number, number[]>();
   for (const lap of history) for (const c of lap) byCorner.set(c.corner, [...(byCorner.get(c.corner) ?? []), c.time_s]);
@@ -111,9 +119,9 @@ export function carSummary(p: CarProfile | null): string[] {
   if (p.abs) out.push(p.abs_levels ? `ABS (${p.abs_levels})` : "ABS");
   if (p.tc) out.push(p.tc_levels ? `TC (${p.tc_levels})` : "TC");
   if (p.brake_bias) out.push("Brake bias");
-  if (p.drs) out.push("DRS");
-  if (p.ers) out.push(p.deploy_modes ? `ERS (${p.deploy_modes} deploy modes)` : "ERS");
-  else if (p.battery) out.push("KERS");
+  // Only what's been seen working: some mod cars claim systems they don't have.
+  if (p.drs && p.drs_seen) out.push("DRS");
+  if (p.battery && p.battery_seen) out.push(p.ers ? (p.deploy_modes ? `ERS (${p.deploy_modes} deploy modes)` : "ERS") : "KERS");
   if (p.engine_brake_maps) out.push(`Engine braking (${p.engine_brake_maps} maps)`);
   return out;
 }
@@ -137,30 +145,59 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
   const shownId = lapId ?? valid[0]?.id ?? null;
   const shown = shownId !== null ? byId.get(shownId) ?? null : null;
 
-  const history = valid.slice(0, 30).map((l) => l.corners ?? []).filter((c) => c.length);
+  // Your recent driving through each corner (rig.py _history): the corners that
+  // count (driven all the way, clean) from any lap, finished or not, newest first.
+  const history: CornerLap[][] = [];
+  for (const l of [...inp.laps].sort((a, b) => b.started_at - a.started_at).slice(0, 90)) {
+    const good = (l.corners ?? []).filter((c) => counts(c, l.valid));
+    if (good.length) history.push(good);
+    if (history.length >= 30) break;
+  }
   const mastery = cornerMastery(history);
   const lap = shown?.corners ? shown.corners.map((c) => ({ ...c })) : null;
   if (lap) {
     for (const c of lap) {
+      if (c.driven === false) continue; // not driven on this lap: nothing to compare
       const b = mastery.get(c.corner)?.best_s;
       c.loss_s = b !== undefined ? r3(c.time_s - b) : null;
     }
   }
 
+  // Coaching, not lap comparison (rig.py): only ever against something faster.
+  // Your best lap if it's quicker than this one; on your best (or a lap quicker
+  // only by cutting), the benchmark: the optimal run (OPTIMAL = -1).
   let cmp: HubLap | null = null;
+  let kind: CornerReport["compare_kind"] = null;
+  let optLabel: string | null = null;
+  let optCompare: CornerLap[] | null = null;
   if (lap && shownId !== null) {
     if (compareId === null) {
-      if (refId !== null && refId !== shownId) compareId = refId;
-      else compareId = [...valid].filter((l) => l.id !== shownId).sort((a, b) => a.lap_time_ms - b.lap_time_ms)[0]?.id ?? null;
+      const fullLap = !!shown && !shown.out_lap && !shown.unfinished;
+      compareId = best && best.id !== shownId && (!fullLap || best.lap_time_ms < shown!.lap_time_ms) ? best.id : OPTIMAL;
     }
-    cmp = compareId !== null && compareId !== shownId ? byId.get(compareId) ?? null : null;
+    if (compareId === OPTIMAL) {
+      const rows = lap.filter((c) => c.opt);
+      if (rows.length) {
+        kind = "optimal";
+        optLabel = "the optimal run";
+        optCompare = rows.map((c) => ({ ...(c.opt as unknown as CornerLap), corner: c.corner }));
+        for (const c of lap) {
+          if (!c.opt || c.driven === false) continue;
+          c.vs_s = r3(c.time_s - c.opt.time_s);
+          c.notes = c.opt_notes?.length ? c.opt_notes : compareNotes(c, c.opt as unknown as CornerLap, optLabel).slice(0, 3);
+        }
+      }
+    } else {
+      cmp = compareId !== null && compareId !== shownId ? byId.get(compareId) ?? null : null;
+      if (cmp) kind = "lap";
+    }
   }
-  const label = cmp ? (cmp.id === refId ? "your best lap" : `lap ${cmp.lap_number}`) : null;
+  const label = cmp ? (cmp.id === refId ? "your best lap" : `lap ${cmp.lap_number}`) : optLabel;
   if (lap && cmp?.corners && label) {
     const other = new Map(cmp.corners.map((c) => [c.corner, c]));
     for (const c of lap) {
       const o = other.get(c.corner);
-      if (o) {
+      if (o && c.driven !== false && o.driven !== false) {
         c.vs_s = r3(c.time_s - o.time_s);
         c.notes = compareNotes(c, o, label);
       }
@@ -168,7 +205,9 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
   }
 
   const span = (tr: Trace | undefined, a: number, b: number) => {
-    if (!tr || b <= a) return null;
+    if (!tr || b <= a || !tr.p.length) return null;
+    // an unfinished lap may stop short (rig.py _covers)
+    if (Math.min(...tr.p) > a + 0.002 || Math.max(...tr.p) < b - 0.002) return null;
     const at = timeLookup(tr);
     return r3(at(b) - at(a));
   };
@@ -214,9 +253,10 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
     systems: shown?.systems ?? null,
     review: shown?.review ?? null,
     car_systems: carSummary(inp.profile),
-    compare: cmp?.corners ?? null,
+    compare: cmp?.corners ?? optCompare,
     compare_lap_id: cmp ? cmp.id : null,
     compare_label: label,
+    compare_kind: kind,
     chapters,
     practice,
     mastery: [...mastery.values()],

@@ -43,3 +43,33 @@ def test_rig_gives_a_lap_time_to_beat_and_drill_targets(demo, clock, config, sto
     assert any(c.get("to_beat_s") for c in rep["lap"])
     assert rig.drill_section(rep["practice"][0]["number"])
     assert rig.track.drill.target_ms == round(rep["practice"][0]["to_beat_s"] * 1000)
+
+
+def test_coach_strip_focus_last_lap_and_cold_tyres(demo, clock, config, store):
+    from pitwall_rig.models import Frame, GameStatus
+    from pitwall_rig.rig import Rig
+
+    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
+    while len([lap for lap in store.laps(limit=100) if lap["valid"]]) < 4:
+        clock.advance(1 / 60)
+        rig.tick()
+    coach = rig.live()["coach"]
+    f = coach["focus"]
+    tb = rig.corner_report()["time_to_beat"]
+    biggest = max(tb["corners"], key=lambda c: c["gain_s"])
+    assert f and f["corner"] == biggest["corner"] and f["to_beat_s"] == biggest["target_s"]
+    assert coach["last_lap"] and "wrong" in coach["last_lap"]  # just finished a lap
+    # Focus stays put for the session until it's met twice.
+    rig._focus["beaten"] = 2
+    rig._coach_after_lap(store.laps(limit=1)[0]["id"], rig.corner_report(), tb)
+    assert rig._focus is None or rig._focus["corner"] != f["corner"]
+    # Cold tyres: after a teleport/reset they drop; warm again near the usual temperature.
+    rig.car_profile["tyre_working_c"] = 85.0
+    cold = Frame(t=clock(), status=GameStatus.LIVE, speed_kmh=0, tyre_core_temp_c=[40.0] * 4)
+    rig.frame = cold
+    rig._note_tyres(cold)
+    assert rig.live()["coach"]["tyres"]["cold"]
+    warm = Frame(t=clock(), status=GameStatus.LIVE, speed_kmh=150, tyre_core_temp_c=[82.0] * 4)
+    rig.frame = warm
+    rig._note_tyres(warm)
+    assert rig.live()["coach"]["tyres"] is None

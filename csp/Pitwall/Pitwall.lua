@@ -10,7 +10,8 @@
 -- saved; "retry" loads it back, putting you there at speed.
 -- Getting to a drill: "teleport" parks the car, stopped, on the racing line at
 -- the point the service picked (far enough back to be up to speed by the
--- section). Only to get there; retries are the rewind above.
+-- section). Only to get there; retries are the rewind above. Teleporting resets
+-- the car, so the tyres are put back to working temperature straight after.
 
 local RIG = 'http://127.0.0.1:8765'
 local SYNC_EVERY = 0.1
@@ -22,7 +23,9 @@ local car = ac.getCar(0)
 local track = nil -- { version, length_m, corners = {...}, ref_speed = {...} }
 local drill = nil -- { key, name, start_p, end_p, run_up_p }
 local launch = nil -- { key, data } car state saved at the run-up point
-local settle = nil -- just teleported: { pos, dir, frames, flipped }
+local settle = nil -- just teleported: { pos, dir, frames, flipped, tyreTemp }
+local run = nil -- the drill run you're on: { key, elapsed } (game time, so pauses don't count)
+local runResult = nil -- the run just finished: { time, target, isBest, untilT }
 local connected = false
 local syncBusy, trackBusy = false, false
 local trackVersion = -1
@@ -69,14 +72,42 @@ local function lineAt(p)
   return pos, dir:normalize()
 end
 
+-- The tyre temperature to arrive with: the car's optimum if CSP says, else what
+-- they're at now (warmed by driving). Read defensively: not every CSP has these.
+local function arrivalTyreTemp()
+  local ok, t = pcall(function ()
+    local sum, n = 0, 0
+    for i = 0, 3 do
+      local w = car.wheels[i]
+      local v = w.tyreOptimumTemperature
+      if not v or v < 40 then v = w.tyreCoreTemperature end
+      if v and v >= 40 then sum, n = sum + v, n + 1 end
+    end
+    return n > 0 and sum / n or nil
+  end)
+  return ok and t or nil
+end
+
+-- Teleporting resets the car, tyres stone cold: put them back to temperature.
+-- physics.setTyresTemperature is in CSP's own debug app (CspDebug); guarded in
+-- case this CSP doesn't have it. Returns 'warm', 'no_temp' or 'unsupported'.
+local function warmTyres(temp)
+  if not temp then return 'no_temp' end
+  if not (physics.setTyresTemperature and ac.Wheel and ac.Wheel.All) then return 'unsupported' end
+  local ok = pcall(physics.setTyresTemperature, 0, ac.Wheel.All, temp)
+  return ok and 'warm' or 'unsupported'
+end
+
 local function teleport(p)
   if not (physics and physics.setCarPosition and ac.trackProgressToWorldCoordinate) then return 'unsupported' end
   local pos, dir = lineAt(p)
   if not pos then return 'no_line' end
+  local temp = arrivalTyreTemp() -- before the reset cools them
   -- CSP's own debug app passes the direction reversed; if the car still comes
   -- out facing backwards it's turned round on the next frame (see settleStep)
   physics.setCarPosition(0, pos, -dir)
-  settle = { pos = pos, dir = dir, frames = 3, flipped = false }
+  settle = { pos = pos, dir = dir, frames = 3, flipped = false, tyreTemp = temp }
+  settle.tyres = warmTyres(temp)
   lastSpline = nil
   return nil
 end
@@ -87,6 +118,7 @@ local function settleStep()
     physics.setCarPosition(0, st.pos, st.dir)
     st.flipped = true
   end
+  warmTyres(st.tyreTemp) -- again for a few frames: the reset can land after the first go
   st.frames = st.frames - 1
   if st.frames <= 0 then settle = nil end
 end
@@ -98,7 +130,8 @@ local function handle(cmd)
       say('Teleport only works in offline practice')
     else
       local why = teleport(tonumber(cmd.p) or 0)
-      events[#events + 1] = { type = 'teleport', ok = why == nil, reason = why }
+      events[#events + 1] = { type = 'teleport', ok = why == nil, reason = why, tyres = settle and settle.tyres or nil }
+      if settle and settle.tyres ~= 'warm' then say('Teleported: tyres are cold, this CSP can\'t warm them') end
     end
   end
   if cmd.cmd == 'retry' then
@@ -109,6 +142,7 @@ local function handle(cmd)
       events[#events + 1] = { type = 'retry', ok = false, reason = 'no_state' }
     elseif ac.loadCarState(launch.data, 30) then
       lastSpline = nil
+      run = nil -- back before the section: a fresh run
       events[#events + 1] = { type = 'retry', ok = true }
       say('Go!', 2)
     else
@@ -151,6 +185,7 @@ local function sync()
       settings = {
         showTurn = o.show_turn ~= false, showTurnName = o.show_turn_name ~= false,
         showBrake = o.show_brake ~= false, showFromM = tonumber(o.show_from_m) or 250,
+        showDrill = o.show_drill ~= false,
       }
     end
     if launch and (not drill or launch.key ~= drill.key) then launch = nil end
@@ -235,6 +270,22 @@ function script.update(dt)
     return
   end
   local p = car.splinePosition
+  -- the drill timer: start at the section start, stop at its end; a jump
+  -- backwards (rewind, retry) or a different drill cancels the run
+  if run and (not drill or drill.key ~= run.key) then run = nil end
+  if drill and lastSpline then
+    local back = wrap(lastSpline - p)
+    if run and back > 0.002 and back < 0.5 then
+      run = nil
+    elseif crossed(lastSpline, p, drill.start_p) then
+      run = { key = drill.key, elapsed = 0 }
+    elseif run and crossed(lastSpline, p, drill.end_p) then
+      runResult = { time = run.elapsed, target = drill.target_ms and drill.target_ms / 1000 or nil,
+                    isBest = drill.target_is_best, untilT = os.preciseClock() + 4 }
+      run = nil
+    end
+  end
+  if run then run.elapsed = run.elapsed + dt end
   if drill and lastSpline and car.speedKmh > 20 and crossed(lastSpline, p, drill.run_up_p) then
     local key = drill.key
     ac.saveCarStateAsync(function (err, data)
@@ -251,14 +302,15 @@ end
 -- fades in with the turn ahead and a countdown bar; at the braking point it
 -- flashes BRAKE; once you're past, it fades away. Nothing else.
 
--- What to show is set in Pitwall's Settings (General > In-game overlay) and
+-- What to show is set in Pitwall's Settings (Coaching > In-game overlay) and
 -- arrives with each sync; these are the defaults until then.
-settings = settings or { showTurn = true, showTurnName = true, showBrake = true, showFromM = 250 }
+settings = settings or { showTurn = true, showTurnName = true, showBrake = true, showFromM = 250, showDrill = true }
 local preview = false -- settings: sample content, to position the window
 
 local WHITE = rgbm(0.933, 0.941, 0.953, 1) -- dashboard --text
 local DIM = rgbm(0.62, 0.66, 0.71, 1)
 local RED = rgbm(1, 0.322, 0.322, 1) -- dashboard --bad
+local GREEN = rgbm(0.24, 0.863, 0.518, 1) -- dashboard --good
 local PANEL = rgbm(0.03, 0.035, 0.045, 0.72)
 local alpha = 0
 local held = { c = nil, b = nil } -- last thing shown, kept while fading out
@@ -289,6 +341,8 @@ local function text(str, font, size, x, y, w, h, align, colour)
   ui.popDWriteFont()
 end
 
+local drawCard, drawDrill -- below
+
 function script.windowMain(dt)
   local W = ui.windowWidth()
   local now = os.preciseClock()
@@ -308,8 +362,42 @@ function script.windowMain(dt)
   end
   if show then held.c, held.b = c, b end
   alpha = math.max(0, math.min(1, alpha + (show and 8 or -4) * dt))
-  if alpha <= 0 or not held.c or not (settings.showBrake or settings.showTurn) then return end
-  c, b = held.c, held.b
+  local cardH = 0
+  if alpha > 0 and held.c and (settings.showBrake or settings.showTurn) then
+    cardH = drawCard(W, now, held.c, held.b) + 8
+  end
+  if settings.showDrill ~= false and drill and (run or (runResult and now < runResult.untilT)) then
+    drawDrill(W, cardH + 1)
+  end
+end
+
+-- During a drill: the run's time (counting) and the target; then the result for a moment.
+drawDrill = function (W, y)
+  local PW, H = 200, 40
+  local x0 = (W - PW) / 2
+  ui.drawRectFilled(vec2(x0, y), vec2(x0 + PW, y + H), CARD, 8)
+  ui.drawRect(vec2(x0, y), vec2(x0 + PW, y + H), EDGE, 8)
+  if run then
+    text(string.format('%.1f', run.elapsed), FONT_HEAVY, 22, x0 + 14, y, 80, H, ui.Alignment.Start, WHITE)
+    if drill.target_ms then
+      local what = drill.target_is_best and 'best ' or 'to beat '
+      text(what .. string.format('%.2f', drill.target_ms / 1000), FONT_BOLD, 13, x0 + 80, y, PW - 94, H,
+        ui.Alignment.End, MUTED)
+    end
+  else
+    local r = runResult
+    text(string.format('%.2f', r.time), FONT_HEAVY, 22, x0 + 14, y, 90, H, ui.Alignment.Start, WHITE)
+    if r.target then
+      local d = r.time - r.target
+      local label = (d <= 0 and (r.isBest and 'new best ' or 'beat it ') or '') .. string.format('%+.2f', d)
+      text(label, FONT_BOLD, 15, x0 + 90, y, PW - 104, H, ui.Alignment.End, d <= 0 and GREEN or MUTED)
+    end
+  end
+end
+
+-- The braking card. Returns its height.
+drawCard = function (W, now, c, b)
+  local alpha = alpha
 
   -- card
   local PW, PAD = 200, 16
@@ -352,6 +440,7 @@ function script.windowMain(dt)
         fade(close and RED or MUTED, alpha))
     end
   end
+  return H
 end
 
 function script.windowSettings(dt)
@@ -362,7 +451,7 @@ function script.windowSettings(dt)
   end
   if track == nil and connected then ui.text('Waiting for the track layout...') end
   ui.separator()
-  ui.textWrapped('Choose what the overlay shows in Pitwall: Settings > General > In-game overlay.')
+  ui.textWrapped('Choose what the overlay shows in Pitwall: Settings > Coaching > In-game overlay.')
   ui.textWrapped('Keep this window open: it stays invisible until a braking point is coming up.')
   ui.separator()
   if ui.checkbox('Preview (to position the window)', preview) then preview = not preview end

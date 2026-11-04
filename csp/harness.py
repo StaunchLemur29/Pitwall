@@ -77,16 +77,26 @@ def main() -> int:
       function V:normalize() local l = self:length(); return vec3(self.x / l, self.y / l, self.z / l) end
       function V:dot(b) return self.x * b.x + self.y * b.y + self.z * b.z end
       teleports = {}
+      tyreTemps = {}
       car.look = vec3(1, 0, 0)
+      -- tyres warmed by driving; optimum from the car's data
+      car.wheels = {}
+      for i = 0, 3 do car.wheels[i] = { tyreCoreTemperature = 88, tyreOptimumTemperature = 85 } end
       physics = {
         setCarPosition = function (i, pos, dir)
           teleports[#teleports + 1] = { pos = pos, dir = dir }
           car.splinePosition = pos.x / 1000
           car.look = dir -- the opposite of CSP's own apps' convention, so the app has to turn it round
           car.speedKmh = 0
+          for i = 0, 3 do car.wheels[i].tyreCoreTemperature = 20 end -- a reset: cold tyres
           for _, fn in ipairs(jumped) do fn(0) end
         end,
+        setTyresTemperature = function (i, wheel, t)
+          tyreTemps[#tyreTemps + 1] = { car = i, wheel = wheel, t = t }
+          for w = 0, 3 do car.wheels[w].tyreCoreTemperature = t end
+        end,
       }
+      ac.Wheel = { All = 15 }
       rgbm = function (r, g, b, a) return { r = r, g = g, b = b, mult = a } end
       ac.storage = function (defaults) return defaults end
       script = {}
@@ -244,6 +254,10 @@ def main() -> int:
     check("... before the Time Shift run-up", run_up_m < before_m < track["length_m"] / 2, f"{before_m} vs {run_up_m}")
     check("... facing down the track", g.car.look.x > 0, str(to_py(g.car.look)))
     check("teleport isn't saved as the run-up state", state["saved"] == 0)
+    temps = to_py(g.tyreTemps)
+    check("tyres put back to working temperature after the teleport",
+          temps and all(t["t"] == 85 and t["wheel"] == 15 for t in temps) and g.car.wheels[0].tyreCoreTemperature == 85,
+          str(temps)[:200])
     g.car.speedKmh = 180
 
     p = (run_up - 0.01) % 1.0
@@ -258,6 +272,27 @@ def main() -> int:
     check("retry loaded the saved state", state["loaded"] == 1)
     check("car back at the run-up point", abs(g.car.splinePosition - run_up) < 0.002,
           f"{g.car.splinePosition} vs {run_up}")
+    # The drill timer in the overlay: counts through the section, then shows the result.
+    tick(2)
+    status, body = http("POST", RIG + "/api/csp/sync", json.dumps({}))
+    drill = json.loads(body)["drill"]
+    seen_running = seen_target = seen_result = False
+    p = (drill["start_p"] - 0.01) % 1.0
+    end = drill["end_p"] if drill["end_p"] > drill["start_p"] else drill["end_p"] + 1.0
+    while p < end + 0.01:
+        g.car.splinePosition = p % 1.0
+        g.car.speedKmh = 150
+        script.update(1 / 60)
+        state["texts"].clear()
+        script.windowMain(1 / 60)
+        texts = list(state["texts"])
+        seen_running |= any(t.replace(".", "", 1).isdigit() and "." in t and len(t) <= 5 for t in texts)
+        seen_target |= any(t.startswith(("to beat ", "best ")) for t in texts)
+        seen_result |= any(t.startswith(("+", "-", "beat it", "new best")) for t in texts)
+        p += 0.0005
+    check("in-game drill timer counts through the section", seen_running)
+    check("... with the time to beat (or your best) beside it", seen_target, str(drill)[:200])
+    check("... and shows the result at the end", seen_result)
     http("DELETE", RIG + "/api/drill")
 
     print("ALL PASS" if ok else "SOME CHECKS FAILED")

@@ -4,6 +4,7 @@ import { minimizeWindow, perf, rig, stopPitwall, useRig } from "../lib/rig";
 import { LagMeter } from "../widgets/LagMeter";
 import type { Mode } from "../lib/types";
 import { WIDGETS } from "../widgets";
+import { FullscreenButton } from "../widgets/Fullscreen";
 
 const GAME_NAMES: Record<string, string> = { ac: "Assetto Corsa", demo: "Demo", replay: "Replay" };
 
@@ -84,6 +85,7 @@ export function Dashboard() {
         <a className="dash__gear" href="#/settings" title="Settings" aria-label="Settings">
           ⚙
         </a>
+        <FullscreenButton />
         <button className="dash__close" onClick={() => minimizeWindow("dashboard")} title="Minimise" aria-label="Minimise">
           <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
             <path d="M5 18h14" />

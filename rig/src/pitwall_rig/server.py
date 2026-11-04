@@ -355,6 +355,29 @@ async def post_drill(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def get_sf1000(request: web.Request) -> web.Response:
+    return web.json_response(request.app[RIG_KEY].sf1000_status())
+
+
+async def post_sf1000_test(request: web.Request) -> web.Response:
+    """Send a test pattern to the wheel (a couple of seconds, off the event loop)."""
+    rig = request.app[RIG_KEY]
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        body = {}
+    ip = str(body.get("ip") or "").strip() or None
+    out = await asyncio.get_running_loop().run_in_executor(None, lambda: rig.sf1000_test(ip))
+    return web.json_response(out)
+
+
+async def get_tools(request: web.Request) -> web.Response:
+    q, rig = request.query, request.app[RIG_KEY]
+    out = await asyncio.get_running_loop().run_in_executor(
+        None, lambda: rig.tools(q.get("game"), q.get("car"), q.get("track_key")))
+    return web.json_response(out)
+
+
 async def delete_drill(request: web.Request) -> web.Response:
     request.app[RIG_KEY].stop_drill()
     return web.json_response({"ok": True})
@@ -504,6 +527,7 @@ async def _start_background(app: web.Application) -> None:
     loop = asyncio.get_running_loop()
     app[HUB_KEY].bind_loop(loop)
     stop = threading.Event()
+    app[RIG_KEY].start_post_lap_worker()  # crossing the line never stalls the live data
     t = threading.Thread(target=_rig_thread, args=(app, loop, stop), name="pitwall-rig", daemon=True)
     t.start()
     app[TASK_KEY] = stop
@@ -554,6 +578,9 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_post("/api/csp/sync", csp_sync)
     app.router.add_get("/api/csp/track", csp_track)
     app.router.add_post("/api/drill", post_drill)
+    app.router.add_get("/api/sf1000", get_sf1000)
+    app.router.add_post("/api/sf1000/test", post_sf1000_test)
+    app.router.add_get("/api/tools", get_tools)
     app.router.add_delete("/api/drill", delete_drill)
 
     if static_dir is not None and (static_dir / "index.html").exists():
@@ -563,8 +590,15 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
             rel = request.match_info.get("path", "")
             target = (static_dir / rel).resolve()
             if rel and target.is_file() and static_dir.resolve() in target.parents:
-                return web.FileResponse(target)
-            return web.FileResponse(index)
+                resp = web.FileResponse(target)
+                if rel.startswith("assets/"):  # file names carry a content hash: safe to keep
+                    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                return resp
+            # The page itself: always fetch it fresh, so a rebuilt dashboard (after
+            # a pull) shows up straight away instead of a cached older one.
+            resp = web.FileResponse(index)
+            resp.headers["Cache-Control"] = "no-cache"
+            return resp
 
         app.router.add_get("/", spa)
         app.router.add_get("/{path:.*}", spa)

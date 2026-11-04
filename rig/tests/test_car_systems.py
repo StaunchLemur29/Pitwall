@@ -19,7 +19,7 @@ def synthetic_lap(model, n=2000, drs=None, batt=None, gas=1.0):
 
 def test_drs_available_but_not_opened_is_noted(demo):
     m = demo.track_model(demo.session())
-    profile = {**car_profile.EMPTY, "drs": True}
+    profile = {**car_profile.EMPTY, "drs": True, "drs_seen": True}
     # Available from 10% to 20% of the lap: opened on one lap, not on the other.
     used = analyse_systems(synthetic_lap(m, drs=lambda p: 2 if 0.1 <= p <= 0.2 else 0), m, profile)
     assert used["drs"]["missed"] == [] and used["drs"]["open_m"] > 0
@@ -33,7 +33,7 @@ def test_drs_available_but_not_opened_is_noted(demo):
 
 def test_battery_running_out_is_noted(demo):
     m = demo.track_model(demo.session())
-    profile = {**car_profile.EMPTY, "battery": True}
+    profile = {**car_profile.EMPTY, "battery": True, "battery_seen": True}
     out = analyse_systems(synthetic_lap(m, batt=lambda p: 0.0 if 0.5 <= p <= 0.6 else 0.6), m, profile)
     (empty,) = out["battery"]["empty"]
     assert empty["metres"] > 80 and "ran out" in out["notes"][0]
@@ -55,8 +55,24 @@ def test_car_profile_is_learnt_and_kept(demo, clock, config, store):
     # Next time, it's known before the first lap.
     s = rig.session
     assert store.car_profile(s.game, s.car)["tc_levels"] == 8
+    # The car says it has DRS, but it's only shown once it's been seen working.
+    assert "DRS" not in car_profile.summary(rig.car_profile) and not rig.live()["car_has"]["drs"]
+    while not rig.car_profile["drs_seen"]:
+        clock.advance(1 / 60)
+        rig.tick()
     rep = rig.corner_report()
-    assert "systems" in rep and "DRS" in rep["car_systems"]
+    assert "systems" in rep and "DRS" in rep["car_systems"] and rig.live()["car_has"]["drs"]
+
+
+def test_systems_a_car_only_claims_are_never_shown():
+    """Some mod cars say they have DRS or a battery when they don't."""
+    p = {**car_profile.EMPTY, "drs": True, "battery": True, "ers": True}
+    assert car_profile.summary(p) == []
+    assert not car_profile.has_drs(p) and not car_profile.has_battery(p)
+    car_profile.note_csp(p, {"drs_present": True, "kers_present": True, "kers_charge": 0.0})
+    assert not car_profile.has_drs(p) and not car_profile.has_battery(p)  # a flat-zero battery isn't one
+    car_profile.note_csp(p, {"drs_available": True, "kers_charge": 0.6})
+    assert car_profile.has_drs(p) and car_profile.has_battery(p)
 
 
 def test_frames_carry_battery_and_drs(demo, clock):

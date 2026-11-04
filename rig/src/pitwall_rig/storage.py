@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import struct
+from array import array
 import sqlite3
 import threading
 import time
@@ -23,12 +25,14 @@ CREATE TABLE IF NOT EXISTS laps (
     valid INTEGER NOT NULL,
     out_lap INTEGER NOT NULL,
     rewound INTEGER NOT NULL DEFAULT 0,  -- used a rewind after a mistake: never a best lap
+    unfinished INTEGER NOT NULL DEFAULT 0,  -- didn't get to the line: only some corners driven
     started_at REAL NOT NULL,
     sector_ms TEXT NOT NULL,
     trace BLOB NOT NULL,
     synced_at REAL
 );
 CREATE INDEX IF NOT EXISTS laps_combo ON laps (game, track_key, car, lap_time_ms);
+CREATE INDEX IF NOT EXISTS laps_recent ON laps (game, track_key, car, valid, started_at);
 
 CREATE TABLE IF NOT EXISTS markers (
     id INTEGER PRIMARY KEY,
@@ -78,12 +82,32 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 SCHEMA_VERSION = "1"
 
 
+_TRACE_V2 = b"PWT2"  # binary traces: channel names, then each channel as float64s
+
+
 def pack_trace(trace: dict[str, list[float]]) -> bytes:
-    return zlib.compress(json.dumps(trace, separators=(",", ":")).encode(), level=6)
+    """A lap's telemetry for the database. Binary (not JSON): a Nordschleife lap
+    is ~30,000 samples, and this happens as you cross the line."""
+    names = list(trace)
+    n = len(trace[names[0]]) if names else 0
+    head = json.dumps({"n": n, "ch": names}).encode()
+    body = b"".join(array("d", trace[k]).tobytes() for k in names)
+    return _TRACE_V2 + zlib.compress(struct.pack("<I", len(head)) + head + body, level=1)
 
 
 def unpack_trace(blob: bytes) -> dict[str, list[float]]:
-    return json.loads(zlib.decompress(blob))
+    if not blob.startswith(_TRACE_V2):
+        return json.loads(zlib.decompress(blob))  # laps saved before the binary format
+    raw = zlib.decompress(blob[len(_TRACE_V2):])
+    (hl,) = struct.unpack_from("<I", raw)
+    head = json.loads(raw[4 : 4 + hl])
+    n, out, at = head["n"], {}, 4 + hl
+    for k in head["ch"]:
+        a = array("d")
+        a.frombytes(raw[at : at + n * 8])
+        out[k] = a.tolist()
+        at += n * 8
+    return out
 
 
 class _Result:
@@ -141,11 +165,14 @@ class Store:
         conn.row_factory = sqlite3.Row
         self._lock = threading.RLock()
         self._db = _LockedConnection(conn, self._lock)
+        self._traces: dict[int, dict[str, list[float]]] = {}  # lap id -> trace, oldest first
         with self._lock, self._db:
             self._db.executescript(SCHEMA)
             cols = {r["name"] for r in self._db.execute("PRAGMA table_info(laps)").fetchall()}
             if "rewound" not in cols:  # databases from before rewinds were tracked
                 self._db.execute("ALTER TABLE laps ADD COLUMN rewound INTEGER NOT NULL DEFAULT 0")
+            if "unfinished" not in cols:  # ...and before unfinished laps were kept
+                self._db.execute("ALTER TABLE laps ADD COLUMN unfinished INTEGER NOT NULL DEFAULT 0")
             self._db.execute(
                 "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
                 (SCHEMA_VERSION,),
@@ -157,7 +184,7 @@ class Store:
         with self._lock, self._db:
             cur = self._db.execute(
                 """INSERT INTO laps (game, car, track_key, lap_number, lap_time_ms, valid,
-                   out_lap, rewound, started_at, sector_ms, trace) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                   out_lap, rewound, unfinished, started_at, sector_ms, trace) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     lap.game,
                     lap.car,
@@ -167,12 +194,16 @@ class Store:
                     int(lap.valid),
                     int(lap.out_lap),
                     int(lap.rewound),
+                    int(lap.unfinished),
                     lap.started_at,
                     json.dumps(lap.sector_ms),
                     pack_trace(lap.trace),
                 ),
             )
             lap.id = int(cur.lastrowid)
+            self._traces[lap.id] = lap.trace  # about to be looked at: no need to unpack it again
+            while len(self._traces) > self.TRACE_CACHE:
+                self._traces.pop(next(iter(self._traces)))
             return lap.id
 
     def laps(
@@ -184,7 +215,7 @@ class Store:
     ) -> list[dict[str, Any]]:
         where, args = self._filter(game, track_key, car)
         rows = self._db.execute(
-            f"""SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap, rewound,
+            f"""SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap, rewound, unfinished,
                 started_at, sector_ms FROM laps {where} ORDER BY started_at DESC LIMIT ?""",
             (*args, limit),
         ).fetchall()
@@ -277,7 +308,7 @@ class Store:
 
     def lap(self, lap_id: int) -> dict[str, Any] | None:
         row = self._db.execute(
-            """SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap, rewound,
+            """SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap, rewound, unfinished,
                started_at, sector_ms FROM laps WHERE id=?""",
             (lap_id,),
         ).fetchone()
@@ -285,7 +316,7 @@ class Store:
 
     def best_lap(self, game: str, track_key: str, car: str) -> dict[str, Any] | None:
         row = self._db.execute(
-            """SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap, rewound,
+            """SELECT id, game, car, track_key, lap_number, lap_time_ms, valid, out_lap, rewound, unfinished,
                started_at, sector_ms FROM laps
                WHERE game=? AND track_key=? AND car=? AND valid=1 AND rewound=0
                ORDER BY lap_time_ms ASC LIMIT 1""",
@@ -308,9 +339,24 @@ class Store:
                 best = [min(a, b) for a, b in zip(best, secs, strict=True)]
         return best
 
+    TRACE_CACHE = 4  # recently read laps kept unpacked (a long lap takes a while to unpack)
+
     def trace(self, lap_id: int) -> dict[str, list[float]] | None:
+        """A lap's telemetry. Don't change what you get: it's shared (laps never change once saved)."""
+        with self._lock:
+            hit = self._traces.pop(lap_id, None)
+            if hit is not None:
+                self._traces[lap_id] = hit  # most recent last
+                return hit
         row = self._db.execute("SELECT trace FROM laps WHERE id=?", (lap_id,)).fetchone()
-        return unpack_trace(row["trace"]) if row else None
+        if not row:
+            return None
+        tr = unpack_trace(row["trace"])
+        with self._lock:
+            self._traces[lap_id] = tr
+            while len(self._traces) > self.TRACE_CACHE:
+                self._traces.pop(next(iter(self._traces)))
+        return tr
 
     def outline_lap_id(self, game: str, track_key: str) -> int | None:
         """A lap to draw the track map from: the best valid lap in any car,
@@ -367,6 +413,16 @@ class Store:
                 (game, car, track_key, start_p, end_p, time_ms, int(clean), time.time()),
             )
 
+    def best_sections(self, game: str, car: str, track_key: str) -> list[tuple[float, float, int]]:
+        """(start_p, end_p, best clean time) of every section you've drilled on this car + track."""
+        rows = self._db.execute(
+            """SELECT start_p, end_p, MIN(time_ms) AS best FROM section_attempts
+               WHERE game=? AND car=? AND track_key=? AND clean=1
+               GROUP BY round(start_p, 4), round(end_p, 4)""",
+            (game, car, track_key),
+        ).fetchall()
+        return [(float(r["start_p"]), float(r["end_p"]), int(r["best"])) for r in rows]
+
     def best_section_ms(self, game: str, car: str, track_key: str, start_p: float, end_p: float) -> int | None:
         row = self._db.execute(
             """SELECT MIN(time_ms) AS best FROM section_attempts WHERE game=? AND car=? AND track_key=?
@@ -412,6 +468,7 @@ class Store:
         d["valid"] = bool(d["valid"])
         d["out_lap"] = bool(d["out_lap"])
         d["rewound"] = bool(d.get("rewound", 0))
+        d["unfinished"] = bool(d.get("unfinished", 0))
         d["sector_ms"] = json.loads(d["sector_ms"])
         return d
 

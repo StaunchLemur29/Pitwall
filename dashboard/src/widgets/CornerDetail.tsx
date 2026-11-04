@@ -110,7 +110,7 @@ export function CornerDetail({ g, corner: c, mine, other, otherLabel, myTrace, o
               </ul>
             </>
           )}
-          {mine.opt_notes && mine.opt_notes.length > 0 && (
+          {mine.opt_notes && mine.opt_notes.length > 0 && otherLabel !== "the optimal run" && (
             <>
               <div className="cd__sub">Against the optimal run</div>
               <ul>

@@ -72,6 +72,8 @@ export interface LapSummary {
   out_lap: boolean;
   /** used a rewind after a mistake: a normal lap, but never a best one */
   rewound?: boolean;
+  /** didn't get to the line (quit, restarted): only some corners driven */
+  unfinished?: boolean;
   started_at: number;
   sector_ms: number[];
 }
@@ -222,6 +224,30 @@ export interface CornerLap {
   opt_notes?: string[];
   /** this corner's time to beat */
   to_beat_s?: number | null;
+  /** this lap drove the whole corner (false: didn't finish it, or jumped past) */
+  driven?: boolean;
+  /** stayed on track through it (null: lap recorded before wheels-off was kept) */
+  clean?: boolean | null;
+}
+
+/** What the side screen's coach strip shows. */
+export interface CoachLive {
+  /** the session's one focus corner: most time to gain against its time to beat */
+  focus: {
+    corner: number;
+    label: string;
+    to_beat_s: number;
+    usual_s: number;
+    gain_s: number;
+    why: string;
+    fix: string | null;
+    beaten: number;
+    section: { number: number; name: string } | null;
+  } | null;
+  /** the lap just finished: its biggest mistake (null: none) */
+  last_lap: { lap: number | null; wrong: { label: string; text: string; lost_s: number | null } | null } | null;
+  /** tyres well under the temperature this car's usually work at */
+  tyres: { cold: boolean; avg_c: number | null; working_c: number } | null;
 }
 
 /** A realistic stretch target for one corner. */
@@ -282,6 +308,8 @@ export interface CornerReport {
   compare: CornerLap[] | null;
   compare_lap_id: number | null;
   compare_label: string | null;
+  /** what it's compared with: one of your (faster) laps, or the optimal run as the benchmark */
+  compare_kind?: "lap" | "optimal" | null;
   /** which car + track this is, and whether it's the one you're driving now */
   game: string | null;
   car: string | null;
@@ -330,7 +358,11 @@ export interface CarProfile {
   tc_levels: number | null;
   brake_bias: boolean;
   drs: boolean;
+  /** DRS has actually come on while driving (shown only then) */
+  drs_seen?: boolean;
   battery: boolean;
+  /** the charge has actually moved while driving (shown only then) */
+  battery_seen?: boolean;
   ers: boolean;
   deploy_modes: number | null;
   engine_brake_maps: number | null;
@@ -372,10 +404,12 @@ export interface Config {
   drills: { lead_in_s: number };
   /** brake_cue: "brake in" counts down to the optimal run's braking points, or your best lap's */
   coach: { brake_cue: "optimal" | "best" };
-  overlay: { show_turn: boolean; show_turn_name: boolean; show_brake: boolean; show_from_m: number };
+  overlay: { show_turn: boolean; show_turn_name: boolean; show_brake: boolean; show_from_m: number; show_drill?: boolean };
   server: { host: string; port: number };
   rates: { poll_hz: number; broadcast_hz: number };
   laps: { max_tyres_out: number };
+  /** the SF1000's own screen, fed over Wi-Fi (F1 23 UDP) */
+  sf1000?: { enabled: boolean; ip: string; port: number };
   units: { speed: string; pressure: string; temperature: string };
   display: {
     accent: string;
@@ -418,10 +452,14 @@ export interface Live {
   electronics?: Electronics | null;
   /** The in-game app can teleport the car to a drill (it's running, offline practice). */
   can_teleport?: boolean;
+  /** systems this car really has (seen working on track), so only those are shown */
+  car_has?: { drs: boolean; battery: boolean };
   delta_s: number | null;
   ref_lap_ms: number | null;
   theoretical_best_ms: number | null;
   time_to_beat_ms?: number | null;
+  /** the side screen's coach strip */
+  coach?: CoachLive | null;
   driving_s: number;
   track: TrackLive | null;
 }
@@ -461,6 +499,6 @@ export type ServerEvent =
   | { type: "shutdown" }
   | {
       type: "retry";
-      state: "rewinding" | "ready" | "no_rewind" | "timeout" | "stopped" | "teleporting" | "teleported" | "no_teleport";
+      state: "rewinding" | "ready" | "no_rewind" | "timeout" | "stopped" | "teleporting" | "teleported" | "teleported_cold" | "no_teleport";
     }
   | { type: "attempt"; attempt: Attempt & { start_p: number; end_p: number } };

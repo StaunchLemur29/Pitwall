@@ -65,6 +65,7 @@ export function LapAnalysis({
   const [otherTrace, setOtherTrace] = useState<Trace | null>(null);
   const [focus, setFocus] = useState<number | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
+  const [allNotes, setAllNotes] = useState(false); // car-system notes beyond the first three
   const [showOpt, setShowOpt] = useState(false);
   const [optTrace, setOptTrace] = useState<Trace | null>(null);
 
@@ -166,15 +167,28 @@ export function LapAnalysis({
   const otherRow = report?.compare?.find((x) => x.corner === corner?.number) ?? null;
   const section = (report?.practice?.length ? report.practice : g.practice).find((ps) => ps.corners.includes(corner?.number));
   const step = (d: 1 | -1) => setPicked(g.corners[(ci + d + g.corners.length) % g.corners.length].number);
-  const lapDelta = shown && other ? (shown.lap_time_ms - other.lap_time_ms) / 1000 : null;
+  const lapDelta =
+    shown && other
+      ? (shown.lap_time_ms - other.lap_time_ms) / 1000
+      : shown && report?.compare_kind === "optimal" && report.optimal
+        ? shown.lap_time_ms / 1000 - report.optimal.lap_s
+        : null;
 
   const summary = (
     <div className="lsum">
       <div className="lsum__stat">
         <div className="lsum__big">{lapTime(shown?.lap_time_ms)}</div>
-        <div className="muted">lap {shown?.lap_number ?? ""}</div>
+        <div className="muted">lap {shown?.lap_number ?? ""}{shown?.unfinished ? " · time driven" : ""}</div>
       </div>
-      {lapDelta !== null && (
+      {shown?.unfinished ? (
+        <div className="lsum__stat">
+          <div className="lsum__big">
+            {rows.filter((r) => r.driven !== false).length} / {rows.length}
+          </div>
+          <div className="muted">corners driven (unfinished lap)</div>
+        </div>
+      ) : null}
+      {lapDelta !== null && !shown?.unfinished && (
         <div className="lsum__stat">
           <div className={`lsum__big ${lapDelta <= 0 ? "good" : "bad"}`}>{delta(lapDelta, 3)}</div>
           <div className="muted">vs {label}</div>
@@ -273,7 +287,11 @@ export function LapAnalysis({
         >
           <span className="mdot" style={{ background: GRADE_COLORS[m?.grade ?? "new"] }} />
           <span className="cchip__name">{num}. {g.corners[i].label}</span>
-          {r && <span className="cchip__t">{r.time_s.toFixed(2)}s</span>}
+          {r && r.driven === false ? (
+            <span className="cchip__t muted">not driven</span>
+          ) : (
+            r && <span className="cchip__t">{r.time_s.toFixed(2)}s</span>
+          )}
           {r?.vs_s !== undefined && <span className={`cchip__d ${vsClass(r.vs_s)}`}>{delta(r.vs_s)}</span>}
         </button>
         {why && !open && <div className="cwrap__why">{notes[0] ?? "Small losses all the way through rather than one mistake."}</div>}
@@ -326,9 +344,14 @@ export function LapAnalysis({
       <div className="sysnotes">
         {!wide && <div className="chapters__title">Car systems</div>}
         {report.car_systems?.length ? <div className="sysnotes__car">{report.car_systems.join(" · ")}</div> : null}
-        {systemNotes.map((n) => (
+        {(allNotes ? systemNotes : systemNotes.slice(0, 3)).map((n) => (
           <div key={n} className="sysnotes__note">{n}</div>
         ))}
+        {systemNotes.length > 3 && (
+          <button className="linkbtn" onClick={() => setAllNotes((v) => !v)}>
+            {allNotes ? "Show fewer" : `${systemNotes.length - 3} more`}
+          </button>
+        )}
       </div>
     ) : null;
 
@@ -419,7 +442,7 @@ export function LapAnalysis({
       {laps.map((l) => (
         <option key={l.id} value={l.id}>
           Lap {l.lap_number} · {lapTime(l.lap_time_ms)}
-          {l.id === report?.reference_lap_id ? " (best)" : l.out_lap ? " (out)" : !l.valid ? " (cut)" : l.rewound ? " (rewind)" : ""}
+          {l.id === report?.reference_lap_id ? " (best)" : l.unfinished ? " (unfinished)" : l.out_lap ? " (out)" : !l.valid ? " (cut)" : l.rewound ? " (rewind)" : ""}
         </option>
       ))}
     </select>
@@ -431,12 +454,14 @@ export function LapAnalysis({
           <span className="muted">vs</span>
           <select className="lapsel" value={compareId ?? ""} onChange={(e) => setCompareId(Number(e.target.value) || null)} aria-label="Compare with">
             <option value="">{compareId === null && label ? `auto: ${label}` : "auto"}</option>
+            <option value={-1}>the optimal run (benchmark)</option>
+            {/* Coaching, not lap comparison: only your laps that were faster than this one. */}
             {valid
-              .filter((l) => l.id !== shownId)
+              .filter((l) => l.id !== shownId && !l.rewound && (!shown || shown.out_lap || shown.unfinished || l.lap_time_ms < shown.lap_time_ms))
               .map((l) => (
                 <option key={l.id} value={l.id}>
                   Lap {l.lap_number} · {lapTime(l.lap_time_ms)}
-                  {l.id === report?.reference_lap_id ? " (best)" : l.rewound ? " (rewind)" : ""}
+                  {l.id === report?.reference_lap_id ? " (best)" : ""}
                 </option>
               ))}
           </select>
@@ -457,14 +482,16 @@ export function LapAnalysis({
             {systemsBlock && <Panel id="systems" title="Car systems">{systemsBlock}</Panel>}
             <Panel id="map" title="Map" height={420} minHeight={220}>
               {modes}
-              <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} />
+              <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
               <Legend mode={mode} label={label} showOpt={showOpt} />
             </Panel>
             <Panel id="sections" title="Sections" right={<span className="muted pnl__hint">click a corner for the detail</span>}>{list}</Panel>
           </div>
           <div className="la__split" role="separator" aria-label="Resize columns" title="Drag to resize · double-click to reset" onPointerDown={startSplit} onDoubleClick={resetSplit} />
           <div className="la__right">
-            {corner && mine ? (
+            {corner && mine && mine.driven === false ? (
+              <div className="upcoming">This lap didn't drive {corner.label} all the way through (it wasn't finished, or jumped past it). Pick a corner it drove.</div>
+            ) : corner && mine ? (
               <CornerDetail
                 g={g}
                 corner={corner}
@@ -493,7 +520,7 @@ export function LapAnalysis({
             {optLap !== null ? <span className="nsum__theo" title={optTitle(report?.optimal)}>optimal run {lapTime(Math.round(optLap * 1000))}</span> : null}
           </div>
           {modes}
-          <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} />
+          <ColouredMap g={g} trace={trace} ref_={otherTrace} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
           <Legend mode={mode} label={label} showOpt={showOpt} />
           {list}
         </div>
@@ -579,11 +606,17 @@ function ColouredMap(props: {
   mode: Mode;
   rows: CornerLap[];
   focus: number | null;
+  /** corners to number even on a long track (e.g. where the time went) */
+  labelled?: number[];
   onPick: (n: number | null) => void;
   onSelect: (n: number) => void;
   showOpt: boolean;
 }) {
   const { g, trace, ref_, mode, rows, focus, showOpt } = props;
+  // A long track (the Nordschleife has over 100 corners): numbers only on the
+  // corner you're looking at and where the time went; the rest are small dots.
+  const many = g.corners.length > 30;
+  const labelled = new Set(props.labelled ?? []);
   const [box, { w, h }] = useSize<HTMLDivElement>();
   const fit = useMemo(() => fitTrack(g.center as Pt[], w, h, 18), [g, w, h]);
   const proj = (p: P): P => fit.project(p[0], p[1]);
@@ -619,10 +652,16 @@ function ColouredMap(props: {
                 onClick={() => props.onSelect(c.number)}
                 className="la__cnum"
               >
-                <circle r={focus === c.number ? 14 : 10} className="map__cnum" />
-                <text className="map__cnum-text" textAnchor="middle" dy="0.35em">
-                  {c.number}
-                </text>
+                {many && focus !== c.number && !labelled.has(c.number) ? (
+                  <circle r={3} className="map__cnum map__cnum--dot" />
+                ) : (
+                  <>
+                    <circle r={focus === c.number ? 14 : 10} className="map__cnum" />
+                    <text className="map__cnum-text" textAnchor="middle" dy="0.35em">
+                      {c.number}
+                    </text>
+                  </>
+                )}
               </g>
             );
           })}

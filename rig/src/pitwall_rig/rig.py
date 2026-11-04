@@ -24,6 +24,7 @@ from .analysis import (
     analyse_systems,
     compare_notes,
     corner_mastery,
+    counts,
     lap_review,
     line_vs_optimal,
     time_to_beat,
@@ -55,6 +56,7 @@ class AnalysisCtx:
 # The optimal run learns the car's grip from this many of your fastest laps.
 OPT_LAPS = 8
 # What each corner row carries about the optimal run (also uploaded to the hub).
+OPTIMAL = -1  # compare_id meaning "the optimal run" (the benchmark when there's no faster lap of yours)
 TTB_LAPS = 10  # the time to beat starts from your usual over this many recent clean laps
 TTB_PAST_BEST = 0.003  # the lap's time to beat asks at most 0.3 % beyond your best lap
 OPT_KEYS = ("time_s", "brake_m", "entry_kmh", "peak_brake", "min_speed_kmh", "throttle_m", "exit_kmh")
@@ -93,8 +95,18 @@ class Rig:
         self.session: SessionInfo | None = None
         self._ctx_cache: dict[tuple[str, str, str], AnalysisCtx] = {}
         self._opt_runs: dict[tuple[str, str, str], dict[str, Any]] = {}  # optimal run per car + track
+        self._post_lap: Any = None  # queue of laps for the post-lap worker (None: do it straight away)
+        self.sf1000: Any = None  # the wheel screen sender, while it's switched on
         self._ttb: dict[tuple[str, str, str], dict[str, Any]] = {}  # time to beat per car + track (cached)
         self.time_to_beat_ms: int | None = None  # the live car + track's lap time to beat
+        # The side screen's coach strip: one focus for the session, the last lap's
+        # biggest mistake, and a cold-tyre warning.
+        self._focus: dict[str, Any] | None = None  # {corner, beaten}: the session's one focus corner
+        self._focus_met: set[int] = set()  # focus corners already met this session
+        self._last_rows: dict[int, dict[str, Any]] = {}  # the last lap's corners (for the focus fix)
+        self._last_lap_note: dict[str, Any] | None = None
+        self._tyre_sum, self._tyre_n = 0.0, 0  # this lap's tyre core temperature at speed
+        self._tyres_cold = False
         self._cue_mode: str | None = None  # the brake-cue setting last applied
         self._opt_busy: set[tuple[str, str, str]] = set()
         self._ac_tracks = None  # track loader for past AC tracks when another adapter is running
@@ -190,7 +202,9 @@ class Rig:
         self.frame = frame
         if self.car_profile is not None and frame.status == GameStatus.LIVE and car_profile.note_frame(self.car_profile, frame):
             self._save_car_profile()
+        self._note_tyres(frame)
         self.laps.max_tyres_out = self.config["laps"]["max_tyres_out"]
+        self._feed_wheel(frame)
         self.laps.practising = self.track is not None and self.track.drill is not None
         self.laps.feed(frame, session)
         if self.recorder is not None and frame.status != GameStatus.OFF:
@@ -233,26 +247,96 @@ class Rig:
         secs = self.store.best_sectors(s.game, s.track_key, s.car)
         self.theoretical_best_ms = sum(secs) if secs else None
 
+    def start_post_lap_worker(self) -> None:
+        """Do the work after each lap (saving, analysis, the review) on its own
+        thread, so crossing the line never stalls the live data. On a long lap
+        (the Nordschleife) that work takes a few hundred ms. Without the worker
+        (tests, scripts) it happens straight away, in order."""
+        if self._post_lap is not None:
+            return
+        import queue
+
+        self._post_lap = q = queue.Queue()
+
+        def run() -> None:
+            while True:
+                lap = q.get()
+                try:
+                    self._finish_lap(lap)
+                except Exception:  # noqa: BLE001 - never lose the worker
+                    log.exception("Couldn't finish lap %s", lap.lap_number)
+
+        threading.Thread(target=run, name="pitwall-post-lap", daemon=True).start()
+    # -- the SF1000 wheel screen ------------------------------------------------------
+
+    def _wheel(self) -> Any:
+        """The SF1000 sender for the address in Settings (None when it's off)."""
+        cfg = self.config["sf1000"]
+        if not cfg.get("enabled") or not cfg.get("ip"):
+            self.sf1000 = None
+            return None
+        addr = (cfg["ip"], int(cfg.get("port") or 20777))
+        if self.sf1000 is None or self.sf1000.addr != addr:
+            from .sf1000 import Sf1000
+
+            self.sf1000 = Sf1000(*addr)
+        return self.sf1000
+
+    def _feed_wheel(self, frame: Frame) -> None:
+        wheel = self._wheel()
+        if wheel is not None:
+            wheel.send(frame, self.session)
+
+    def sf1000_status(self) -> dict[str, Any]:
+        w = self.sf1000
+        return {"enabled": w is not None, "sent": w.sent if w else 0, "error": w.error if w else None}
+
+    def sf1000_test(self, ip: str | None = None) -> dict[str, Any]:
+        """Sweep rev lights, gears and speed on the wheel to show the link works."""
+        from .sf1000 import Sf1000
+
+        target = ip or self.config["sf1000"].get("ip")
+        if not target:
+            return {"ok": False, "error": "Put in the wheel's IP first (on its Wi-Fi page)."}
+        w = Sf1000(target, int(self.config["sf1000"].get("port") or 20777))
+        w.test_pattern(self.session)
+        return {"ok": w.error is None, "sent": w.sent, "error": w.error}
+
     def _on_lap(self, lap: Lap) -> None:
-        self.store.add_lap(lap)
-        self.on_lap_saved()
-        new_best = lap.valid and not lap.rewound and (
-            self.reference is None or lap.lap_time_ms < self.reference.lap_time_ms)
-        if new_best:
-            self.reference = ReferenceLap(lap.trace, lap.lap_time_ms, lap.id)
-        if self.track is None or (self.track.model.source == "laps" and new_best):
-            self._load_track()  # a first (or better) lap lets us draw a learnt map
-        elif self.track is not None:
+        # Called from the telemetry thread as you cross the line: hand it on.
+        if self._post_lap is not None:
+            self._post_lap.put(lap)
+        else:
+            self._finish_lap(lap)
+
+    def _finish_lap(self, lap: Lap) -> None:
+        """Save and analyse a finished lap. Holds the rig lock only for the quick
+        state updates, so the live data keeps flowing meanwhile."""
+        self.store.add_lap(lap)  # the store has its own lock
+        with self.lock:
+            self._learn_tyre_temp(lap)
+            self.on_lap_saved()
+            new_best = lap.valid and not lap.rewound and (
+                self.reference is None or lap.lap_time_ms < self.reference.lap_time_ms)
             if new_best:
-                self.track.set_reference(lap.trace)
-                self.csp.touch()
-            if lap.valid and lap.id is not None:
-                self._analyse(lap.id, lap.trace)
+                self.reference = ReferenceLap(lap.trace, lap.lap_time_ms, lap.id)
+            track = self.track
+            reload = track is None or (track.model.source == "laps" and new_best)
+            if reload:
+                self._load_track()  # a first (or better) lap lets us draw a learnt map
+        if not reload and track is not None:
+            if new_best:
+                track.set_reference(lap.trace)
+                with self.lock:
+                    self.csp.touch()
+            if lap.id is not None:  # every lap: the corners it drove well count, finished or not
+                self._analyse(lap.id, lap.trace, track)
             self._emit_corners(lap.id)
-        s = self.session
-        if s is not None:
-            secs = self.store.best_sectors(s.game, s.track_key, s.car)
-            self.theoretical_best_ms = sum(secs) if secs else None
+        with self.lock:
+            s = self.session
+            if s is not None:
+                secs = self.store.best_sectors(s.game, s.track_key, s.car)
+                self.theoretical_best_ms = sum(secs) if secs else None
         log.info(
             "Lap %d: %s%s%s",
             lap.lap_number,
@@ -285,6 +369,7 @@ class Rig:
             return
         self.track = TrackState(model, self.config["laps"]["max_tyres_out"])
         self.track.on_attempt = self._save_attempt
+        self._focus, self._focus_met, self._last_rows, self._last_lap_note = None, set(), {}, None
         if self.reference is not None and self.reference.lap_id is not None:
             self.track.set_reference(self.store.trace(self.reference.lap_id))
         for lap_id in self.store.valid_lap_ids(s.game, s.track_key, s.car):
@@ -318,24 +403,42 @@ class Rig:
         m = track.model if track else None
         if m is None:
             return ""
-        return f"v4:{m.source}:{len(m.corners)}:{round(m.length_m)}"
+        return f"v5:{m.source}:{len(m.corners)}:{round(m.length_m)}"  # v5: driven / clean per corner
 
     def _analyse(self, lap_id: int, trace: dict[str, list[float]], track: TrackState | None = None) -> None:
         track = track or self.track
         if track is None:
             return
-        self.store.set_lap_corners(lap_id, self._model_sig(track), analyse_lap(trace, track.model))
+        self.store.set_lap_corners(lap_id, self._model_sig(track),
+                                   analyse_lap(trace, track.model, self.config["laps"]["max_tyres_out"]))
+
+    def _history(self, ctx: AnalysisCtx, exclude: int | None = None, limit: int = 30) -> list[list[dict[str, Any]]]:
+        """Your recent driving through each corner, newest lap first: the corners
+        that count (driven all the way, clean) from any lap, finished or not,
+        valid or cut somewhere else. Analyses laps that haven't been yet."""
+        sig = self._model_sig(ctx.track)
+        out: list[list[dict[str, Any]]] = []
+        for info in self.store.laps(ctx.game, ctx.track_key, ctx.car, limit=limit * 3):
+            if info["id"] == exclude:
+                continue
+            data = self.store.lap_corners(info["id"], sig)
+            if data is None:
+                tr = self.store.trace(info["id"])
+                if tr:
+                    self._analyse(info["id"], tr, ctx.track)
+                    data = self.store.lap_corners(info["id"], sig)
+            good = [c for c in data or [] if counts(c, info["valid"])]
+            if good:
+                out.append(good)
+            if len(out) >= limit:
+                break
+        return out
 
     def _mastery(self, ctx: AnalysisCtx | None = None) -> dict[int, dict[str, Any]]:
         ctx = ctx or self._live_ctx()
         if ctx is None:
             return {}
-        history = []
-        for lap_id in self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=30):
-            data = self.store.lap_corners(lap_id, self._model_sig(ctx.track))
-            if data:
-                history.append(data)
-        return corner_mastery(history)
+        return corner_mastery(self._history(ctx))
 
     # -- analysis for any car + track ----------------------------------------
 
@@ -507,6 +610,19 @@ class Rig:
             "time_to_beat": _summary_targets(rep, model_corners),
         }
 
+    def tools(self, game: str | None = None, car: str | None = None, track_key: str | None = None) -> dict[str, Any]:
+        """Hardware checks from your last 10 clean laps of this car + track:
+        force feedback clipping (TS-PC) and how you use the brake (T-LCM)."""
+        from .tools import ffb_report, pedal_report
+
+        ctx = self.analysis_ctx(game, car, track_key)
+        if ctx is None:
+            return {"car": None, "track_key": None, "ffb": None, "pedals": None}
+        ids = self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=10)
+        traces = [t for t in (self.store.trace(i) for i in ids) if t]
+        return {"game": ctx.game, "car": ctx.car, "track_key": ctx.track_key,
+                "ffb": ffb_report(traces, ctx.track.model), "pedals": pedal_report(traces)}
+
     def combos(self) -> list[dict[str, Any]]:
         """Every car + track you've driven, most recent first."""
         out = self.store.combos()
@@ -526,9 +642,10 @@ class Rig:
         the best lap itself). The live session's car + track unless another is asked for."""
         ctx = self.analysis_ctx(game, car, track_key, lap_id)
         if ctx is not None and not ctx.live:
-            self._optimal_run(ctx, wait=True)  # outside the lock: reads a few laps
-        with self.lock:
-            return self._corner_report(ctx, lap_id, compare_id)
+            self._optimal_run(ctx, wait=True)  # reads a few laps
+        # Not under the rig lock: on a long track this takes a moment, and the
+        # live data mustn't wait for it. It works from ``ctx`` and the store.
+        return self._corner_report(ctx, lap_id, compare_id)
 
     def _corner_report(self, ctx: AnalysisCtx | None, lap_id: int | None, compare_id: int | None) -> Event:
         if ctx is None:
@@ -552,8 +669,8 @@ class Rig:
                 track.mastery = self._mastery(ctx)
             for i, data in enumerate(lap):
                 c = m.corners[i] if i < len(m.corners) else None
-                if c is None:
-                    continue
+                if c is None or data.get("driven") is False:
+                    continue  # not driven on this lap (didn't finish it, or jumped past): nothing to say
                 nxt = m.corners[(i + 1) % len(m.corners)]
                 gap = ((nxt.entry - c.exit) % 1.0) * m.length_m
                 line = line_vs_optimal(c, data, m)
@@ -567,20 +684,36 @@ class Rig:
         if lap and run and run.get("rows"):
             for data in lap:
                 o = run["rows"].get(data["corner"])
-                if o:
+                if o and data.get("driven") is not False:
                     data["opt"] = {k: o.get(k) for k in OPT_KEYS}
                     data["opt_notes"] = compare_notes(data, o, "the optimal run")[:3]
-        compare, compare_label = None, None
+        compare, compare_label, compare_kind = None, None, None
         if lap:
             ref_id = ctx.ref_lap_id
             if compare_id is None:
-                if ref_id is not None and ref_id != lap_id:
+                # Coaching, not lap comparison: only ever against something faster.
+                # Your best lap if it's quicker than this one; on your best (or a
+                # lap quicker only by cutting), the benchmark: the optimal run.
+                shown_info = self.store.lap(lap_id) if lap_id is not None else None
+                ref_info = self.store.lap(ref_id) if ref_id is not None else None
+                full_lap = bool(shown_info) and not shown_info["out_lap"] and not shown_info.get("unfinished")
+                if ref_info and ref_id != lap_id and (not full_lap or ref_info["lap_time_ms"] < shown_info["lap_time_ms"]):
                     compare_id = ref_id
                 else:
-                    others = [i for i in self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=500) if i != lap_id]
-                    ranked = sorted(others, key=lambda i: (self.store.lap(i) or {}).get("lap_time_ms") or 1e12)
-                    compare_id = ranked[0] if ranked else None
-            if compare_id is not None and compare_id != lap_id:
+                    compare_id = OPTIMAL
+            if compare_id == OPTIMAL:
+                rows = run.get("rows") if run else None
+                if rows:
+                    compare_kind, compare_label = "optimal", "the optimal run"
+                    compare = [dict(rows[c.number]) for c in m.corners if c.number in rows]
+                    for data in lap:
+                        o = rows.get(data["corner"])
+                        if o and data.get("driven") is not False:
+                            data["vs_s"] = round(data["time_s"] - o["time_s"], 3)
+                            data["notes"] = data.get("opt_notes") or compare_notes(data, o, compare_label)[:3]
+                compare_id = None
+            elif compare_id is not None and compare_id != lap_id:
+                compare_kind = "lap"
                 compare = self.store.lap_corners(compare_id, sig)
                 if compare is None:
                     tr = self.store.trace(compare_id)
@@ -590,7 +723,7 @@ class Rig:
                 info = self.store.lap(compare_id)
                 is_best = compare_id == ref_id
                 compare_label = "your best lap" if is_best else f"lap {info['lap_number']}" if info else "the other lap"
-            if compare:
+            if compare and compare_kind == "lap":
                 by_num = {c["corner"]: c for c in compare}
                 for other in compare:
                     k = other["corner"] - 1
@@ -599,7 +732,7 @@ class Rig:
                         other["line"] = line
                 for data in lap:
                     other = by_num.get(data["corner"])
-                    if other:
+                    if other and data.get("driven") is not False and other.get("driven") is not False:
                         data["vs_s"] = round(data["time_s"] - other["time_s"], 3)
                         data["notes"] = compare_notes(data, other, compare_label)
         chapters = self._chapter_times(lap_id, ctx)
@@ -609,10 +742,8 @@ class Rig:
         systems = analyse_systems(lap_trace, track.model, profile) if lap_trace else None
         review = None
         if lap:
-            # Your usual: your recent clean laps, not counting this one.
-            history = [d for d in (self.store.lap_corners(i, sig)
-                                   for i in self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=31)
-                                   if i != lap_id) if d][:30]
+            # Your usual: your recent driving, not counting this lap.
+            history = self._history(ctx, exclude=lap_id)
             review = lap_review(lap, history, lap_trace, track.model, self.config["laps"]["max_tyres_out"])
         secs = self.store.best_sectors(ctx.game, ctx.track_key, ctx.car)
         tb = self._time_to_beat(ctx)
@@ -633,6 +764,7 @@ class Rig:
             "compare": compare,
             "compare_lap_id": compare_id if compare else None,
             "compare_label": compare_label,
+            "compare_kind": compare_kind,  # "lap" | "optimal" | None
             "chapters": chapters,
             "practice": practice,
             "mastery": list(track.mastery.values()),
@@ -650,14 +782,14 @@ class Rig:
             return []
 
         def span(view: LapView | None, a: float, b: float) -> float | None:
-            if not view:
-                return None
+            if not view or not _covers(view, a, b):
+                return None  # an unfinished lap that didn't drive all of it
             if b > a:
                 return round(view.time_at(b) - view.time_at(a), 3)
             return None  # runs over the line: needs two laps
 
         lap_trace = self.store.trace(lap_id) if lap_id is not None else None
-        view = LapView(lap_trace) if lap_trace else None
+        view = LapView.of(lap_trace) if lap_trace else None
         ref = ctx.track.ref_view
         out = []
         for ch in ctx.track.model.chapters:
@@ -672,20 +804,22 @@ class Rig:
         best clean drill attempt."""
 
         lap_trace = self.store.trace(lap_id) if lap_id is not None else None
-        view = LapView(lap_trace) if lap_trace else None
+        view = LapView.of(lap_trace) if lap_trace else None
         ref = ctx.track.ref_view
 
         def span(v: LapView | None, a: float, b: float) -> float | None:
-            return round(v.time_at(b) - v.time_at(a), 3) if v and b > a else None
+            return round(v.time_at(b) - v.time_at(a), 3) if v and b > a and _covers(v, a, b) else None
 
         out = []
+        drilled = self.store.best_sections(ctx.game, ctx.car, ctx.track_key)  # one query, not one per section
+        tb = self._time_to_beat(ctx)
         for ps in ctx.track.model.practice:
             d = ps.to_dict()
             d["time_s"] = span(view, ps.start, ps.end)
             d["ref_s"] = span(ref, ps.start, ps.end)
-            best = self.store.best_section_ms(ctx.game, ctx.car, ctx.track_key, ps.start, ps.end)
+            best = next((ms for a, b, ms in drilled if abs(a - ps.start) < 1e-4 and abs(b - ps.end) < 1e-4), None)
             d["drill_best_s"] = best / 1000 if best else None
-            stretch = self._span_to_beat(ctx, ps.start, ps.end)
+            stretch = self._span_to_beat(ctx, ps.start, ps.end, tb)
             d["to_beat_s"] = stretch["to_beat_s"] if stretch else None
             out.append(d)
         return out
@@ -792,11 +926,121 @@ class Rig:
         return {"lap_s": run["lap_s"], "trace": {k: v[::step] for k, v in tr.items()}}
 
     def _emit_corners(self, lap_id: int | None) -> None:
-        if self.track is not None:
-            self.track.mastery = self._mastery()
+        tb = None
+        track = self.track
+        if track is not None:
+            track.mastery = self._mastery()
             tb = self._time_to_beat(self._live_ctx())
             self.time_to_beat_ms = tb["lap_ms"] if tb else None
-        self.emit({"type": "corners", **self.corner_report(lap_id)})
+        rep = self.corner_report(lap_id)
+        if lap_id is not None and self.track is not None:
+            self._coach_after_lap(lap_id, rep, tb)
+        elif self._focus is None:
+            self._pick_focus(tb)  # e.g. on arriving: from your earlier laps
+        self.emit({"type": "corners", **rep})
+
+    # -- the coach strip (side screen) ---------------------------------------------
+
+    COLD_MARGIN_C = 12.0  # this far under the usual working temperature counts as cold
+    COLD_DEFAULT_C = 55.0  # until Pitwall has seen this car's tyres working
+
+    def _coach_after_lap(self, lap_id: int, rep: dict[str, Any], tb: dict[str, Any] | None) -> None:
+        """After a lap: its biggest mistake for the strip, and keep (or move on
+        from) the session's focus corner."""
+        info = self.store.lap(lap_id)
+        review = rep.get("review") or {}
+        wrong = (review.get("wrong") or [None])[0]
+        self._last_lap_note = {"lap": info["lap_number"] if info else None, "at": time.time(),
+                               "wrong": {"label": wrong["label"], "text": wrong["text"], "lost_s": wrong.get("lost_s")}
+                               if wrong else None}
+        rows = {c["corner"]: c for c in rep.get("lap") or []}
+        self._last_rows = rows
+        targets = {c["corner"]: c for c in (tb or {}).get("corners", [])}
+        f = self._focus
+        if f is not None and f["corner"] in rows and f["corner"] in targets:
+            mine = rows[f["corner"]]
+            if mine.get("driven") is not False and mine["time_s"] <= targets[f["corner"]]["target_s"]:
+                f["beaten"] += 1
+            if f["beaten"] >= 2:  # met twice: on to the next one
+                self._focus_met.add(f["corner"])
+                self._focus = f = None
+        if f is None:
+            self._pick_focus(tb)
+
+    def _pick_focus(self, tb: dict[str, Any] | None) -> None:
+        """The one corner to work on this session: the most time to gain against
+        its time to beat (one you haven't already met this session)."""
+        options = [c for c in (tb or {}).get("corners", []) if c["gain_s"] >= 0.05 and c["corner"] not in self._focus_met]
+        if options:
+            self._focus = {"corner": max(options, key=lambda c: c["gain_s"])["corner"], "beaten": 0}
+
+    def _coach_live(self) -> dict[str, Any] | None:
+        """What the side screen's coach strip shows (cheap: sent with every frame)."""
+        if self.track is None:
+            return None
+        out: dict[str, Any] = {"focus": None, "last_lap": None, "tyres": None}
+        f = self._focus
+        tb = self._ttb.get((self.session.game, self.session.car, self.session.track_key), {}).get("tb") if self.session else None
+        if f is not None and tb:
+            t = next((c for c in tb["corners"] if c["corner"] == f["corner"]), None)
+            c = next((c for c in self.track.model.corners if c.number == f["corner"]), None)
+            if t and c:
+                ps = next((p for p in self.track.model.practice if f["corner"] in p.corners), None)
+                out["focus"] = {
+                    "corner": c.number, "label": c.label, "to_beat_s": t["target_s"], "usual_s": t["usual_s"],
+                    "gain_s": t["gain_s"], "why": t["why"], "fix": self._focus_fix(c.number), "beaten": f["beaten"],
+                    "section": {"number": ps.number, "name": ps.name} if ps else None,
+                }
+        n = self._last_lap_note
+        if n and time.time() - n["at"] < 25:
+            out["last_lap"] = {k: v for k, v in n.items() if k != "at"}
+        if self._tyres_cold:
+            avg = self._tyre_avg()
+            out["tyres"] = {"cold": True, "avg_c": round(avg) if avg else None, "working_c": round(self._working_c())}
+        return out
+
+    def _focus_fix(self, corner: int) -> str | None:
+        """What to change at the focus corner: from your latest lap there."""
+        last = self._last_rows.get(corner)
+        if not last:
+            return None
+        notes = last.get("notes") or last.get("opt_notes") or []
+        return notes[0] if notes else None
+
+    def _tyre_avg(self) -> float | None:
+        f = self.frame
+        temps = f.tyre_core_temp_c if f else None
+        return sum(temps) / len(temps) if temps else None
+
+    def _working_c(self) -> float:
+        p = self.car_profile or {}
+        return float(p.get("tyre_working_c") or self.COLD_DEFAULT_C + self.COLD_MARGIN_C)
+
+    def _note_tyres(self, frame: Frame) -> None:
+        """Learn the temperature this car's tyres work at (on your laps, at speed),
+        and whether they're cold now (until they're back near it)."""
+        temps = frame.tyre_core_temp_c
+        if not temps or frame.status != GameStatus.LIVE:
+            return
+        avg = sum(temps) / len(temps)
+        if frame.speed_kmh > 80:
+            self._tyre_sum += avg
+            self._tyre_n += 1
+        working = self._working_c()
+        if frame.in_pit_box or frame.speed_kmh < 5:
+            self._tyres_cold = avg < working - self.COLD_MARGIN_C
+        elif self._tyres_cold and avg >= working - self.COLD_MARGIN_C / 2:
+            self._tyres_cold = False  # warmed up (with a margin so it doesn't flicker)
+        elif not self._tyres_cold and avg < working - self.COLD_MARGIN_C * 1.5:
+            self._tyres_cold = True  # e.g. after a reset or teleport
+
+    def _learn_tyre_temp(self, lap: Lap) -> None:
+        if self._tyre_n > 200 and lap.valid and self.car_profile is not None:
+            lap_avg = self._tyre_sum / self._tyre_n
+            old = self.car_profile.get("tyre_working_c")
+            self.car_profile["tyre_working_c"] = round(lap_avg if old is None else 0.7 * old + 0.3 * lap_avg, 1)
+            self._save_car_profile()
+        self._tyre_sum, self._tyre_n = 0.0, 0
 
     # -- time to beat ---------------------------------------------------------------
 
@@ -830,16 +1074,18 @@ class Rig:
         self._ttb[key] = {"sig": sig, "tb": tb, "ids": ids, "views": None}
         return tb
 
-    def _span_to_beat(self, ctx: AnalysisCtx | None, start_p: float, end_p: float) -> dict[str, float] | None:
+    def _span_to_beat(self, ctx: AnalysisCtx | None, start_p: float, end_p: float,
+                      tb: dict[str, Any] | None | bool = True) -> dict[str, float] | None:
         """Time to beat for a stretch of track (a drill, a practice section):
         your usual time through it over recent clean laps, minus what the
         corners in it ask of you. Seconds; None without enough laps."""
-        tb = self._time_to_beat(ctx)
+        if tb is True:  # not worked out by the caller (it passes it, or None, to save asking again)
+            tb = self._time_to_beat(ctx)
         if tb is None or ctx is None or not end_p > start_p:
             return None
         known = self._ttb[(ctx.game, ctx.car, ctx.track_key)]
         if known["views"] is None:
-            known["views"] = [LapView(t) for t in (self.store.trace(i) for i in known["ids"]) if t]
+            known["views"] = [LapView.of(t) for t in (self.store.trace(i) for i in known["ids"]) if t]
         spans = [v.time_at(end_p) - v.time_at(start_p) for v in known["views"] if v]
         spans = [s for s in spans if s > 0]
         if len(spans) < 3:
@@ -962,12 +1208,18 @@ class Rig:
             return None
         d = self.track.drill.drill
         lead = self.track.lead_in_m(d, float(self.config["drills"]["lead_in_s"]))
+        st = self.track.drill
+        # The in-game timer's target: the time to beat while it's quicker than
+        # your best run, else your best (same as the side screen).
+        target = st.target_ms if st.target_ms and (not st.best_ms or st.target_ms < st.best_ms) else st.best_ms
         return {
             "key": self._drill_key(),
             "name": d.name,
             "start_p": d.start_p,
             "end_p": d.end_p,
             "run_up_p": (d.start_p - lead / self.track.model.length_m) % 1.0,
+            "target_ms": target,
+            "target_is_best": target is not None and target == st.best_ms,
         }
 
     # -- car profile ----------------------------------------------------------
@@ -993,7 +1245,10 @@ class Rig:
         was = self.csp.connected
         for e in self.csp.sync(body):
             if e.get("type") == "teleport":
-                self.emit({"type": "retry", "state": "teleported" if e.get("ok") else "no_teleport"})
+                state = "teleported" if e.get("ok") else "no_teleport"
+                if e.get("ok") and e.get("tyres") not in (None, "warm"):
+                    state = "teleported_cold"  # this CSP couldn't warm the tyres back up
+                self.emit({"type": "retry", "state": state})
             if e.get("type") == "retry" and self._retry is not None and self._retry.get("csp"):
                 self._retry = None
                 if e.get("ok"):
@@ -1065,10 +1320,13 @@ class Rig:
             # Real ABS / TC levels and brake bias from the in-game app (None without it).
             "electronics": self.csp.electronics(),
             "can_teleport": self.csp.can_reset,  # the in-game app is there, offline
+            # systems this car really has (seen working), so the side screen only shows those
+            "car_has": {"drs": car_profile.has_drs(self.car_profile), "battery": car_profile.has_battery(self.car_profile)},
             "delta_s": self.delta_s,
             "ref_lap_ms": self.reference.lap_time_ms if self.reference else None,
             "theoretical_best_ms": self.theoretical_best_ms,
             "time_to_beat_ms": self.time_to_beat_ms,
+            "coach": self._coach_live(),
             "driving_s": round(self.driving_s, 1),
             "track": self.track_live,
         }
@@ -1192,6 +1450,11 @@ def _summary_targets(rep: dict[str, Any], model_corners: dict[int, Any]) -> dict
         "practice_sections": [{"name": ps["name"], "to_beat_s": ps.get("to_beat_s")}
                               for ps in rep.get("practice", []) if ps.get("to_beat_s")],
     }
+
+
+def _covers(view: LapView, a: float, b: float) -> bool:
+    """The lap's telemetry runs from ``a`` to ``b`` (an unfinished lap may stop short)."""
+    return bool(view.p) and view.p[0] <= a + 0.002 and view.p[-1] >= b - 0.002
 
 
 def fmt_ms(ms: int) -> str:

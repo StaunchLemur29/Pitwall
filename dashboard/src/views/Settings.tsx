@@ -2,8 +2,9 @@ import { Fragment, useEffect, useState } from "react";
 import { cancelBinding, inputDevices, resetConfig, saveConfig, startBinding, useRig } from "../lib/rig";
 import type { Binding, Config, WidgetId, WidgetSlot } from "../lib/types";
 import { WIDGETS } from "../widgets";
+import { FullscreenButton } from "../widgets/Fullscreen";
 
-type Tab = "general" | "layout" | "controls" | "cloud" | "ai" | "advanced";
+type Tab = "general" | "coaching" | "layout" | "controls" | "cloud" | "ai" | "advanced";
 
 export function Settings() {
   const live = useRig((s) => s.config);
@@ -46,7 +47,11 @@ export function Settings() {
           ← Dashboard
         </a>
         <h1>Settings</h1>
+        <a href="#/tools" className="settings__back" title="Hardware checks: force feedback clipping, brake pedal">
+          Tools
+        </a>
         <div className="settings__actions">
+          <FullscreenButton className="btn btn--ghost" />
           {saved && !dirty && <span className="ok">Saved</span>}
           <button
             className="btn btn--ghost"
@@ -74,7 +79,7 @@ export function Settings() {
       )}
 
       <nav className="tabs">
-        {(["general", "layout", "controls", "cloud", "ai", "advanced"] as Tab[]).map((t) => (
+        {(["general", "coaching", "layout", "controls", "cloud", "ai", "advanced"] as Tab[]).map((t) => (
           <button key={t} className={`tabs__tab ${tab === t ? "tabs__tab--on" : ""}`} onClick={() => setTab(t)}>
             {t === "ai" ? "AI" : t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -83,6 +88,7 @@ export function Settings() {
 
       <div className="settings__card">
       {tab === "general" && <General draft={draft} edit={edit} />}
+      {tab === "coaching" && <Coaching draft={draft} edit={edit} />}
       {tab === "layout" && <Layout draft={draft} edit={edit} />}
       {tab === "controls" && (
         <Controls draft={draft} edit={edit} actions={actions} bindingAction={bindingAction} dirty={dirty} />
@@ -312,15 +318,6 @@ function General({ draft, edit }: EditProps) {
       <Field label="Accent colour">
         <input type="color" value={draft.display.accent} onChange={(e) => edit((c) => (c.display.accent = e.target.value))} />
       </Field>
-      <Field label="Break reminder" hint="Minutes of driving before a gentle reminder. 0 = off.">
-        <input
-          type="number"
-          min={0}
-          max={600}
-          value={draft.session_timer.break_reminder_min}
-          onChange={(e) => edit((c) => (c.session_timer.break_reminder_min = Number(e.target.value)))}
-        />
-      </Field>
       <h2>Vertical monitor</h2>
       <Field label="Open the dashboard automatically" hint="Starts Chrome (or Edge) full-screen on the vertical monitor when the service starts.">
         <input
@@ -338,6 +335,14 @@ function General({ draft, edit }: EditProps) {
         </select>
       </Field>
 
+    </div>
+  );
+}
+
+function Coaching({ draft, edit }: EditProps) {
+  // Everything about how Pitwall coaches you, in one place.
+  return (
+    <div className="panel">
       <Field
         label="Braking points from"
         hint="Where “brake in” counts down to, here and in the game. The optimal run is the car at its grip on the optimal line: where to get to. Until it's worked out (a few clean laps), your best lap is used."
@@ -348,6 +353,29 @@ function General({ draft, edit }: EditProps) {
         </select>
       </Field>
 
+      <Field
+        label="Drill run-up (seconds)"
+        hint="A drill retry rewinds to this much driving before the section starts, so you've got a moment to settle in."
+      >
+        <input
+          className="textin"
+          type="number"
+          min={0}
+          max={15}
+          step={0.5}
+          value={draft.drills.lead_in_s}
+          onChange={(e) => edit((c) => (c.drills.lead_in_s = Number(e.target.value)))}
+        />
+      </Field>
+      <Field label="Break reminder" hint="Minutes of driving before a gentle reminder. 0 = off.">
+        <input
+          type="number"
+          min={0}
+          max={600}
+          value={draft.session_timer.break_reminder_min}
+          onChange={(e) => edit((c) => (c.session_timer.break_reminder_min = Number(e.target.value)))}
+        />
+      </Field>
       <h2>In-game overlay</h2>
       <p className="field__hint">
         Pitwall's app inside Assetto Corsa: open it from the app bar and leave it open. It stays invisible until a
@@ -366,6 +394,13 @@ function General({ draft, edit }: EditProps) {
       </Field>
       <Field label="Show the braking point" hint="A countdown bar that turns into BRAKE at the point. Adjusts to how fast you're arriving.">
         <input type="checkbox" checked={draft.overlay.show_brake} onChange={(e) => edit((c) => (c.overlay.show_brake = e.target.checked))} />
+      </Field>
+      <Field label="Show the drill timer" hint="During a drill: your run's time counting up, and the time to beat; at the end, how you did.">
+        <input
+          type="checkbox"
+          checked={draft.overlay.show_drill !== false}
+          onChange={(e) => edit((c) => (c.overlay.show_drill = e.target.checked))}
+        />
       </Field>
       <Field label="Appear this far before braking (m)">
         <input
@@ -584,6 +619,52 @@ function describe(b: Binding): string {
   return `${b.device_name} · axis ${b.index + 1} ${b.direction === -1 ? "−" : "+"}`;
 }
 
+/** The SF1000's own screen, fed by Pitwall over Wi-Fi. */
+function WheelScreen({ draft, edit }: EditProps) {
+  const cfg = draft.sf1000 ?? { enabled: false, ip: "", port: 20777 };
+  const [test, setTest] = useState<string | null>(null);
+  const set = (k: "enabled" | "ip", v: boolean | string) =>
+    edit((c) => {
+      c.sf1000 = { ...(c.sf1000 ?? { enabled: false, ip: "", port: 20777 }), [k]: v };
+    });
+  const run = async () => {
+    setTest("Sending…");
+    const r = await fetch("/api/sf1000/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ip: cfg.ip }),
+    });
+    const j = await r.json().catch(() => ({}));
+    setTest(
+      j.ok
+        ? "Sent. The wheel should have swept its rev lights and gears. Nothing? Check it's in UDP mode and the IP matches."
+        : j.error ?? "Couldn't send.",
+    );
+  };
+  return (
+    <>
+      <h2>SF1000 wheel screen</h2>
+      <p className="field__hint">
+        Pitwall can drive the wheel's own screen and rev lights over Wi-Fi, so its F1 pages work in Assetto Corsa: gear,
+        speed, RPM lights, lap and sector times, fuel, tyres, brake bias, ABS and TC. On the wheel: Wi-Fi on, UDP mode,
+        F1 23 format (firmware 6.27 or newer). Its Wi-Fi page shows the IP and “UDP: 20777”.
+      </p>
+      <Field label="Send to the wheel">
+        <input type="checkbox" checked={cfg.enabled} onChange={(e) => set("enabled", e.target.checked)} />
+      </Field>
+      <Field label="Wheel IP" hint="From the wheel's Wi-Fi page, like 192.168.1.50.">
+        <input className="textin" placeholder="192.168.1.50" value={cfg.ip} onChange={(e) => set("ip", e.target.value.trim())} />
+      </Field>
+      <Field label="Test">
+        <button className="btn btn--ghost" onClick={run} disabled={!cfg.ip}>
+          Send a test pattern
+        </button>
+      </Field>
+      {test && <p className="muted">{test}</p>}
+    </>
+  );
+}
+
 function Controls({
   draft,
   edit,
@@ -631,23 +712,10 @@ function Controls({
             onChange={(e) => edit((c) => (c.games.ac.rewind_key = e.target.value.trim()))}
           />
         </Field>
-        <Field
-          label="Drill run-up (seconds)"
-          hint="A drill retry rewinds to this much driving before the section starts, so you've got a moment to settle in."
-        >
-          <input
-            className="textin"
-            type="number"
-            min={0}
-            max={15}
-            step={0.5}
-            value={draft.drills.lead_in_s}
-            onChange={(e) => edit((c) => (c.drills.lead_in_s = Number(e.target.value)))}
-          />
-        </Field>
 
       </div>
       {dirty && <p className="warn">Save your other changes before binding buttons.</p>}
+      <WheelScreen draft={draft} edit={edit} />
       {Object.entries(actions).map(([action, label]) => {
         const binds = draft.bindings[action] ?? [];
         const waiting = bindingAction === action;

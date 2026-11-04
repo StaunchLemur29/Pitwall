@@ -96,3 +96,55 @@ def test_a_cut_lap_in_the_analysis_says_where_you_went_off(demo, clock, config, 
     reviews = [rig.corner_report(lap["id"])["review"] for lap in cut]
     assert all(r is not None for r in reviews)
     assert any(w["kind"] == "off" for r in reviews for w in r["wrong"])
+
+
+def test_a_corner_counts_if_driven_all_the_way_and_clean():
+    from pitwall_rig.analysis import counts
+
+    assert counts({"driven": True, "clean": True}, lap_valid=False)  # good corner, cut elsewhere
+    assert not counts({"driven": True, "clean": False}, lap_valid=True)
+    assert not counts({"driven": False, "clean": None}, lap_valid=True)  # not driven (unfinished / jumped)
+    assert counts({"driven": True, "clean": None}, lap_valid=True)  # old laps: go by the lap
+    assert not counts({"driven": True, "clean": None}, lap_valid=False)
+    assert counts({}, lap_valid=True)  # analysed before this was kept
+
+
+def test_driven_through_needs_the_whole_corner_without_a_jump():
+    from pitwall_rig.analysis import LapView, driven_through
+
+    c = SimpleNamespace(number=1, label="T1", entry=0.30, apex=0.32, exit=0.34)
+    n = 2000
+    full = {"t": [i * 0.03 for i in range(n)], "p": [i / n for i in range(n)], "off": [0] * n}
+    assert driven_through(LapView(full), c, 4000.0) == (True, True)
+    stopped = {k: v[: int(0.33 * n)] for k, v in full.items()}  # quit mid-corner
+    assert driven_through(LapView(stopped), c, 4000.0)[0] is False
+    jumped = {k: [x for i, x in enumerate(v) if not (0.31 * n < i < 0.33 * n)] for k, v in full.items()}  # teleported past
+    assert driven_through(LapView(jumped), c, 4000.0)[0] is False
+    off = dict(full, off=[4 if 0.32 * n < i < 0.325 * n else 0 for i in range(n)])
+    assert driven_through(LapView(off), c, 4000.0) == (True, False)
+
+
+def test_an_unfinished_lap_counts_for_the_corners_it_drove(demo, clock, config, store):
+    from pitwall_rig.models import Frame, GameStatus
+    from pitwall_rig.rig import Rig
+
+    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
+    while len([lap for lap in store.laps(limit=100) if lap["valid"]]) < 3:
+        clock.advance(1 / 60)
+        rig.tick()
+    while rig.frame is None or rig.frame.lap_progress < 0.5:  # half a lap more...
+        clock.advance(1 / 60)
+        rig.tick()
+    rig.laps.feed(Frame(t=clock(), status=GameStatus.OFF), rig.session)  # ...then quit
+    lap = next(lap for lap in store.laps(limit=100) if lap["unfinished"])
+    rep = rig.corner_report(lap["id"])
+    driven = [c for c in rep["lap"] if c["driven"]]
+    assert driven and len(driven) < len(rep["lap"])
+    assert all(c.get("advice") is None for c in rep["lap"] if not c["driven"])
+    # its well-driven corners are part of your history now (newest lap first)
+    from pitwall_rig.analysis import counts
+
+    counted = [c["corner"] for c in driven if counts(c, lap_valid=False)]
+    assert counted
+    hist = rig._history(rig._live_ctx())
+    assert [c["corner"] for c in hist[0]] == counted

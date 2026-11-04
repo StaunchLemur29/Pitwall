@@ -1,5 +1,5 @@
 import { delta, lapTime } from "../lib/format";
-import { stopDrill, useRig } from "../lib/rig";
+import { practise, stopDrill, useRig } from "../lib/rig";
 import type { Attempt } from "../lib/types";
 import { Card } from "./common";
 
@@ -11,18 +11,59 @@ export function DrillCard() {
   const hasTrack = useRig((s) => !!s.track);
   const bound = useRig((s) => (s.config?.bindings.drill_here?.length ?? 0) > 0);
   const retry = useRig((s) => s.retry);
+  const coach = useRig((s) => s.live.coach);
 
   if (!d) {
-    // No drill running: this strip is where coaching tips will appear (phase 3).
+    // No drill running: the coach strip. Cold tyres first, then the lap just
+    // finished (for a moment), else the session's one focus corner.
+    // One thing at a time: cold tyres alone; then the lap just finished; then the focus.
+    const cold = !!coach?.tyres?.cold;
+    const last = cold ? null : coach?.last_lap;
+    const focus = cold ? null : coach?.focus;
+    const busy = cold || !!last || !!focus;
     return (
-      <Card title="Coach" dim>
-        <div className="upcoming upcoming--left">
-          {hasTrack
-            ? bound
-              ? "Press your drill button before a section to practise it, or pick one in analysis."
-              : "Pick a section to practise in analysis, or bind a drill button in Settings."
-            : "Drills need the track layout."}
-        </div>
+      <Card title={busy ? undefined : "Coach"} dim={!busy} className={busy ? "coach" : ""}>
+        {cold ? (
+          <div className="coach__warn">
+            <span className="coach__tag">Tyres</span>
+            Cold{coach!.tyres!.avg_c ? ` (${coach!.tyres!.avg_c}°)` : ""}: build up, they work at about {coach!.tyres!.working_c}°
+          </div>
+        ) : last ? (
+          <div className="coach__lap">
+            <span className="coach__tag">Lap {last.lap}</span>
+            {last.wrong ? (
+              <>
+                <b>{last.wrong.label}</b> <span className="coach__why">{last.wrong.text}</span>
+              </>
+            ) : (
+              <span className="good">Clean: every corner within your usual.</span>
+            )}
+          </div>
+        ) : focus ? (
+          <div className="coach__focus">
+            <div className="coach__head">
+              <span className="coach__tag">Focus</span>
+              <b>{focus.label}</b>
+              <span className="coach__target">
+                to beat {focus.to_beat_s.toFixed(2)}s <span className="muted">(usual {focus.usual_s.toFixed(2)})</span>
+              </span>
+              {focus.section && (
+                <button className="btn btn--sm" onClick={() => practise({ section: focus.section!.number }, focus.section!.name)}>
+                  Practise
+                </button>
+              )}
+            </div>
+            <div className="coach__why">{focus.fix ?? focus.why}</div>
+          </div>
+        ) : (
+          <div className="upcoming upcoming--left">
+            {hasTrack
+              ? bound
+                ? "Press your drill button before a section to practise it, or pick one in analysis."
+                : "Pick a section to practise in analysis, or bind a drill button in Settings."
+              : "Drills need the track layout."}
+          </div>
+        )}
       </Card>
     );
   }
@@ -41,6 +82,7 @@ export function DrillCard() {
           stopped: "",
           teleporting: "Teleporting…",
           teleported: "You're there — pull away when ready",
+          teleported_cold: "You're there — tyres are cold (this CSP can't warm them)",
           no_teleport: "Couldn't teleport — only works in offline practice",
         }[retry.state] ?? ""
       : "";

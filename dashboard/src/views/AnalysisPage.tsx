@@ -4,6 +4,7 @@ import { closeWindow, useRig } from "../lib/rig";
 import { LapAnalysis } from "../widgets/LapAnalysis";
 import { LapTimes } from "../widgets/LapTimes";
 import { RecentLaps } from "../widgets/RecentLaps";
+import { FullscreenButton } from "../widgets/Fullscreen";
 
 /** Analysis laid out for a wide screen: the main monitor now, the laptop later. */
 export function AnalysisPage() {
@@ -22,6 +23,7 @@ export function AnalysisPage() {
         <a className="dash__gear" href="#/settings" title="Settings">
           ⚙
         </a>
+        <FullscreenButton />
         <button className="dash__close" onClick={() => closeWindow("analysis")} title="Close this window" aria-label="Close">
           ✕
         </button>

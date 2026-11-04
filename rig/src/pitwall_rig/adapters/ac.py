@@ -202,6 +202,7 @@ class AssettoCorsaAdapter(GameAdapter):
             tc=float(phys.tc),
             tyre_pressure_psi=[float(v) for v in phys.wheelsPressure],
             tyre_core_temp_c=[float(v) for v in phys.tyreCoreTemperature],
+            ffb=float(phys.finalFF),
             tyres_out=int(phys.numberOfTyresOut),
             lap=int(gfx.completedLaps),
             lap_time_ms=int(gfx.iCurrentTime),
