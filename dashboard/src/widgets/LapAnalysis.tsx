@@ -213,7 +213,7 @@ export function LapAnalysis({
         </div>
       ) : null}
       <div className="lsum__where">
-        <div className="cd__sub">{losses.length ? "Where the time went" : rows.length && other ? "No corner lost more than 0.03 s" : "Drive another clean lap to compare"}</div>
+        <div className="cd__sub">{losses.length ? "Where the time went" : rows.length && (other || report?.compare_kind) ? "No corner lost more than 0.03 s" : "Drive another clean lap to compare"}</div>
         {losses.map(({ r, c }) => (
           <button key={c!.number} className={`lossbtn ${corner?.number === c!.number ? "lossbtn--on" : ""}`} onClick={() => setPicked(c!.number)}>
             <span className="lossbtn__name">{c!.label}</span>

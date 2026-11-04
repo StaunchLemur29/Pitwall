@@ -1351,11 +1351,24 @@ class Rig:
             "drill": self.track.drill.to_wire() if self.track and self.track.drill else None,
         }
 
+    FASTEST_IN_LIST = 10
+
     def recent_laps(self, limit: int = 30) -> list[dict[str, Any]]:
+        """The latest laps on this car + track, plus your fastest ones however old
+        they are: the analysis compares with faster laps, so your best must be in
+        the list even after hundreds of newer laps."""
         s = self.session
         if s is None:
             return []
-        return self.store.laps(s.game, s.track_key, s.car, limit=limit)
+        out = self.store.laps(s.game, s.track_key, s.car, limit=limit)
+        have = {x["id"] for x in out}
+        for lap_id in self.store.fastest_valid_lap_ids(s.game, s.track_key, s.car, limit=self.FASTEST_IN_LIST):
+            if lap_id not in have:
+                info = self.store.lap(lap_id)
+                if info is not None:
+                    out.append(info)
+        out.sort(key=lambda x: x["started_at"], reverse=True)
+        return out
 
     @_locked
     def outline(self, max_points: int = 1000) -> Event:

@@ -1,5 +1,6 @@
 // Connection to the rig service: one WebSocket, one store, React hooks on top.
 
+import { keepRecentAndFastest } from "./lapList";
 import { useSyncExternalStore } from "react";
 import { toast } from "../widgets/Toasts";
 import type {
@@ -194,7 +195,7 @@ class RigStore {
         break;
       case "lap":
         this.set({
-          laps: [e.lap, ...this.state.laps].slice(0, 100),
+          laps: keepRecentAndFastest([e.lap, ...this.state.laps]),
           lastLap: { lap: e.lap, newBest: e.new_best, at: Date.now() },
         });
         if (this.state.outline.length === 0 || e.new_best) void this.refreshOutline();
