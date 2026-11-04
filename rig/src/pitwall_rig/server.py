@@ -563,8 +563,15 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
             rel = request.match_info.get("path", "")
             target = (static_dir / rel).resolve()
             if rel and target.is_file() and static_dir.resolve() in target.parents:
-                return web.FileResponse(target)
-            return web.FileResponse(index)
+                resp = web.FileResponse(target)
+                if rel.startswith("assets/"):  # file names carry a content hash: safe to keep
+                    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                return resp
+            # The page itself: always fetch it fresh, so a rebuilt dashboard (after
+            # a pull) shows up straight away instead of a cached older one.
+            resp = web.FileResponse(index)
+            resp.headers["Cache-Control"] = "no-cache"
+            return resp
 
         app.router.add_get("/", spa)
         app.router.add_get("/{path:.*}", spa)
