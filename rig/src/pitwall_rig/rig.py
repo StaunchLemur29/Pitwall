@@ -97,6 +97,14 @@ class Rig:
         self._opt_runs: dict[tuple[str, str, str], dict[str, Any]] = {}  # optimal run per car + track
         self._ttb: dict[tuple[str, str, str], dict[str, Any]] = {}  # time to beat per car + track (cached)
         self.time_to_beat_ms: int | None = None  # the live car + track's lap time to beat
+        # The side screen's coach strip: one focus for the session, the last lap's
+        # biggest mistake, and a cold-tyre warning.
+        self._focus: dict[str, Any] | None = None  # {corner, beaten}: the session's one focus corner
+        self._focus_met: set[int] = set()  # focus corners already met this session
+        self._last_rows: dict[int, dict[str, Any]] = {}  # the last lap's corners (for the focus fix)
+        self._last_lap_note: dict[str, Any] | None = None
+        self._tyre_sum, self._tyre_n = 0.0, 0  # this lap's tyre core temperature at speed
+        self._tyres_cold = False
         self._cue_mode: str | None = None  # the brake-cue setting last applied
         self._opt_busy: set[tuple[str, str, str]] = set()
         self._ac_tracks = None  # track loader for past AC tracks when another adapter is running
@@ -192,6 +200,7 @@ class Rig:
         self.frame = frame
         if self.car_profile is not None and frame.status == GameStatus.LIVE and car_profile.note_frame(self.car_profile, frame):
             self._save_car_profile()
+        self._note_tyres(frame)
         self.laps.max_tyres_out = self.config["laps"]["max_tyres_out"]
         self.laps.practising = self.track is not None and self.track.drill is not None
         self.laps.feed(frame, session)
@@ -237,6 +246,7 @@ class Rig:
 
     def _on_lap(self, lap: Lap) -> None:
         self.store.add_lap(lap)
+        self._learn_tyre_temp(lap)
         self.on_lap_saved()
         new_best = lap.valid and not lap.rewound and (
             self.reference is None or lap.lap_time_ms < self.reference.lap_time_ms)
@@ -287,6 +297,7 @@ class Rig:
             return
         self.track = TrackState(model, self.config["laps"]["max_tyres_out"])
         self.track.on_attempt = self._save_attempt
+        self._focus, self._focus_met, self._last_rows, self._last_lap_note = None, set(), {}, None
         if self.reference is not None and self.reference.lap_id is not None:
             self.track.set_reference(self.store.trace(self.reference.lap_id))
         for lap_id in self.store.valid_lap_ids(s.game, s.track_key, s.car):
@@ -827,11 +838,120 @@ class Rig:
         return {"lap_s": run["lap_s"], "trace": {k: v[::step] for k, v in tr.items()}}
 
     def _emit_corners(self, lap_id: int | None) -> None:
+        tb = None
         if self.track is not None:
             self.track.mastery = self._mastery()
             tb = self._time_to_beat(self._live_ctx())
             self.time_to_beat_ms = tb["lap_ms"] if tb else None
-        self.emit({"type": "corners", **self.corner_report(lap_id)})
+        rep = self.corner_report(lap_id)
+        if lap_id is not None and self.track is not None:
+            self._coach_after_lap(lap_id, rep, tb)
+        elif self._focus is None:
+            self._pick_focus(tb)  # e.g. on arriving: from your earlier laps
+        self.emit({"type": "corners", **rep})
+
+    # -- the coach strip (side screen) ---------------------------------------------
+
+    COLD_MARGIN_C = 12.0  # this far under the usual working temperature counts as cold
+    COLD_DEFAULT_C = 55.0  # until Pitwall has seen this car's tyres working
+
+    def _coach_after_lap(self, lap_id: int, rep: dict[str, Any], tb: dict[str, Any] | None) -> None:
+        """After a lap: its biggest mistake for the strip, and keep (or move on
+        from) the session's focus corner."""
+        info = self.store.lap(lap_id)
+        review = rep.get("review") or {}
+        wrong = (review.get("wrong") or [None])[0]
+        self._last_lap_note = {"lap": info["lap_number"] if info else None, "at": time.time(),
+                               "wrong": {"label": wrong["label"], "text": wrong["text"], "lost_s": wrong.get("lost_s")}
+                               if wrong else None}
+        rows = {c["corner"]: c for c in rep.get("lap") or []}
+        self._last_rows = rows
+        targets = {c["corner"]: c for c in (tb or {}).get("corners", [])}
+        f = self._focus
+        if f is not None and f["corner"] in rows and f["corner"] in targets:
+            mine = rows[f["corner"]]
+            if mine.get("driven") is not False and mine["time_s"] <= targets[f["corner"]]["target_s"]:
+                f["beaten"] += 1
+            if f["beaten"] >= 2:  # met twice: on to the next one
+                self._focus_met.add(f["corner"])
+                self._focus = f = None
+        if f is None:
+            self._pick_focus(tb)
+
+    def _pick_focus(self, tb: dict[str, Any] | None) -> None:
+        """The one corner to work on this session: the most time to gain against
+        its time to beat (one you haven't already met this session)."""
+        options = [c for c in (tb or {}).get("corners", []) if c["gain_s"] >= 0.05 and c["corner"] not in self._focus_met]
+        if options:
+            self._focus = {"corner": max(options, key=lambda c: c["gain_s"])["corner"], "beaten": 0}
+
+    def _coach_live(self) -> dict[str, Any] | None:
+        """What the side screen's coach strip shows (cheap: sent with every frame)."""
+        if self.track is None:
+            return None
+        out: dict[str, Any] = {"focus": None, "last_lap": None, "tyres": None}
+        f = self._focus
+        tb = self._ttb.get((self.session.game, self.session.car, self.session.track_key), {}).get("tb") if self.session else None
+        if f is not None and tb:
+            t = next((c for c in tb["corners"] if c["corner"] == f["corner"]), None)
+            c = next((c for c in self.track.model.corners if c.number == f["corner"]), None)
+            if t and c:
+                ps = next((p for p in self.track.model.practice if f["corner"] in p.corners), None)
+                out["focus"] = {
+                    "corner": c.number, "label": c.label, "to_beat_s": t["target_s"], "usual_s": t["usual_s"],
+                    "gain_s": t["gain_s"], "why": t["why"], "fix": self._focus_fix(c.number), "beaten": f["beaten"],
+                    "section": {"number": ps.number, "name": ps.name} if ps else None,
+                }
+        n = self._last_lap_note
+        if n and time.time() - n["at"] < 25:
+            out["last_lap"] = {k: v for k, v in n.items() if k != "at"}
+        if self._tyres_cold:
+            avg = self._tyre_avg()
+            out["tyres"] = {"cold": True, "avg_c": round(avg) if avg else None, "working_c": round(self._working_c())}
+        return out
+
+    def _focus_fix(self, corner: int) -> str | None:
+        """What to change at the focus corner: from your latest lap there."""
+        last = self._last_rows.get(corner)
+        if not last:
+            return None
+        notes = last.get("notes") or last.get("opt_notes") or []
+        return notes[0] if notes else None
+
+    def _tyre_avg(self) -> float | None:
+        f = self.frame
+        temps = f.tyre_core_temp_c if f else None
+        return sum(temps) / len(temps) if temps else None
+
+    def _working_c(self) -> float:
+        p = self.car_profile or {}
+        return float(p.get("tyre_working_c") or self.COLD_DEFAULT_C + self.COLD_MARGIN_C)
+
+    def _note_tyres(self, frame: Frame) -> None:
+        """Learn the temperature this car's tyres work at (on your laps, at speed),
+        and whether they're cold now (until they're back near it)."""
+        temps = frame.tyre_core_temp_c
+        if not temps or frame.status != GameStatus.LIVE:
+            return
+        avg = sum(temps) / len(temps)
+        if frame.speed_kmh > 80:
+            self._tyre_sum += avg
+            self._tyre_n += 1
+        working = self._working_c()
+        if frame.in_pit_box or frame.speed_kmh < 5:
+            self._tyres_cold = avg < working - self.COLD_MARGIN_C
+        elif self._tyres_cold and avg >= working - self.COLD_MARGIN_C / 2:
+            self._tyres_cold = False  # warmed up (with a margin so it doesn't flicker)
+        elif not self._tyres_cold and avg < working - self.COLD_MARGIN_C * 1.5:
+            self._tyres_cold = True  # e.g. after a reset or teleport
+
+    def _learn_tyre_temp(self, lap: Lap) -> None:
+        if self._tyre_n > 200 and lap.valid and self.car_profile is not None:
+            lap_avg = self._tyre_sum / self._tyre_n
+            old = self.car_profile.get("tyre_working_c")
+            self.car_profile["tyre_working_c"] = round(lap_avg if old is None else 0.7 * old + 0.3 * lap_avg, 1)
+            self._save_car_profile()
+        self._tyre_sum, self._tyre_n = 0.0, 0
 
     # -- time to beat ---------------------------------------------------------------
 
@@ -1109,6 +1229,7 @@ class Rig:
             "ref_lap_ms": self.reference.lap_time_ms if self.reference else None,
             "theoretical_best_ms": self.theoretical_best_ms,
             "time_to_beat_ms": self.time_to_beat_ms,
+            "coach": self._coach_live(),
             "driving_s": round(self.driving_s, 1),
             "track": self.track_live,
         }
