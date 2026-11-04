@@ -507,6 +507,19 @@ class Rig:
             "time_to_beat": _summary_targets(rep, model_corners),
         }
 
+    def tools(self, game: str | None = None, car: str | None = None, track_key: str | None = None) -> dict[str, Any]:
+        """Hardware checks from your last 10 clean laps of this car + track:
+        force feedback clipping (TS-PC) and how you use the brake (T-LCM)."""
+        from .tools import ffb_report, pedal_report
+
+        ctx = self.analysis_ctx(game, car, track_key)
+        if ctx is None:
+            return {"car": None, "track_key": None, "ffb": None, "pedals": None}
+        ids = self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=10)
+        traces = [t for t in (self.store.trace(i) for i in ids) if t]
+        return {"game": ctx.game, "car": ctx.car, "track_key": ctx.track_key,
+                "ffb": ffb_report(traces, ctx.track.model), "pedals": pedal_report(traces)}
+
     def combos(self) -> list[dict[str, Any]]:
         """Every car + track you've driven, most recent first."""
         out = self.store.combos()

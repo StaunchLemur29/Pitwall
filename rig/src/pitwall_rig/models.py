@@ -138,6 +138,7 @@ class Frame:
     ers_deploy: int | None = None  # ERS power (deploy) mode
     ers_recovery: int | None = None
     engine_brake: int | None = None
+    ffb: float | None = None  # the game's force feedback output (AC finalFF): at ±1 it's clipping
 
     def to_wire(self) -> dict[str, Any]:
         """Compact dict for the dashboard websocket."""

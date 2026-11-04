@@ -3,6 +3,7 @@ import { useRig } from "./lib/rig";
 import { Dashboard } from "./views/Dashboard";
 import { AnalysisPage } from "./views/AnalysisPage";
 import { Settings } from "./views/Settings";
+import { Tools } from "./views/Tools";
 import { Toasts } from "./widgets/Toasts";
 
 function useHashRoute(): string {
@@ -21,7 +22,7 @@ export function App() {
   useEffect(() => {
     if (accent) document.documentElement.style.setProperty("--accent", accent);
   }, [accent]);
-  const page = route.startsWith("/settings") ? <Settings /> : route.startsWith("/analysis") ? <AnalysisPage /> : <Dashboard />;
+  const page = route.startsWith("/tools") ? <Tools /> : route.startsWith("/settings") ? <Settings /> : route.startsWith("/analysis") ? <AnalysisPage /> : <Dashboard />;
   return (
     <>
       {page}
