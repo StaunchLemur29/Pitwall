@@ -367,6 +367,8 @@ export interface Live {
   pos_age_ms?: number | null;
   /** Real ABS / TC levels and brake bias from the in-game CSP app (null without it). */
   electronics?: Electronics | null;
+  /** The in-game app can teleport the car to a drill (it's running, offline practice). */
+  can_teleport?: boolean;
   delta_s: number | null;
   ref_lap_ms: number | null;
   theoretical_best_ms: number | null;
@@ -407,5 +409,8 @@ export type ServerEvent =
   | ({ type: "corners" } & CornerReport)
   | { type: "drill"; drill: Drill | null }
   | { type: "shutdown" }
-  | { type: "retry"; state: "rewinding" | "ready" | "no_rewind" | "timeout" | "stopped" }
+  | {
+      type: "retry";
+      state: "rewinding" | "ready" | "no_rewind" | "timeout" | "stopped" | "teleporting" | "teleported" | "no_teleport";
+    }
   | { type: "attempt"; attempt: Attempt & { start_p: number; end_p: number } };

@@ -268,3 +268,31 @@ def test_brake_cue_holds_at_the_braking_point(demo):
     assert brake_at(10) == -10  # just past: "brake now", not gone
     assert brake_at(35) == -35
     assert brake_at(50) is None  # well past it: cleared
+
+
+def test_teleport_point_lets_you_reach_reference_speed_from_a_standstill(demo):
+    m = demo_model(demo)
+    ts = TrackState(m)
+    d = Drill(name="x", start_p=0.5, end_p=0.6)
+    # No reference: a typical speed (40 m/s) at the fallback acceleration, with the margin.
+    want = 40**2 / (2 * ts.FALLBACK_ACCEL * ts.STANDING_MARGIN)
+    assert abs(ts.standing_start_m(d) - want) < 5
+    assert ts.standing_start_m(d, min_m=500) == 500  # never closer than asked
+    # Reference lap: flat out at 8 m/s² up to 50 m/s, then steady.
+    n = 4000
+    trace = {k: [0.0] * n for k in ("brake", "steer", "gear", "speed", "t")}
+    trace["gas"] = [1.0] * n
+    trace["p"] = [i / n for i in range(n)]
+    t = speed = 0.0
+    for i in range(n):
+        trace["t"][i], trace["speed"][i] = t, speed * 3.6
+        ds = m.length_m / n
+        dt = ds / max(speed, 1.0)
+        t, speed = t + dt, min(50.0, speed + 8.0 * dt)
+    trace["x"] = [m.line.x[m.index_at(q)] for q in trace["p"]]
+    trace["z"] = [m.line.z[m.index_at(q)] for q in trace["p"]]
+    ts.set_reference(trace)
+    acc = ts.accel_by_speed()
+    assert acc and all(abs(a - 8.0) < 0.5 for _, a in acc)
+    want = 50**2 / (2 * 8.0 * ts.STANDING_MARGIN)  # ~184 m
+    assert abs(ts.standing_start_m(d) - want) < 10

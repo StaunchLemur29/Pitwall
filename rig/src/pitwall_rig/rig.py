@@ -818,6 +818,25 @@ class Rig:
             self._retry = None
             self.emit({"type": "retry", "state": done})
 
+    # -- getting to a drill: teleport (in-game app, offline) --------------------
+
+    TELEPORT_EXTRA_M = 50.0  # always park a bit before the Time Shift run-up
+
+    @_locked
+    def teleport_to_drill(self) -> bool:
+        """Park the car, stopped, far enough before the drill that pulling away
+        flat out gets you to the section at your usual speed. Only to get there:
+        retries rewind as normal."""
+        if self.track is None or self.track.drill is None or not self.csp.can_reset:
+            return False
+        d = self.track.drill.drill
+        run_up = self.track.lead_in_m(d, float(self.config["drills"]["lead_in_s"]))
+        back = self.track.standing_start_m(d, min_m=run_up + self.TELEPORT_EXTRA_M)
+        p = (d.start_p - back / self.track.model.length_m) % 1.0
+        self.csp.send({"cmd": "teleport", "key": self._drill_key(), "p": p})
+        self.emit({"type": "retry", "state": "teleporting"})
+        return True
+
     # -- in-game CSP app ------------------------------------------------------
 
     def _drill_key(self) -> str | None:
@@ -859,6 +878,8 @@ class Rig:
         """The in-game app checking in (about 10 times a second)."""
         was = self.csp.connected
         for e in self.csp.sync(body):
+            if e.get("type") == "teleport":
+                self.emit({"type": "retry", "state": "teleported" if e.get("ok") else "no_teleport"})
             if e.get("type") == "retry" and self._retry is not None and self._retry.get("csp"):
                 self._retry = None
                 if e.get("ok"):
@@ -928,6 +949,7 @@ class Rig:
             "pos_age_ms": pos_age,
             # Real ABS / TC levels and brake bias from the in-game app (None without it).
             "electronics": self.csp.electronics(),
+            "can_teleport": self.csp.can_reset,  # the in-game app is there, offline
             "delta_s": self.delta_s,
             "ref_lap_ms": self.reference.lap_time_ms if self.reference else None,
             "theoretical_best_ms": self.theoretical_best_ms,

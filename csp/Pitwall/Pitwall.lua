@@ -8,6 +8,9 @@
 --     are worked out here every frame, with no lag.
 -- Drill retry: when you pass the drill's run-up point the car's full state is
 -- saved; "retry" loads it back, putting you there at speed.
+-- Getting to a drill: "teleport" parks the car, stopped, on the racing line at
+-- the point the service picked (far enough back to be up to speed by the
+-- section). Only to get there; retries are the rewind above.
 
 local RIG = 'http://127.0.0.1:8765'
 local SYNC_EVERY = 0.1
@@ -19,6 +22,7 @@ local car = ac.getCar(0)
 local track = nil -- { version, length_m, corners = {...}, ref_speed = {...} }
 local drill = nil -- { key, name, start_p, end_p, run_up_p }
 local launch = nil -- { key, data } car state saved at the run-up point
+local settle = nil -- just teleported: { pos, dir, frames, flipped }
 local connected = false
 local syncBusy, trackBusy = false, false
 local trackVersion = -1
@@ -52,7 +56,51 @@ local function loadTrack(version)
   end)
 end
 
+-- -- teleport to a drill -------------------------------------------------------
+
+local function wrap01(x) return x - math.floor(x) end
+
+-- A point on the racing line (the track's AI spline) and the way along it.
+local function lineAt(p)
+  local len = track and track.length_m or sim.trackLengthM or 5000
+  local pos = ac.trackProgressToWorldCoordinate(wrap01(p))
+  local dir = ac.trackProgressToWorldCoordinate(wrap01(p + 5 / len)) - pos
+  if dir:length() < 0.01 then return nil end
+  return pos, dir:normalize()
+end
+
+local function teleport(p)
+  if not (physics and physics.setCarPosition and ac.trackProgressToWorldCoordinate) then return 'unsupported' end
+  local pos, dir = lineAt(p)
+  if not pos then return 'no_line' end
+  -- CSP's own debug app passes the direction reversed; if the car still comes
+  -- out facing backwards it's turned round on the next frame (see settleStep)
+  physics.setCarPosition(0, pos, -dir)
+  settle = { pos = pos, dir = dir, frames = 3, flipped = false }
+  lastSpline = nil
+  return nil
+end
+
+local function settleStep()
+  local st = settle
+  if not st.flipped and car.look:dot(st.dir) < 0 then
+    physics.setCarPosition(0, st.pos, st.dir)
+    st.flipped = true
+  end
+  st.frames = st.frames - 1
+  if st.frames <= 0 then settle = nil end
+end
+
 local function handle(cmd)
+  if cmd.cmd == 'teleport' then
+    if not ac.isCarResetAllowed() then
+      events[#events + 1] = { type = 'teleport', ok = false, reason = 'not_allowed' }
+      say('Teleport only works in offline practice')
+    else
+      local why = teleport(tonumber(cmd.p) or 0)
+      events[#events + 1] = { type = 'teleport', ok = why == nil, reason = why }
+    end
+  end
   if cmd.cmd == 'retry' then
     if not ac.isCarResetAllowed() then
       events[#events + 1] = { type = 'retry', ok = false, reason = 'not_allowed' }
@@ -181,6 +229,11 @@ end
 
 function script.update(dt)
   if sim.isReplayActive or sim.isPaused then return end
+  if settle then
+    settleStep()
+    lastSpline = nil
+    return
+  end
   local p = car.splinePosition
   if drill and lastSpline and car.speedKmh > 20 and crossed(lastSpline, p, drill.run_up_p) then
     local key = drill.key
