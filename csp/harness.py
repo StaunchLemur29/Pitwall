@@ -121,6 +121,10 @@ def main() -> int:
             d = json.loads(body)
             d["session"] = state["fake_session"]  # as if the car or track changed
             body = json.dumps(d)
+        if state.get("fake_tip") and status == 200 and url.endswith("/api/csp/sync"):
+            d = json.loads(body)
+            d["tip"] = state["fake_tip"]
+            body = json.dumps(d)
         respond(cb, status, body)
 
     web.post = post
@@ -373,6 +377,18 @@ def main() -> int:
     check("... with the time to beat (or your best) beside it", seen_target, str(drill)[:200])
     check("... and shows the result at the end", seen_result)
     http("DELETE", RIG + "/api/drill")
+
+    # A live tip from Pitwall shows in the overlay, and goes when Pitwall stops sending it.
+    state["fake_tip"] = "Turn 3: you've gone off here on 2 of your last 4 laps."
+    tick(2)
+    state["texts"].clear()
+    script.windowMain(1 / 60)
+    check("live tip shows in the game", state["fake_tip"] in state["texts"], str(state["texts"])[:200])
+    state["fake_tip"] = None
+    tick(2)
+    state["texts"].clear()
+    script.windowMain(1 / 60)
+    check("... and goes away", not any("gone off here" in t for t in state["texts"]))
 
     print("ALL PASS" if ok else "SOME CHECKS FAILED")
     return 0 if ok else 1

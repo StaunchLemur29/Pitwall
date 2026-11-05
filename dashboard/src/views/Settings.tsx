@@ -358,6 +358,17 @@ function Coaching({ draft, edit }: EditProps) {
       </Field>
 
       <Field
+        label="Live tips"
+        hint="One short tip a lap, on the straight before the corner it's about: something that keeps going wrong this session, or your focus corner. Never mid-corner, never during a drill."
+      >
+        <select value={draft.coach.tips ?? "game"} onChange={(e) => edit((c) => (c.coach.tips = e.target.value as "game" | "screen" | "off"))}>
+          <option value="game">On the side screen and in the game</option>
+          <option value="screen">On the side screen only</option>
+          <option value="off">Off</option>
+        </select>
+      </Field>
+
+      <Field
         label="Drill run-up (seconds)"
         hint="A drill retry rewinds to this much driving before the section starts, so you've got a moment to settle in."
       >
