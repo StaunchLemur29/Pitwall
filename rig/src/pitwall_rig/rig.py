@@ -1323,11 +1323,26 @@ class Rig:
         # Warm the tyres to what this car runs at on your laps (the reset leaves
         # them cold, and before a teleport they may be cold too, e.g. after the pits).
         tyre_c = (self.car_profile or {}).get("tyre_working_c")
-        self.csp.send({"cmd": "teleport", "key": self._drill_key(), "p": p, "tyre_c": tyre_c})
+        # At speed if the app has a car state saved before the run-up (warm tyres,
+        # your normal speed, from an earlier pass); else parked here, stopped.
+        run_up_p = (d.start_p - run_up / self.track.model.length_m) % 1.0
+        self.csp.send({"cmd": "teleport", "key": self._drill_key(), "p": p, "tyre_c": tyre_c, "run_up_p": run_up_p})
         self.emit({"type": "retry", "state": "teleporting"})
         return True
 
     # -- in-game CSP app ------------------------------------------------------
+
+    def _csp_save_ok(self) -> bool:
+        """Whether the car is fit to save as a "Go there" start: on track at speed,
+        tyres warm, no damage, not off or dirty, not mid-retry."""
+        f = self.frame
+        if f is None or f.status != GameStatus.LIVE or f.in_pit_lane or f.in_pit_box or f.speed_kmh < 40:
+            return False
+        if self._tyres_cold or self._retry is not None or f.tyres_out > 2:
+            return False
+        if f.damage and f.damage[-1] >= 0.5:
+            return False
+        return not (f.tyre_dirt and max(f.tyre_dirt) > 0.5)
 
     def _drill_key(self) -> str | None:
         d = self.track.drill.drill if self.track and self.track.drill else None
@@ -1379,7 +1394,8 @@ class Rig:
         self.conditions.set_env(body.get("env") if isinstance(body.get("env"), dict) else None)
         for e in self.csp.sync(body):
             if e.get("type") == "teleport":
-                self.emit({"type": "retry", "state": "teleported" if e.get("ok") else "no_teleport"})
+                state = "teleported_at_speed" if e.get("ok") and e.get("at_speed") else "teleported" if e.get("ok") else "no_teleport"
+                self.emit({"type": "retry", "state": state})
             if e.get("type") == "tyres":  # two seconds after a teleport: did the tyres really warm up?
                 log.info("Teleport tyres: %s (wanted %s, now %s)", e.get("result"), e.get("target_c"), e.get("now_c"))
                 if e.get("result") != "warm":
@@ -1397,6 +1413,9 @@ class Rig:
         return {
             "track_version": self.csp.version if self.track is not None else -1,
             "drill": self._csp_drill(),
+            # the app saves car states as you drive (for "Go there" at speed) only when the car's fit
+            "save_states": self._csp_save_ok(),
+            "session": f"{self.session.car}@{self.session.track_key}" if self.session else None,
             "overlay": self.config["overlay"],  # set in Pitwall's Settings
             "commands": self.csp.take_commands(),
         }

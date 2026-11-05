@@ -116,7 +116,12 @@ def main() -> int:
 
     def post(url, headers, data, cb):
         posted.append(data or "")
-        respond(cb, *http("POST", url, data))
+        status, body = http("POST", url, data)
+        if state.get("fake_session") and status == 200 and url.endswith("/api/csp/sync"):
+            d = json.loads(body)
+            d["session"] = state["fake_session"]  # as if the car or track changed
+            body = json.dumps(d)
+        respond(cb, status, body)
 
     web.post = post
     g.web = web
@@ -252,8 +257,27 @@ def main() -> int:
     check("app receives the drill with a run-up point", drill and "run_up_p" in drill, body[:200])
     run_up = drill["run_up_p"]
 
-    # Go to the section: the service picks a spot before it, the app parks the car there.
+    # "Go there" at speed: the app saved car states as you drove (above); it loads
+    # the one just before the run-up, so you arrive at speed with warm tyres.
     tick(2)  # the app checks in (the bare sync above didn't say resets are allowed)
+    check("car states saved along the lap for Go there", state["saved"] > 0, str(state["saved"]))
+    loaded0, tp0 = state["loaded"], len(to_py(g.teleports) or [])
+    posted.clear()
+    g.car.splinePosition = (run_up + 0.3) % 1.0
+    http("POST", RIG + "/api/drill", json.dumps({"corner": c1["n"], "teleport": True}))
+    tick(3)
+    gap_m = ((run_up - g.car.splinePosition) % 1.0) * track["length_m"]
+    tick(1)
+    at_speed = [e for b in posted for e in (json.loads(b).get("events") or []) if e.get("type") == "teleport"]
+    check("Go there arrives at speed from a saved state, before the run-up",
+          state["loaded"] == loaded0 + 1 and len(to_py(g.teleports) or []) == tp0 and 150 <= gap_m <= 1500
+          and at_speed and at_speed[-1].get("at_speed"), f"{state['loaded']} {gap_m:.0f} m {at_speed}")
+    # A different car or track: those states don't apply; Go there parks you, stopped.
+    state["fake_session"] = "other car@other track"
+    tick(2)
+    saved_mark = state["saved"]
+
+    # Go to the section: the service picks a spot before it, the app parks the car there.
     g.car.splinePosition = (run_up + 0.3) % 1.0
     status, body = http("POST", RIG + "/api/drill", json.dumps({"corner": c1["n"], "teleport": True}))
     check("dashboard can ask to teleport to a drill", status == 200 and "errors" not in json.loads(body), body)
@@ -266,7 +290,7 @@ def main() -> int:
     check("teleported, stopped", len(tp) >= 1 and g.car.speedKmh == 0, str(tp)[:200])
     check("... before the Time Shift run-up", run_up_m < before_m < track["length_m"] / 2, f"{before_m} vs {run_up_m}")
     check("... facing down the track", g.car.look.x > 0, str(to_py(g.car.look)))
-    check("teleport isn't saved as the run-up state", state["saved"] == 0)
+    check("teleport isn't saved as the run-up state", state["saved"] == saved_mark)
     temps = to_py(g.tyreTemps)
     # Warm to what Pitwall learnt the car runs at (sent with the teleport), else
     # the car's optimum (85 here): never a cold reading.
@@ -324,7 +348,7 @@ def main() -> int:
     tick(2)  # tell the service a launch state exists
     status, _ = http("POST", RIG + "/api/action/rewind")
     tick(3)  # app picks up the retry command and loads the state
-    check("retry loaded the saved state", state["loaded"] == 1)
+    check("retry loaded the saved state", state["loaded"] == loaded0 + 2)
     check("car back at the run-up point", abs(g.car.splinePosition - run_up) < 0.002,
           f"{g.car.splinePosition} vs {run_up}")
     # The drill timer in the overlay: counts through the section, then shows the result.

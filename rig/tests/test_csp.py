@@ -109,3 +109,22 @@ def test_go_to_a_drill_teleports_once_then_retries_rewind(demo, clock, config, s
     rig.keys.down = lambda key: held.append(key) or True
     assert rig.start_retry()
     assert held == ["insert"] and rig.csp_sync({"reset_allowed": True})["commands"] == []
+
+
+def test_car_states_for_go_there_are_only_saved_when_the_car_is_fit(demo, clock, config, store):
+    """The app saves car states as you drive, for "Go there" at speed: only on
+    track at speed with warm tyres, no damage, no dirt, not mid-retry."""
+    from dataclasses import replace
+
+    from pitwall_rig.models import Frame, GameStatus
+
+    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
+    ok = Frame(t=0.0, status=GameStatus.LIVE, speed_kmh=200.0, damage=[0.0] * 5, tyre_dirt=[0.0] * 4)
+    rig.frame = ok
+    assert rig._csp_save_ok()
+    for bad in (replace(ok, speed_kmh=20.0), replace(ok, in_pit_lane=True), replace(ok, damage=[30.0, 0, 0, 0, 30.0]),
+                replace(ok, tyre_dirt=[2.0, 0, 0, 0]), replace(ok, tyres_out=3), replace(ok, status=GameStatus.PAUSED)):
+        rig.frame = bad
+        assert not rig._csp_save_ok(), bad
+    rig.frame, rig._tyres_cold = ok, True
+    assert not rig._csp_save_ok()

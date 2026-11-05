@@ -29,6 +29,13 @@ local runResult = nil -- the run just finished: { time, target, isBest, untilT }
 local connected = false
 local syncBusy, trackBusy = false, false
 local trackVersion = -1
+-- "Go there" at speed: car states saved as you drive, every STATE_M metres of the
+-- lap, when Pitwall says the car is fit to save (warm tyres, no damage, on track).
+local STATE_M = 200
+local states = {} -- checkpoint index -> { data, p, kmh }
+local statesFor = nil -- the car + track they were saved on
+local saveStates = false
+local lastCheckpoint = nil
 local events = {}
 local lastSpline = nil
 local shift = { corner = nil, m = 0 } -- braking point shift for approach speed
@@ -162,15 +169,37 @@ local function settleStep()
   end
 end
 
+local function trackLen()
+  return track and track.length_m or sim.trackLengthM or 5000
+end
+
+local function stateBefore(runUp)
+  local len, best, bestGap = trackLen(), nil, nil
+  for _, st in pairs(states) do
+    local gap = ((runUp - st.p) % 1) * len
+    if gap >= 150 and gap <= 1500 and (not bestGap or gap < bestGap) then best, bestGap = st, gap end
+  end
+  return best
+end
+
 local function handle(cmd)
   if cmd.cmd == 'teleport' then
     if not ac.isCarResetAllowed() then
       events[#events + 1] = { type = 'teleport', ok = false, reason = 'not_allowed' }
       say('Teleport only works in offline practice')
     else
-      local why = teleport(tonumber(cmd.p) or 0, tonumber(cmd.tyre_c))
-      -- whether the tyres warmed up is reported two seconds later (a 'tyres' event)
-      events[#events + 1] = { type = 'teleport', ok = why == nil, reason = why }
+      -- At speed first: the state saved closest before the run-up (at least 150 m
+      -- before it, so you've a moment to settle), from an earlier pass this session.
+      local st = cmd.run_up_p and stateBefore(tonumber(cmd.run_up_p)) or nil
+      if st and ac.loadCarState(st.data, 30) then
+        events[#events + 1] = { type = 'teleport', ok = true, at_speed = true, kmh = st.kmh }
+        events[#events + 1] = { type = 'tyres', result = 'warm', now_c = avgTyreTemp() }
+        lastSpline, lastCheckpoint = nil, nil
+      else
+        local why = teleport(tonumber(cmd.p) or 0, tonumber(cmd.tyre_c))
+        -- whether the tyres warmed up is reported two seconds later (a 'tyres' event)
+        events[#events + 1] = { type = 'teleport', ok = why == nil, reason = why }
+      end
     end
   end
   if cmd.cmd == 'retry' then
@@ -220,6 +249,8 @@ local function sync()
     local d = JSON.parse(res.body)
     if type(d) ~= 'table' then return end
     drill = type(d.drill) == 'table' and d.drill or nil
+    saveStates = d.save_states == true
+    if d.session ~= statesFor then states, statesFor, lastCheckpoint = {}, d.session, nil end
     local o = d.overlay
     if type(o) == 'table' then
       settings = {
@@ -326,6 +357,19 @@ function script.update(dt)
     end
   end
   if run then run.elapsed = run.elapsed + dt end
+  -- "Go there" at speed: a car state at each checkpoint you pass, when it's fit to
+  -- save. A much slower pass doesn't replace a quicker one.
+  local cp = math.floor(p * trackLen() / STATE_M)
+  if lastSpline and cp ~= lastCheckpoint and saveStates and car.speedKmh > 40 and wrap(p - lastSpline) < 0.01 then
+    local kmh, at = car.speedKmh, p
+    local have = states[cp]
+    if not have or kmh >= have.kmh * 0.9 then
+      ac.saveCarStateAsync(function (err, data)
+        if data then states[cp] = { data = data, p = at, kmh = kmh } end
+      end)
+    end
+  end
+  lastCheckpoint = cp
   -- Retries start from the car state saved here, so save it only at your usual
   -- speed (95 % of your reference lap's). A slower pass (the first one after "Go
   -- there", say) is kept only until a quicker one comes along.
