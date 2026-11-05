@@ -378,6 +378,13 @@ async def get_tools(request: web.Request) -> web.Response:
     return web.json_response(out)
 
 
+async def get_blindspots(request: web.Request) -> web.Response:
+    q, rig = request.query, request.app[RIG_KEY]
+    out = await asyncio.get_running_loop().run_in_executor(
+        None, lambda: rig.blind_spots(q.get("game"), q.get("car"), q.get("track_key")))
+    return web.json_response(out)
+
+
 async def delete_drill(request: web.Request) -> web.Response:
     request.app[RIG_KEY].stop_drill()
     return web.json_response({"ok": True})
@@ -610,6 +617,7 @@ def make_app(rig: Rig, hub: Hub, static_dir: Path | None = None, run_loop: bool 
     app.router.add_get("/api/sf1000", get_sf1000)
     app.router.add_post("/api/sf1000/test", post_sf1000_test)
     app.router.add_get("/api/tools", get_tools)
+    app.router.add_get("/api/blindspots", get_blindspots)
     app.router.add_delete("/api/drill", delete_drill)
 
     if static_dir is not None and (static_dir / "index.html").exists():

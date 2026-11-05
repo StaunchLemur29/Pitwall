@@ -118,6 +118,7 @@ Examples: lock-ups → BB/ABS advice; exit wheelspin → TC/throttle advice; bra
 ### Blind-spot scan
 Order: **telemetry scan first, then the quiz.**
 1. **Scan** — runs silently over the first sessions. Only surfaces fundamentals the telemetry shows being missed; each becomes a 2-min lesson + drill.
+   - **Built 2026-11-06** (scan.py, the analysis window's "Blind spots" panel, PC only): from your last 20 laps on a car + track, habits on 40 %+ of passes through a corner, at 2+ corners with 6+ passes each: coasting into corners, braking 15 m+ before the optimal run, full throttle 20 m+ after it, a different apex gear from it; plus an abrupt brake release on 40 %+ of stops (the rig showed 20 %, so it stays quiet for you) and 2+ corners graded red. Each says how often, where it shows most, why it matters, and offers the practice section with the worst corner as a drill.
 2. **Quiz** — offered once the scan has enough data: a one-off ~5-min **knowledge quiz** (on the Mac) for things telemetry can't reveal (flags, pressures, ABS/TC theory, track limits). It skips topics the scan already shows you handle, so it stays short.
 
 ### AI debrief (Claude)

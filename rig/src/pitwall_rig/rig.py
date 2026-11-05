@@ -761,6 +761,27 @@ class Rig:
         return {"game": ctx.game, "car": ctx.car, "track_key": ctx.track_key,
                 "ffb": ffb_report(traces, ctx.track.model), "pedals": pedal_report(traces)}
 
+    def blind_spots(self, game: str | None = None, car: str | None = None, track_key: str | None = None) -> dict[str, Any]:
+        """Habits your recent laps on this car + track show (see scan.py)."""
+        from .analysis import corner_mastery
+        from .scan import blind_spots
+        from .tools import pedal_report
+
+        ctx = self.analysis_ctx(game, car, track_key)
+        if ctx is None:
+            return {"findings": [], "laps": 0}
+        history = self._history(ctx, limit=20)
+        if ctx.live:
+            with self.lock:
+                run = self._optimal_run(ctx, wait=False)
+        else:
+            run = self._optimal_run(ctx, wait=True)
+        ids = self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=10)
+        pedals = pedal_report([t for t in (self.store.trace(i) for i in ids) if t])
+        found = blind_spots(history, ctx.track.model.corners, (run or {}).get("rows"), pedals,
+                            ctx.track.model.practice, corner_mastery(history))
+        return {"findings": found, "laps": len(history)}
+
     def combos(self) -> list[dict[str, Any]]:
         """Every car + track you've driven, most recent first."""
         out = self.store.combos()

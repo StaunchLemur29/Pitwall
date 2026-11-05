@@ -540,3 +540,14 @@ export interface PitReport {
   next: string | null;
   race?: { position: number } | null;
 }
+
+/** A habit the blind-spot scan found across your recent laps. */
+export interface BlindSpot {
+  key: string;
+  title: string;
+  share: number;
+  corners: string[];
+  detail: string;
+  why: string;
+  drill: { number: number; name: string } | null;
+}
