@@ -41,3 +41,20 @@ def test_a_sections_best_counts_from_any_lap(demo, store, config, clock):
         del crashed[k][stop:]
     add(5, 70.0, valid=False, out_lap=True, unfinished=True, trace=crashed)
     assert store.best_section_ms(s.game, s.car, s.track_key, ps.start, ps.end) == round(70.0 * span * 1000)
+
+
+def test_older_laps_are_filled_in(demo, store, config, clock):
+    """Laps from before every lap's section passes were kept get them worked out
+    in the background, once; laps with a rewind are looked at but never count."""
+    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
+    track = TrackState(demo.track_model(demo.session()))
+    ps = next(p for p in track.model.practice if p.end > p.start)
+    s = demo.session()
+    for n, lap_s, rewound in ((1, 100.0, False), (2, 90.0, True), (3, 95.0, False)):
+        store.add_lap(Lap(game=s.game, car=s.car, track_key=s.track_key, lap_number=n, lap_time_ms=int(lap_s * 1000),
+                          valid=True, out_lap=False, started_at=1000.0 + n, trace=_trace(lap_s=lap_s), rewound=rewound))
+    assert len(store.laps_without_sections(s.game, s.track_key, s.car)) == 3
+    assert store.best_section_ms(s.game, s.car, s.track_key, ps.start, ps.end) is None
+    rig._backfill_sections(s.game, s.car, s.track_key, track)
+    assert store.laps_without_sections(s.game, s.track_key, s.car) == []
+    assert store.best_section_ms(s.game, s.car, s.track_key, ps.start, ps.end) == round(95.0 * (ps.end - ps.start) * 1000)
