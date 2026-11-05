@@ -58,3 +58,24 @@ describe("hub report matches the rig's", () => {
     expect(notes.length).toBeGreaterThan(0);
   });
 });
+
+describe("no optimal run yet", () => {
+  it("compares your best lap with your best through each corner, as the rig does", () => {
+    const c = fx.no_optimal_case as { lap_id: number; report: CornerReport };
+    // As uploaded before the optimal run existed: no optimal-run data on the corners.
+    const bare = laps.map((l) => ({
+      ...l,
+      corners: l.corners?.map((x) => {
+        const { opt: _o, opt_notes: _n, ...rest } = x as typeof x & { opt?: unknown; opt_notes?: unknown };
+        return rest;
+      }),
+    }));
+    const ts = buildReport({ ...input, laps: bare as HubLap[] }, c.lap_id, null);
+    expect(ts.compare_kind).toBe("best_corners");
+    expect(ts.compare_label).toBe(c.report.compare_label);
+    c.report.lap?.forEach((pc, i) => {
+      expect(ts.lap![i].vs_s ?? 0).toBeCloseTo(pc.vs_s ?? 0, 3);
+      expect(ts.lap![i].notes ?? []).toEqual(pc.notes ?? []);
+    });
+  });
+});

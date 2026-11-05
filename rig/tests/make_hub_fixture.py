@@ -67,11 +67,18 @@ def main() -> None:
             rep = rig.corner_report(lap_id, compare)
             cases.append({"lap_id": lap_id, "compare_id": compare, "report": rep})
     cases.append({"lap_id": unfinished, "compare_id": None, "report": rig.corner_report(unfinished, None)})
+    # No optimal run yet (e.g. the track's ideal line still being worked out):
+    # your best lap is compared with your best through each corner instead.
+    key = (s.game, s.car, s.track_key)
+    saved = rig._opt_runs[key]
+    rig._opt_runs[key] = {"sig": saved["sig"]}
+    no_opt = {"lap_id": by_time[0], "compare_id": None, "report": rig.corner_report(by_time[0], None)}
+    rig._opt_runs[key] = saved
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps({
         "game": s.game, "car": s.car, "track_key": s.track_key,
         "geometry": rig.track_geometry(s.game, s.car, s.track_key),
-        "profile": rig.car_profile, "laps": rows, "cases": cases,
+        "profile": rig.car_profile, "laps": rows, "cases": cases, "no_optimal_case": no_opt,
         "session_summary": rig.session_summary(s.game, s.car, s.track_key),
     }))
     print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB, {len(rows)} laps, {len(cases)} cases)")

@@ -186,6 +186,32 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
           c.vs_s = r3(c.time_s - c.opt.time_s);
           c.notes = c.opt_notes?.length ? c.opt_notes : compareNotes(c, c.opt as unknown as CornerLap, optLabel).slice(0, 3);
         }
+      } else {
+        // No optimal run yet: your best through each corner on any other lap
+        // (rig.py _best_corners), so a best lap still has something faster to aim at.
+        const bestBy = new Map<number, CornerLap>();
+        let n = 0;
+        for (const l of [...inp.laps].sort((a, b) => b.started_at - a.started_at).slice(0, 180)) {
+          if (l.id === shownId || l.rewound) continue;
+          const good = (l.corners ?? []).filter((c) => counts(c, l.valid));
+          if (!good.length) continue;
+          for (const c of good) {
+            const b = bestBy.get(c.corner);
+            if (!b || c.time_s < b.time_s) bestBy.set(c.corner, c);
+          }
+          if (++n >= 60) break;
+        }
+        if (bestBy.size) {
+          kind = "best_corners";
+          optLabel = "your best here";
+          optCompare = [...bestBy.keys()].sort((a, b) => a - b).map((k) => bestBy.get(k)!);
+          for (const c of lap) {
+            const o = bestBy.get(c.corner);
+            if (!o || c.driven === false) continue;
+            c.vs_s = r3(c.time_s - o.time_s);
+            c.notes = c.vs_s > 0.02 ? compareNotes(c, o, optLabel).slice(0, 3) : [];
+          }
+        }
       }
     } else {
       cmp = compareId !== null && compareId !== shownId ? byId.get(compareId) ?? null : null;

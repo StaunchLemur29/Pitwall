@@ -413,14 +413,15 @@ class Rig:
         self.store.set_lap_corners(lap_id, self._model_sig(track),
                                    analyse_lap(trace, track.model, self.config["laps"]["max_tyres_out"]))
 
-    def _history(self, ctx: AnalysisCtx, exclude: int | None = None, limit: int = 30) -> list[list[dict[str, Any]]]:
+    def _history(self, ctx: AnalysisCtx, exclude: int | None = None, limit: int = 30,
+                 skip_rewound: bool = False) -> list[list[dict[str, Any]]]:
         """Your recent driving through each corner, newest lap first: the corners
         that count (driven all the way, clean) from any lap, finished or not,
         valid or cut somewhere else. Analyses laps that haven't been yet."""
         sig = self._model_sig(ctx.track)
         out: list[list[dict[str, Any]]] = []
         for info in self.store.laps(ctx.game, ctx.track_key, ctx.car, limit=limit * 3):
-            if info["id"] == exclude:
+            if info["id"] == exclude or (skip_rewound and info.get("rewound")):
                 continue
             data = self.store.lap_corners(info["id"], sig)
             if data is None:
@@ -434,6 +435,17 @@ class Rig:
             if len(out) >= limit:
                 break
         return out
+
+    def _best_corners(self, ctx: AnalysisCtx, lap_id: int | None) -> list[dict[str, Any]]:
+        """Your quickest pass through each corner on any other lap (finished or
+        not, valid or cut elsewhere), excluding laps with a rewind."""
+        best: dict[int, dict[str, Any]] = {}
+        for lap in self._history(ctx, exclude=lap_id, limit=60, skip_rewound=True):
+            for c in lap:
+                b = best.get(c["corner"])
+                if b is None or c["time_s"] < b["time_s"]:
+                    best[c["corner"]] = c
+        return [best[k] for k in sorted(best)]
 
     def _mastery(self, ctx: AnalysisCtx | None = None) -> dict[int, dict[str, Any]]:
         ctx = ctx or self._live_ctx()
@@ -712,6 +724,20 @@ class Rig:
                         if o and data.get("driven") is not False:
                             data["vs_s"] = round(data["time_s"] - o["time_s"], 3)
                             data["notes"] = data.get("opt_notes") or compare_notes(data, o, compare_label)[:3]
+                else:
+                    # No optimal run yet (it needs the track's edges, a few clean
+                    # laps and a moment to work out): compare with your best
+                    # through each corner on any lap instead. Never slower than
+                    # this lap, so still only ever against something faster.
+                    compare = self._best_corners(ctx, lap_id)
+                    if compare:
+                        compare_kind, compare_label = "best_corners", "your best here"
+                        by_num = {c["corner"]: c for c in compare}
+                        for data in lap:
+                            o = by_num.get(data["corner"])
+                            if o and data.get("driven") is not False:
+                                data["vs_s"] = round(data["time_s"] - o["time_s"], 3)
+                                data["notes"] = compare_notes(data, o, compare_label)[:3] if data["vs_s"] > 0.02 else []
                 compare_id = None
             elif compare_id is not None and compare_id != lap_id:
                 compare_kind = "lap"
