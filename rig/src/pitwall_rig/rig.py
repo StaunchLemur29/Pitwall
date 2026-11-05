@@ -25,6 +25,7 @@ from .analysis import (
     time_to_beat,
     width_advice,
 )
+from .conditions import Conditions
 from .config import ACTIONS, Config
 from .csp import CspLink
 from .input import InputEvent
@@ -108,6 +109,7 @@ class Rig:
         self._last_lap_note: dict[str, Any] | None = None
         self._tyre_sum, self._tyre_n = 0.0, 0  # this lap's tyre core temperature at speed
         self._tyres_cold = False
+        self.conditions = Conditions()  # the track, weather, tyre wear and damage; notices when they change
         self._cue_mode: str | None = None  # the brake-cue setting last applied
         self._opt_busy: set[tuple[str, str, str]] = set()
         self._ac_tracks = None  # track loader for past AC tracks when another adapter is running
@@ -173,6 +175,7 @@ class Rig:
                 except Exception:
                     log.exception("Session-end hook failed")
             self.session = session
+            self.conditions.reset()
             self._load_car_profile()
             if session is not None:
                 log.info("Session: %s on %s (%s)", session.car, session.track_key, session.session_type.value)
@@ -204,6 +207,7 @@ class Rig:
         if self.car_profile is not None and frame.status == GameStatus.LIVE and car_profile.note_frame(self.car_profile, frame):
             self._save_car_profile()
         self._note_tyres(frame)
+        self.conditions.update(frame, now)
         self.laps.max_tyres_out = self.config["laps"]["max_tyres_out"]
         self._feed_wheel(frame)
         self.laps.practising = self.track is not None and self.track.drill is not None
@@ -306,6 +310,7 @@ class Rig:
 
     def _on_lap(self, lap: Lap) -> None:
         # Called from the telemetry thread as you cross the line: hand it on.
+        lap.conditions = self.conditions.snapshot(self.frame)
         if self._post_lap is not None:
             self._post_lap.put(lap)
         else:
@@ -639,6 +644,7 @@ class Rig:
             "new_personal_best": not before or best["lap_time_ms"] < min(before),
             "best_sectors_combined": fmt_ms(rep["theoretical_best_ms"]) if rep.get("theoretical_best_ms") else None,
             "best_lap_compared_with": rep.get("compare_label"),
+            "conditions_on_best_lap": rep.get("conditions"),
             "corners_on_best_lap": corners,
             "practice_sections": [
                 {"name": ps["name"], "this_lap_s": ps.get("time_s"), "best_lap_s": ps.get("ref_s"),
@@ -827,6 +833,9 @@ class Rig:
             "lap": lap,
             "reference": list(track.ref_corners.values()),
             "reference_lap_id": ctx.ref_lap_id,
+            # the track, weather, tyre wear and damage on this lap (and the lap it's compared with)
+            "conditions": self.store.lap_conditions(lap_id) if lap_id is not None else None,
+            "compare_conditions": self.store.lap_conditions(compare_id) if compare and compare_kind == "lap" else None,
             "optimal": {"lap_s": run["lap_s"], "grip": run["grip"], "laps_used": run["laps_used"]}
             if run and run.get("trace") else None,
         }
@@ -1052,6 +1061,7 @@ class Rig:
         if self._tyres_cold:
             avg = self._tyre_avg()
             out["tyres"] = {"cold": True, "avg_c": round(avg) if avg else None, "working_c": round(self._working_c())}
+        out["notice"] = self.conditions.current_notice(self._clock())  # a crash, worn tyres, the track changing...
         return out
 
     def _focus_fix(self, corner: int) -> str | None:
@@ -1304,6 +1314,7 @@ class Rig:
     def csp_sync(self, body: dict[str, Any]) -> dict[str, Any]:
         """The in-game app checking in (about 10 times a second)."""
         was = self.csp.connected
+        self.conditions.set_env(body.get("env") if isinstance(body.get("env"), dict) else None)
         for e in self.csp.sync(body):
             if e.get("type") == "teleport":
                 state = "teleported" if e.get("ok") else "no_teleport"

@@ -232,6 +232,8 @@ export interface CornerLap {
 
 /** What the side screen's coach strip shows. */
 export interface CoachLive {
+  /** something that just changed and you should know: a crash, dirty or worn tyres, the track, rain, dusk */
+  notice?: { kind: string; text: string } | null;
   /** the session's one focus corner: most time to gain against its time to beat */
   focus: {
     corner: number;
@@ -310,6 +312,9 @@ export interface CornerReport {
   compare_label: string | null;
   /** what it's compared with: one of your (faster) laps, or the optimal run as the benchmark */
   compare_kind?: "lap" | "optimal" | "best_corners" | null;
+  /** the track, weather, tyre wear and damage on this lap, and on the lap it's compared with */
+  conditions?: LapConditions | null;
+  compare_conditions?: LapConditions | null;
   /** which car + track this is, and whether it's the one you're driving now */
   game: string | null;
   car: string | null;
@@ -502,3 +507,16 @@ export type ServerEvent =
       state: "rewinding" | "ready" | "no_rewind" | "timeout" | "stopped" | "teleporting" | "teleported" | "teleported_cold" | "no_teleport";
     }
   | { type: "attempt"; attempt: Attempt & { start_p: number; end_p: number } };
+
+/** Conditions as a lap ended (None where the game doesn't say). */
+export interface LapConditions {
+  air_c?: number | null;
+  road_c?: number | null;
+  grip?: number | null; // 0..1
+  tyre_wear_pct?: number | null; // worn this stint
+  damage?: number | null;
+  fuel_l?: number | null;
+  time?: string | null; // "14:20", from the in-game app
+  rain?: number | null;
+  weather?: number | null;
+}

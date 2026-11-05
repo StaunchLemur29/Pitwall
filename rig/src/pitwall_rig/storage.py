@@ -177,6 +177,8 @@ class Store:
             scols = {r["name"] for r in self._db.execute("PRAGMA table_info(section_attempts)").fetchall()}
             if "lap_id" not in scols:  # ...and before a section's best could come from any lap
                 self._db.execute("ALTER TABLE section_attempts ADD COLUMN lap_id INTEGER")
+            if "conditions" not in cols:  # ...and before the conditions were kept with each lap
+                self._db.execute("ALTER TABLE laps ADD COLUMN conditions TEXT")
             self._db.execute(
                 "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
                 (SCHEMA_VERSION,),
@@ -188,7 +190,8 @@ class Store:
         with self._lock, self._db:
             cur = self._db.execute(
                 """INSERT INTO laps (game, car, track_key, lap_number, lap_time_ms, valid,
-                   out_lap, rewound, unfinished, started_at, sector_ms, trace) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   out_lap, rewound, unfinished, started_at, sector_ms, trace, conditions)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     lap.game,
                     lap.car,
@@ -202,6 +205,7 @@ class Store:
                     lap.started_at,
                     json.dumps(lap.sector_ms),
                     pack_trace(lap.trace),
+                    json.dumps(lap.conditions) if lap.conditions else None,
                 ),
             )
             lap.id = int(cur.lastrowid)
@@ -436,6 +440,9 @@ class Store:
             "SELECT start_p, end_p, time_ms FROM section_attempts WHERE lap_id=? ORDER BY start_p", (lap_id,)
         ).fetchall()
         return [[float(r["start_p"]), float(r["end_p"]), int(r["time_ms"])] for r in rows]
+    def lap_conditions(self, lap_id: int) -> dict[str, Any] | None:
+        row = self._db.execute("SELECT conditions FROM laps WHERE id=?", (lap_id,)).fetchone()
+        return json.loads(row["conditions"]) if row and row["conditions"] else None
 
     def best_sections(self, game: str, car: str, track_key: str) -> list[tuple[float, float, int]]:
         """(start_p, end_p, best clean time) of every section: drill runs and clean passes on any lap."""

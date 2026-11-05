@@ -2909,3 +2909,13 @@ select {
   background: var(--accent);
   vertical-align: middle;
 }
+
+/* -- a lap's conditions (track, weather, tyres) ------------------------------- */
+.lcond {
+  font-size: 14px;
+  margin: 2px 0 6px;
+}
+
+.lcond__diff {
+  color: var(--warn);
+}

@@ -59,6 +59,16 @@ local function loadTrack(version)
   end)
 end
 
+-- Time of day and weather, which only CSP knows (for the coach: rain, dusk,
+-- and the conditions kept with each lap). Fields as CSP's own apps read them.
+local function envNow()
+  local ok, e = pcall(function ()
+    return { time_h = sim.timeHours, time_m = sim.timeMinutes, weather = sim.weatherType,
+             rain = sim.rainIntensity, ambient_c = sim.ambientTemperature, road_grip = sim.roadGrip }
+  end)
+  return ok and e or nil
+end
+
 -- -- teleport to a drill -------------------------------------------------------
 
 local function wrap01(x) return x - math.floor(x) end
@@ -175,6 +185,7 @@ local function sync()
     fuel_map = car.fuelMap,
     reset_allowed = ac.isCarResetAllowed(),
     has_launch = launch ~= nil and drill ~= nil and launch.key == drill.key,
+    env = envNow(),
     events = events,
   })
   events = {}
