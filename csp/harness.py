@@ -262,8 +262,12 @@ def main() -> int:
     check("... facing down the track", g.car.look.x > 0, str(to_py(g.car.look)))
     check("teleport isn't saved as the run-up state", state["saved"] == 0)
     temps = to_py(g.tyreTemps)
+    # Warm to what Pitwall learnt the car runs at (sent with the teleport), else
+    # the car's optimum (85 here): never a cold reading.
+    target = temps[0]["t"] if temps else None
     check("tyres put back to working temperature after the teleport",
-          temps and all(t["t"] == 85 and t["wheel"] == 15 for t in temps) and g.car.wheels[0].tyreCoreTemperature == 85,
+          temps and target >= 75 and all(t["t"] == target and t["wheel"] == 15 for t in temps)
+          and g.car.wheels[0].tyreCoreTemperature == target,
           str(temps)[:200])
     g.car.speedKmh = 180
 
@@ -273,6 +277,17 @@ def main() -> int:
         script.update(1 / 60)
         p = (p + 0.0005) % 1.0
     check("car state saved at the run-up point", state["saved"] >= 1)
+    # A slower pass over the run-up point (e.g. the first one after "Go there")
+    # mustn't replace a state saved at speed: retries would all start slow.
+    saved = state["saved"]
+    g.car.speedKmh = 40
+    p = (run_up - 0.01) % 1.0
+    for _ in range(60):
+        g.car.splinePosition = p
+        script.update(1 / 60)
+        p = (p + 0.0005) % 1.0
+    check("... and a slower pass doesn't replace it", state["saved"] == saved, f"{state['saved']} vs {saved}")
+    g.car.speedKmh = 180
     tick(2)  # tell the service a launch state exists
     status, _ = http("POST", RIG + "/api/action/rewind")
     tick(3)  # app picks up the retry command and loads the state

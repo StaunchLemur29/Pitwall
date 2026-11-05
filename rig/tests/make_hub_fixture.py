@@ -53,7 +53,7 @@ def main() -> None:
         rows.append({
             "id": info["id"], "lap_number": r["lap_number"], "lap_time_ms": r["lap_time_ms"], "valid": r["valid"], "out_lap": r["out_lap"], "rewound": r["rewound"], "unfinished": r["unfinished"],
             "started_at": info["started_at"], "sector_ms": r["sector_ms"], "corners": r["corners"],
-            "systems": r["systems"], "time_to_beat": r["time_to_beat"], "review": r["review"],
+            "systems": r["systems"], "time_to_beat": r["time_to_beat"], "review": r["review"], "sections": r["sections"], "conditions": r["conditions"],
             "trace": {"t": r["trace"]["t"], "p": r["trace"]["p"]} if r["trace"] else None,
         })
     valid = [r["id"] for r in rows if r["valid"]]
@@ -67,11 +67,18 @@ def main() -> None:
             rep = rig.corner_report(lap_id, compare)
             cases.append({"lap_id": lap_id, "compare_id": compare, "report": rep})
     cases.append({"lap_id": unfinished, "compare_id": None, "report": rig.corner_report(unfinished, None)})
+    # No optimal run yet (e.g. the track's ideal line still being worked out):
+    # your best lap is compared with your best through each corner instead.
+    key = (s.game, s.car, s.track_key)
+    saved = rig._opt_runs[key]
+    rig._opt_runs[key] = {"sig": saved["sig"]}
+    no_opt = {"lap_id": by_time[0], "compare_id": None, "report": rig.corner_report(by_time[0], None)}
+    rig._opt_runs[key] = saved
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps({
         "game": s.game, "car": s.car, "track_key": s.track_key,
         "geometry": rig.track_geometry(s.game, s.car, s.track_key),
-        "profile": rig.car_profile, "laps": rows, "cases": cases,
+        "profile": rig.car_profile, "laps": rows, "cases": cases, "no_optimal_case": no_opt,
         "session_summary": rig.session_summary(s.game, s.car, s.track_key),
     }))
     print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB, {len(rows)} laps, {len(cases)} cases)")

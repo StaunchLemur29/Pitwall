@@ -6,7 +6,7 @@ import { prettyName } from "../lib/format";
 import { practise, rig, useRig, type Combo } from "../lib/rig";
 import { useSource } from "../lib/source";
 import { GRADE_COLORS, indexAt, pathOf, type P } from "../lib/track";
-import type { CornerLap, CornerReport, LapSummary, TrackGeometry } from "../lib/types";
+import type { CornerLap, CornerReport, LapConditions, LapSummary, TrackGeometry } from "../lib/types";
 import { CornerDetail } from "./CornerDetail";
 import { DebriefCard } from "./DebriefCard";
 import { Panel, useSplit } from "./Panel";
@@ -137,6 +137,9 @@ export function LapAnalysis({
   // What the gain / loss map is coloured against: the comparison lap, or the
   // optimal run's own trace when that's the comparison (the PC has it; the hub doesn't).
   const mapRef = report?.compare_kind === "optimal" ? optTrace : otherTrace;
+  // Gain / loss needs a trace to compare along the way. Without one (the hub's
+  // optimal run, or your best corners) colour each corner by what it lost instead.
+  const mapMode: Mode = mode === "delta" && !mapRef ? "grade" : mode;
 
   const rows = report?.lap ?? [];
   // Biggest losses first: where the time went.
@@ -216,6 +219,7 @@ export function LapAnalysis({
           <div className="muted">optimal run (estimate)</div>
         </div>
       ) : null}
+      <Conditions now={report?.conditions} other={report?.compare_conditions} label={label} />
       <div className="lsum__where">
         <div className="cd__sub">{losses.length ? "Where the time went" : rows.length && (other || report?.compare_kind) ? "No corner lost more than 0.03 s" : "Drive another clean lap to compare"}</div>
         {losses.map(({ r, c }) => (
@@ -231,7 +235,7 @@ export function LapAnalysis({
 
   // The good and the bad of this lap, against your usual (worked out on the PC).
   const review = report?.review ?? null;
-  const KIND: Record<string, string> = { off: "went off", spin: "spin", slow: "slow", good: "" };
+  const KIND: Record<string, string> = { off: "went off", spin: "spin", slide: "slide", gear: "gear", throttle: "on the power", slow: "slow", good: "" };
   const reviewItem = (w: NonNullable<typeof review>["wrong"][number], good: boolean) => (
     <button
       key={`${w.kind}${w.corner ?? w.label}`}
@@ -429,7 +433,7 @@ export function LapAnalysis({
             </div>
             {ps.drill_best_s || ps.to_beat_s ? (
               <div className="psec__sub">
-                {[ps.to_beat_s ? `to beat ${ps.to_beat_s.toFixed(2)}s` : "", ps.drill_best_s ? `best drill run ${ps.drill_best_s.toFixed(2)}s` : ""]
+                {[ps.to_beat_s ? `to beat ${ps.to_beat_s.toFixed(2)}s` : "", ps.drill_best_s ? `your best ${ps.drill_best_s.toFixed(2)}s` : ""]
                   .filter(Boolean)
                   .join(" · ")}
               </div>
@@ -486,8 +490,8 @@ export function LapAnalysis({
             {systemsBlock && <Panel id="systems" title="Car systems">{systemsBlock}</Panel>}
             <Panel id="map" title="Map" height={420} minHeight={220}>
               {modes}
-              <ColouredMap g={g} trace={trace} ref_={mapRef} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
-              <Legend mode={mode} label={label} showOpt={showOpt} noRef={!mapRef} />
+              <ColouredMap g={g} trace={trace} ref_={mapRef} mode={mapMode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
+              <Legend mode={mapMode} label={label} showOpt={showOpt} byCorner={mapMode !== mode} />
             </Panel>
             <Panel id="sections" title="Sections" right={<span className="muted pnl__hint">click a corner for the detail</span>}>{list}</Panel>
           </div>
@@ -523,9 +527,10 @@ export function LapAnalysis({
             {theo ? <span className="nsum__theo" title="best sectors combined">best sectors {lapTime(theo)}</span> : null}
             {optLap !== null ? <span className="nsum__theo" title={optTitle(report?.optimal)}>optimal run {lapTime(Math.round(optLap * 1000))}</span> : null}
           </div>
+          <Conditions now={report?.conditions} other={report?.compare_conditions} label={label} />
           {modes}
-          <ColouredMap g={g} trace={trace} ref_={mapRef} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
-          <Legend mode={mode} label={label} showOpt={showOpt} noRef={!mapRef} />
+          <ColouredMap g={g} trace={trace} ref_={mapRef} mode={mapMode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
+          <Legend mode={mapMode} label={label} showOpt={showOpt} byCorner={mapMode !== mode} />
           {list}
         </div>
       )}
@@ -544,6 +549,36 @@ function optTitle(o: { laps_used: number; grip: Record<string, number> } | null 
   );
 }
 
+/** The conditions on this lap in one line, and what was different on the lap
+ * it's compared with (a hotter track or worn tyres explain a lot). */
+function Conditions({ now, other, label }: { now?: LapConditions | null; other?: LapConditions | null; label: string | null }) {
+  if (!now) return null;
+  const bits: string[] = [];
+  if (now.road_c != null) bits.push(`track ${Math.round(now.road_c)}°`);
+  if (now.air_c != null) bits.push(`air ${Math.round(now.air_c)}°`);
+  if (now.grip != null) bits.push(`grip ${Math.round(now.grip * 100)}%`);
+  if (now.tyre_wear_pct != null && now.tyre_wear_pct >= 1) bits.push(`tyres ${Math.round(now.tyre_wear_pct)}% worn`);
+  if (now.damage != null && now.damage >= 0.5) bits.push("car damaged");
+  if (now.rain != null && now.rain > 0.05) bits.push("rain");
+  if (now.time) bits.push(now.time);
+  if (!bits.length) return null;
+  const diff: string[] = [];
+  if (other) {
+    if (now.road_c != null && other.road_c != null && Math.abs(now.road_c - other.road_c) >= 4)
+      diff.push(`track ${Math.round(other.road_c)}°`);
+    if (now.grip != null && other.grip != null && Math.abs(now.grip - other.grip) >= 0.02)
+      diff.push(`grip ${Math.round(other.grip * 100)}%`);
+    if ((now.tyre_wear_pct ?? 0) - (other.tyre_wear_pct ?? 0) >= 3) diff.push(`fresher tyres`);
+    if ((now.damage ?? 0) >= 0.5 && (other.damage ?? 0) < 0.5) diff.push("no damage");
+  }
+  return (
+    <div className="lcond muted">
+      {bits.join(" · ")}
+      {diff.length > 0 && label ? <span className="lcond__diff"> · {label} had {diff.join(", ")}</span> : null}
+    </div>
+  );
+}
+
 /** Gap to the comparison lap: green only when you were quicker, grey when it's a wash. */
 function vsClass(v: number | null | undefined): string {
   if (v == null) return "";
@@ -555,9 +590,7 @@ function gradeColour(loss: number | null | undefined): string {
   return loss <= 0.05 ? "#3ddc84" : loss <= 0.2 ? "#ffc542" : "#ff5252";
 }
 
-function Legend({ mode, label, showOpt, noRef }: { mode: Mode; label: string | null; showOpt: boolean; noRef?: boolean }) {
-  if (mode === "delta" && noRef)
-    return <div className="legend muted">Gain / loss along the lap needs a lap to compare with: pick one above.</div>;
+function Legend({ mode, label, showOpt, byCorner }: { mode: Mode; label: string | null; showOpt: boolean; byCorner?: boolean }) {
   const items: Record<Mode, [string, string][]> = {
     phase: [
       ["#ff5252", "braking"],
@@ -587,6 +620,7 @@ function Legend({ mode, label, showOpt, noRef }: { mode: Mode; label: string | n
   };
   return (
     <div className="legend">
+      {byCorner && <span className="muted">By corner, vs your best there:</span>}
       {items[mode].map(([c, l], i) => (
         <span key={i}>
           <i style={{ background: c }} />

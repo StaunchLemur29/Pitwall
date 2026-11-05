@@ -114,6 +114,14 @@ class Frame:
     tyre_pressure_psi: list[float] | None = None
     tyre_core_temp_c: list[float] | None = None
     tyres_out: int = 0  # number of wheels off track
+    tyre_wear: list[float] | None = None  # AC's tyre wear numbers (falling as they wear)
+    tyre_dirt: list[float] | None = None  # AC's tyre dirt level: grass or gravel picked up
+    damage: list[float] | None = None  # AC's car damage: front, rear, left, right, centre
+
+    # the track and weather (None when the game doesn't report it)
+    air_c: float | None = None
+    road_c: float | None = None
+    grip: float | None = None  # track grip, 0..1 (rubbering in, dust)
 
     # position on track
     lap: int = 0  # completed laps
@@ -165,6 +173,7 @@ class Lap:
     id: int | None = None
     rewound: bool = False  # rewound after a mistake: a normal lap, but never a best one
     unfinished: bool = False  # you didn't get to the line (quit, restarted): only some corners driven
+    conditions: dict[str, Any] | None = None  # track, weather, tyre wear and damage as the lap ended
 
     def summary(self) -> dict[str, Any]:
         return {

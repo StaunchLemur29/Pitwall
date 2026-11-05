@@ -6,6 +6,10 @@ import { Card } from "./common";
 /** Section times read better as plain seconds under a minute: "10.62". */
 const secs = (ms: number) => (ms < 60000 ? (ms / 1000).toFixed(2) : lapTime(ms));
 
+const NOTICE_TAG: Record<string, string> = {
+  crash: "Crash", dirt: "Tyres", clean: "Tyres", wear: "Tyres", track: "Track", weather: "Weather", light: "Light",
+};
+
 export function DrillCard() {
   const d = useRig((s) => s.live.track?.drill ?? null);
   const hasTrack = useRig((s) => !!s.track);
@@ -16,14 +20,21 @@ export function DrillCard() {
   if (!d) {
     // No drill running: the coach strip. Cold tyres first, then the lap just
     // finished (for a moment), else the session's one focus corner.
-    // One thing at a time: cold tyres alone; then the lap just finished; then the focus.
-    const cold = !!coach?.tyres?.cold;
-    const last = cold ? null : coach?.last_lap;
-    const focus = cold ? null : coach?.focus;
-    const busy = cold || !!last || !!focus;
+    // One thing at a time: something that just changed (a crash, worn tyres, the
+    // track) first; then cold tyres; then the lap just finished; then the focus.
+    const notice = coach?.notice ?? null;
+    const cold = !notice && !!coach?.tyres?.cold;
+    const last = notice || cold ? null : coach?.last_lap;
+    const focus = notice || cold ? null : coach?.focus;
+    const busy = !!notice || cold || !!last || !!focus;
     return (
       <Card title={busy ? undefined : "Coach"} dim={!busy} className={busy ? "coach" : ""}>
-        {cold ? (
+        {notice ? (
+          <div className={notice.kind === "clean" ? "coach__lap" : "coach__warn"}>
+            <span className="coach__tag">{NOTICE_TAG[notice.kind] ?? "Heads up"}</span>
+            {notice.text}
+          </div>
+        ) : cold ? (
           <div className="coach__warn">
             <span className="coach__tag">Tyres</span>
             Cold{coach!.tyres!.avg_c ? ` (${coach!.tyres!.avg_c}°)` : ""}: build up, they work at about {coach!.tyres!.working_c}°

@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS section_attempts (
     end_p REAL NOT NULL,
     time_ms INTEGER NOT NULL,
     clean INTEGER NOT NULL,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    lap_id INTEGER  -- set for a pass on a lap (any lap: out laps and ones you didn't finish too); NULL for a drill run
 );
 
 CREATE TABLE IF NOT EXISTS debriefs (
@@ -173,6 +174,11 @@ class Store:
                 self._db.execute("ALTER TABLE laps ADD COLUMN rewound INTEGER NOT NULL DEFAULT 0")
             if "unfinished" not in cols:  # ...and before unfinished laps were kept
                 self._db.execute("ALTER TABLE laps ADD COLUMN unfinished INTEGER NOT NULL DEFAULT 0")
+            scols = {r["name"] for r in self._db.execute("PRAGMA table_info(section_attempts)").fetchall()}
+            if "lap_id" not in scols:  # ...and before a section's best could come from any lap
+                self._db.execute("ALTER TABLE section_attempts ADD COLUMN lap_id INTEGER")
+            if "conditions" not in cols:  # ...and before the conditions were kept with each lap
+                self._db.execute("ALTER TABLE laps ADD COLUMN conditions TEXT")
             self._db.execute(
                 "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
                 (SCHEMA_VERSION,),
@@ -184,7 +190,8 @@ class Store:
         with self._lock, self._db:
             cur = self._db.execute(
                 """INSERT INTO laps (game, car, track_key, lap_number, lap_time_ms, valid,
-                   out_lap, rewound, unfinished, started_at, sector_ms, trace) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   out_lap, rewound, unfinished, started_at, sector_ms, trace, conditions)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     lap.game,
                     lap.car,
@@ -198,6 +205,7 @@ class Store:
                     lap.started_at,
                     json.dumps(lap.sector_ms),
                     pack_trace(lap.trace),
+                    json.dumps(lap.conditions) if lap.conditions else None,
                 ),
             )
             lap.id = int(cur.lastrowid)
@@ -413,8 +421,31 @@ class Store:
                 (game, car, track_key, start_p, end_p, time_ms, int(clean), time.time()),
             )
 
+    def add_lap_sections(
+        self, lap_id: int, game: str, car: str, track_key: str, passes: list[tuple[float, float, int]]
+    ) -> None:
+        """A lap's clean passes through the practice sections (start, end, ms), so
+        a section's best counts however the lap ended. Replaces any earlier ones."""
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM section_attempts WHERE lap_id=?", (lap_id,))
+            self._db.executemany(
+                """INSERT INTO section_attempts (game, car, track_key, start_p, end_p, time_ms, clean,
+                   created_at, lap_id) VALUES (?,?,?,?,?,?,1,?,?)""",
+                [(game, car, track_key, a, b, ms, time.time(), lap_id) for a, b, ms in passes],
+            )
+
+    def lap_sections(self, lap_id: int) -> list[list[float]]:
+        """This lap's clean passes through the practice sections: [start, end, ms]."""
+        rows = self._db.execute(
+            "SELECT start_p, end_p, time_ms FROM section_attempts WHERE lap_id=? ORDER BY start_p", (lap_id,)
+        ).fetchall()
+        return [[float(r["start_p"]), float(r["end_p"]), int(r["time_ms"])] for r in rows]
+    def lap_conditions(self, lap_id: int) -> dict[str, Any] | None:
+        row = self._db.execute("SELECT conditions FROM laps WHERE id=?", (lap_id,)).fetchone()
+        return json.loads(row["conditions"]) if row and row["conditions"] else None
+
     def best_sections(self, game: str, car: str, track_key: str) -> list[tuple[float, float, int]]:
-        """(start_p, end_p, best clean time) of every section you've drilled on this car + track."""
+        """(start_p, end_p, best clean time) of every section: drill runs and clean passes on any lap."""
         rows = self._db.execute(
             """SELECT start_p, end_p, MIN(time_ms) AS best FROM section_attempts
                WHERE game=? AND car=? AND track_key=? AND clean=1

@@ -22,7 +22,7 @@ local car = ac.getCar(0)
 
 local track = nil -- { version, length_m, corners = {...}, ref_speed = {...} }
 local drill = nil -- { key, name, start_p, end_p, run_up_p }
-local launch = nil -- { key, data } car state saved at the run-up point
+local launch = nil -- { key, data, kmh } car state saved at the run-up point
 local settle = nil -- just teleported: { pos, dir, frames, flipped, tyreTemp }
 local run = nil -- the drill run you're on: { key, elapsed } (game time, so pauses don't count)
 local runResult = nil -- the run just finished: { time, target, isBest, untilT }
@@ -59,6 +59,16 @@ local function loadTrack(version)
   end)
 end
 
+-- Time of day and weather, which only CSP knows (for the coach: rain, dusk,
+-- and the conditions kept with each lap). Fields as CSP's own apps read them.
+local function envNow()
+  local ok, e = pcall(function ()
+    return { time_h = sim.timeHours, time_m = sim.timeMinutes, weather = sim.weatherType,
+             rain = sim.rainIntensity, ambient_c = sim.ambientTemperature, road_grip = sim.roadGrip }
+  end)
+  return ok and e or nil
+end
+
 -- -- teleport to a drill -------------------------------------------------------
 
 local function wrap01(x) return x - math.floor(x) end
@@ -72,9 +82,14 @@ local function lineAt(p)
   return pos, dir:normalize()
 end
 
--- The tyre temperature to arrive with: the car's optimum if CSP says, else what
--- they're at now (warmed by driving). Read defensively: not every CSP has these.
-local function arrivalTyreTemp()
+-- The tyre temperature to arrive with: what Pitwall learnt this car runs at on
+-- your laps (sent with the teleport), else the car's optimum if CSP says, else
+-- what they're at now if they're warm. Never a cold reading: after a reset or the
+-- pits they read about 70 °C, and warming them "back" to that does nothing.
+local WARM_MIN_C = 75
+local WARM_DEFAULT_C = 85
+local function arrivalTyreTemp(learnt)
+  if learnt and learnt >= WARM_MIN_C then return learnt end
   local ok, t = pcall(function ()
     local sum, n = 0, 0
     for i = 0, 3 do
@@ -85,7 +100,9 @@ local function arrivalTyreTemp()
     end
     return n > 0 and sum / n or nil
   end)
-  return ok and t or nil
+  t = ok and t or nil
+  if not t or t < WARM_MIN_C then t = WARM_DEFAULT_C end
+  return t
 end
 
 -- Teleporting resets the car, tyres stone cold: put them back to temperature.
@@ -98,11 +115,11 @@ local function warmTyres(temp)
   return ok and 'warm' or 'unsupported'
 end
 
-local function teleport(p)
+local function teleport(p, learnt)
   if not (physics and physics.setCarPosition and ac.trackProgressToWorldCoordinate) then return 'unsupported' end
   local pos, dir = lineAt(p)
   if not pos then return 'no_line' end
-  local temp = arrivalTyreTemp() -- before the reset cools them
+  local temp = arrivalTyreTemp(learnt) -- before the reset cools them
   -- CSP's own debug app passes the direction reversed; if the car still comes
   -- out facing backwards it's turned round on the next frame (see settleStep)
   physics.setCarPosition(0, pos, -dir)
@@ -129,8 +146,9 @@ local function handle(cmd)
       events[#events + 1] = { type = 'teleport', ok = false, reason = 'not_allowed' }
       say('Teleport only works in offline practice')
     else
-      local why = teleport(tonumber(cmd.p) or 0)
-      events[#events + 1] = { type = 'teleport', ok = why == nil, reason = why, tyres = settle and settle.tyres or nil }
+      local why = teleport(tonumber(cmd.p) or 0, tonumber(cmd.tyre_c))
+      events[#events + 1] = { type = 'teleport', ok = why == nil, reason = why, tyres = settle and settle.tyres or nil,
+                              tyre_c = settle and settle.tyreTemp or nil }
       if settle and settle.tyres ~= 'warm' then say('Teleported: tyres are cold, this CSP can\'t warm them') end
     end
   end
@@ -167,6 +185,7 @@ local function sync()
     fuel_map = car.fuelMap,
     reset_allowed = ac.isCarResetAllowed(),
     has_launch = launch ~= nil and drill ~= nil and launch.key == drill.key,
+    env = envNow(),
     events = events,
   })
   events = {}
@@ -286,13 +305,20 @@ function script.update(dt)
     end
   end
   if run then run.elapsed = run.elapsed + dt end
+  -- Retries start from the car state saved here, so save it only at your usual
+  -- speed (95 % of your reference lap's). A slower pass (the first one after "Go
+  -- there", say) is kept only until a quicker one comes along.
   if drill and lastSpline and car.speedKmh > 20 and crossed(lastSpline, p, drill.run_up_p) then
-    local key = drill.key
-    ac.saveCarStateAsync(function (err, data)
-      if data and drill and drill.key == key then
-        launch = { key = key, data = data }
-      end
-    end)
+    local key, kmh = drill.key, car.speedKmh
+    local usual = drill.run_up_kmh and drill.run_up_kmh * 0.95 or 0
+    local have = launch and launch.key == key and launch.kmh or nil
+    if kmh >= usual or not have or (have < usual and kmh > have) then
+      ac.saveCarStateAsync(function (err, data)
+        if data and drill and drill.key == key then
+          launch = { key = key, data = data, kmh = kmh }
+        end
+      end)
+    end
   end
   lastSpline = p
 end

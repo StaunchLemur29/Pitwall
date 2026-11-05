@@ -96,9 +96,11 @@ def test_go_to_a_drill_teleports_once_then_retries_rewind(demo, clock, config, s
     back_m = ((d.start_p - cmd["p"]) % 1.0) * length
     run_up_m = rig.track.lead_in_m(d, config["drills"]["lead_in_s"])
     assert cmd["cmd"] == "teleport" and cmd["key"] == rig._drill_key()
+    # tyres warmed to what this car runs at on your laps (learnt), never a cold reading
+    assert "tyre_c" in cmd and cmd["tyre_c"] == (rig.car_profile or {}).get("tyre_working_c")
     # Parked before the Time Shift run-up, far enough back to be up to speed by the section.
     assert back_m >= run_up_m + rig.TELEPORT_EXTRA_M - 0.01
-    assert back_m >= rig.track.standing_start_m(d) - 1
+    assert back_m >= rig.track.standing_start_m(d, run_up_m=run_up_m) - 1
     rig.csp_sync({"reset_allowed": True, "events": [{"type": "teleport", "ok": True}]})
     assert [e["state"] for e in events if e["type"] == "retry"] == ["teleporting", "teleported"]
 

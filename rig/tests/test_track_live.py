@@ -319,7 +319,7 @@ def test_teleport_point_lets_you_reach_reference_speed_from_a_standstill(demo):
     ts = TrackState(m)
     d = Drill(name="x", start_p=0.5, end_p=0.6)
     # No reference: a typical speed (40 m/s) at the fallback acceleration, with the margin.
-    want = 40**2 / (2 * ts.FALLBACK_ACCEL * ts.STANDING_MARGIN)
+    want = 40**2 / (2 * ts.FALLBACK_ACCEL * ts.STANDING_MARGIN) * ts.STANDING_EXTRA
     assert abs(ts.standing_start_m(d) - want) < 5
     assert ts.standing_start_m(d, min_m=500) == 500  # never closer than asked
     # Reference lap: flat out at 8 m/s² up to 50 m/s, then steady.
@@ -338,8 +338,10 @@ def test_teleport_point_lets_you_reach_reference_speed_from_a_standstill(demo):
     ts.set_reference(trace)
     acc = ts.accel_by_speed()
     assert acc and all(abs(a - 8.0) < 0.5 for _, a in acc)
-    want = 50**2 / (2 * 8.0 * ts.STANDING_MARGIN)  # ~184 m
+    want = 50**2 / (2 * 8.0 * ts.STANDING_MARGIN) * ts.STANDING_EXTRA  # ~280 m
     assert abs(ts.standing_start_m(d) - want) < 10
+    # Up to speed by the run-up point (where retries start), not just the start.
+    assert abs(ts.standing_start_m(d, run_up_m=200) - (200 + want)) < 10
 
 
 def test_brake_cue_aims_at_the_optimal_run(demo, clock, config, store):

@@ -273,6 +273,8 @@ class CloudSync:
             "systems": extras.get("systems"),
             "time_to_beat": extras.get("time_to_beat"),
             "review": extras.get("review"),
+            "sections": self.store.lap_sections(lap_id),
+            "conditions": self.store.lap_conditions(lap_id),
             "trace": downsample(trace, TRACE_HZ) if trace else None,
         }
 

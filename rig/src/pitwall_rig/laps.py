@@ -26,7 +26,21 @@ TRACE_CHANNELS = (
     "drs",  # 0 = closed / not available, 1 = available, 2 = open
     "off",  # wheels off the track (0..4): where you went off, for the lap review
     "ffb",  # force feedback output (|AC finalFF|, 0..1): 1 = clipping
+    "slip",  # degrees between where the car points and where it's going: a slide (0 at low speed)
 )
+
+
+def slip_deg(f: Frame) -> float:
+    """How far the car is sliding: the angle between its heading and its
+    direction of travel, in degrees (AC's heading runs the opposite way to
+    atan2(vx, vz); checked on the rig: about 0.4 degrees in normal driving)."""
+    if f.velocity is None or f.yaw is None:
+        return 0.0
+    vx, _, vz = f.velocity
+    if math.hypot(vx, vz) < 10.0:  # below ~36 km/h the direction of travel is noise
+        return 0.0
+    a = (math.atan2(vx, vz) + f.yaw + math.pi) % (2 * math.pi) - math.pi
+    return abs(math.degrees(a))
 
 
 REWIND = "rewind"  # jumped back along the track (Time Shift, a drill retry)
@@ -46,6 +60,7 @@ class JumpDetector:
     BACK = 0.003  # lap fraction backwards in one frame (~15 m): only a rewind does that
     MAX_REWIND = 0.2  # further back than this (a fifth of a lap) is a teleport, not a Time Shift rewind
     SLACK_M = 8.0
+    MAX_REWIND_M = 300.0  # one frame of Time Shift playback is far less than this
 
     def __init__(self) -> None:
         self._prev: Frame | None = None
@@ -68,7 +83,17 @@ class JumpDetector:
         v = max(f.speed_kmh, prev.speed_kmh) / 3.6
         if moved <= v * dt * 1.5 + self.SLACK_M:
             return None
-        return REWIND if 0.0 < back <= self.MAX_REWIND else TELEPORT
+        if 0.0 < back <= self.MAX_REWIND:
+            return REWIND
+        # Time Shift plays the car backwards a few metres a frame, but AC only
+        # moves lap progress on every few frames: on the others the progress is
+        # unchanged, so tell by the way the car moved against its own velocity.
+        vel = prev.velocity or f.velocity
+        if back == 0.0 and vel and moved < self.MAX_REWIND_M:
+            step = [a - b for a, b in zip(f.world, prev.world, strict=False)]
+            if sum(a * b for a, b in zip(step, vel, strict=False)) < 0:
+                return REWIND
+        return TELEPORT
 
 
 @dataclass
@@ -125,6 +150,7 @@ class _LapBuffer:
         tr["drs"].append(2 if f.drs_open else 1 if f.drs_available else 0)
         tr["off"].append(f.tyres_out)
         tr["ffb"].append(round(min(1.0, abs(f.ffb)), 3) if f.ffb is not None else 0.0)
+        tr["slip"].append(round(slip_deg(f), 1))
         if f.tyres_out > max_tyres_out:
             self.cuts.append(f.lap_progress)
         if f.sector != self.last_sector:

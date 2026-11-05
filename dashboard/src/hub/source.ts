@@ -51,7 +51,7 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     if (!lapsByCombo.has(k)) {
       lapsByCombo.set(k, all<LapRow>((a, b) =>
         sb.from("laps")
-          .select("id,game,car,track_key,lap_number,lap_time_ms,valid,out_lap,rewound,unfinished,started_at,sector_ms,corners,systems,review,time_to_beat")
+          .select("id,game,car,track_key,lap_number,lap_time_ms,valid,out_lap,rewound,unfinished,started_at,sector_ms,corners,systems,review,time_to_beat,sections,conditions")
           .eq("game", c.game).eq("car", c.car).eq("track_key", c.track_key)
           .order("started_at", { ascending: false }).range(a, b)));
     }

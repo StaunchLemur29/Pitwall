@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 import statistics
 import threading
@@ -24,6 +25,7 @@ from .analysis import (
     time_to_beat,
     width_advice,
 )
+from .conditions import Conditions
 from .config import ACTIONS, Config
 from .csp import CspLink
 from .input import InputEvent
@@ -107,6 +109,7 @@ class Rig:
         self._last_lap_note: dict[str, Any] | None = None
         self._tyre_sum, self._tyre_n = 0.0, 0  # this lap's tyre core temperature at speed
         self._tyres_cold = False
+        self.conditions = Conditions()  # the track, weather, tyre wear and damage; notices when they change
         self._cue_mode: str | None = None  # the brake-cue setting last applied
         self._opt_busy: set[tuple[str, str, str]] = set()
         self._ac_tracks = None  # track loader for past AC tracks when another adapter is running
@@ -172,6 +175,7 @@ class Rig:
                 except Exception:
                     log.exception("Session-end hook failed")
             self.session = session
+            self.conditions.reset()
             self._load_car_profile()
             if session is not None:
                 log.info("Session: %s on %s (%s)", session.car, session.track_key, session.session_type.value)
@@ -203,6 +207,7 @@ class Rig:
         if self.car_profile is not None and frame.status == GameStatus.LIVE and car_profile.note_frame(self.car_profile, frame):
             self._save_car_profile()
         self._note_tyres(frame)
+        self.conditions.update(frame, now)
         self.laps.max_tyres_out = self.config["laps"]["max_tyres_out"]
         self._feed_wheel(frame)
         self.laps.practising = self.track is not None and self.track.drill is not None
@@ -305,6 +310,7 @@ class Rig:
 
     def _on_lap(self, lap: Lap) -> None:
         # Called from the telemetry thread as you cross the line: hand it on.
+        lap.conditions = self.conditions.snapshot(self.frame)
         if self._post_lap is not None:
             self._post_lap.put(lap)
         else:
@@ -332,6 +338,7 @@ class Rig:
                     self.csp.touch()
             if lap.id is not None:  # every lap: the corners it drove well count, finished or not
                 self._analyse(lap.id, lap.trace, track)
+                self._record_sections(lap, track)
             self._emit_corners(lap.id)
         with self.lock:
             s = self.session
@@ -413,14 +420,41 @@ class Rig:
         self.store.set_lap_corners(lap_id, self._model_sig(track),
                                    analyse_lap(trace, track.model, self.config["laps"]["max_tyres_out"]))
 
-    def _history(self, ctx: AnalysisCtx, exclude: int | None = None, limit: int = 30) -> list[list[dict[str, Any]]]:
+    def _record_sections(self, lap: Lap, track: TrackState) -> None:
+        """Keep this lap's clean passes through each practice section, so your best
+        through a section counts even if the lap was an out lap or you crashed
+        later. Not from a lap with a rewind (never a best), not a section you
+        went off in, and only where the lap was driven all the way through it."""
+        if lap.id is None or lap.rewound or not lap.trace.get("p"):
+            return
+        view = LapView.of(lap.trace)
+        off = lap.trace.get("off") or []
+        limit = self.config["laps"]["max_tyres_out"]
+        passes = []
+        for ps in track.model.practice:
+            a, b = ps.start, ps.end
+            if not (b > a and _covers(view, a, b)):
+                continue  # runs over the line, or the lap didn't drive all of it
+            i, j = view.at(a), view.at(b)
+            ts = lap.trace["t"][i:j + 1]
+            if any(t2 - t1 > 0.5 or t2 < t1 for t1, t2 in itertools.pairwise(ts)):
+                continue  # a gap in the telemetry: not driven through in one go
+            if any(o > limit for o in off[i:j + 1]):
+                continue
+            ms = round((view.time_at(b) - view.time_at(a)) * 1000)
+            if ms > 0:
+                passes.append((a, b, ms))
+        self.store.add_lap_sections(lap.id, lap.game, lap.car, lap.track_key, passes)
+
+    def _history(self, ctx: AnalysisCtx, exclude: int | None = None, limit: int = 30,
+                 skip_rewound: bool = False) -> list[list[dict[str, Any]]]:
         """Your recent driving through each corner, newest lap first: the corners
         that count (driven all the way, clean) from any lap, finished or not,
         valid or cut somewhere else. Analyses laps that haven't been yet."""
         sig = self._model_sig(ctx.track)
         out: list[list[dict[str, Any]]] = []
         for info in self.store.laps(ctx.game, ctx.track_key, ctx.car, limit=limit * 3):
-            if info["id"] == exclude:
+            if info["id"] == exclude or (skip_rewound and info.get("rewound")):
                 continue
             data = self.store.lap_corners(info["id"], sig)
             if data is None:
@@ -434,6 +468,17 @@ class Rig:
             if len(out) >= limit:
                 break
         return out
+
+    def _best_corners(self, ctx: AnalysisCtx, lap_id: int | None) -> list[dict[str, Any]]:
+        """Your quickest pass through each corner on any other lap (finished or
+        not, valid or cut elsewhere), excluding laps with a rewind."""
+        best: dict[int, dict[str, Any]] = {}
+        for lap in self._history(ctx, exclude=lap_id, limit=60, skip_rewound=True):
+            for c in lap:
+                b = best.get(c["corner"])
+                if b is None or c["time_s"] < b["time_s"]:
+                    best[c["corner"]] = c
+        return [best[k] for k in sorted(best)]
 
     def _mastery(self, ctx: AnalysisCtx | None = None) -> dict[int, dict[str, Any]]:
         ctx = ctx or self._live_ctx()
@@ -599,10 +644,11 @@ class Rig:
             "new_personal_best": not before or best["lap_time_ms"] < min(before),
             "best_sectors_combined": fmt_ms(rep["theoretical_best_ms"]) if rep.get("theoretical_best_ms") else None,
             "best_lap_compared_with": rep.get("compare_label"),
+            "conditions_on_best_lap": rep.get("conditions"),
             "corners_on_best_lap": corners,
             "practice_sections": [
                 {"name": ps["name"], "this_lap_s": ps.get("time_s"), "best_lap_s": ps.get("ref_s"),
-                 "best_drill_run_s": ps.get("drill_best_s")}
+                 "your_best_s": ps.get("drill_best_s")}
                 for ps in rep.get("practice", [])
             ],
             "battery_and_drs": (rep.get("systems") or {}).get("notes", []),
@@ -712,6 +758,20 @@ class Rig:
                         if o and data.get("driven") is not False:
                             data["vs_s"] = round(data["time_s"] - o["time_s"], 3)
                             data["notes"] = data.get("opt_notes") or compare_notes(data, o, compare_label)[:3]
+                else:
+                    # No optimal run yet (it needs the track's edges, a few clean
+                    # laps and a moment to work out): compare with your best
+                    # through each corner on any lap instead. Never slower than
+                    # this lap, so still only ever against something faster.
+                    compare = self._best_corners(ctx, lap_id)
+                    if compare:
+                        compare_kind, compare_label = "best_corners", "your best here"
+                        by_num = {c["corner"]: c for c in compare}
+                        for data in lap:
+                            o = by_num.get(data["corner"])
+                            if o and data.get("driven") is not False:
+                                data["vs_s"] = round(data["time_s"] - o["time_s"], 3)
+                                data["notes"] = compare_notes(data, o, compare_label)[:3] if data["vs_s"] > 0.02 else []
                 compare_id = None
             elif compare_id is not None and compare_id != lap_id:
                 compare_kind = "lap"
@@ -773,6 +833,9 @@ class Rig:
             "lap": lap,
             "reference": list(track.ref_corners.values()),
             "reference_lap_id": ctx.ref_lap_id,
+            # the track, weather, tyre wear and damage on this lap (and the lap it's compared with)
+            "conditions": self.store.lap_conditions(lap_id) if lap_id is not None else None,
+            "compare_conditions": self.store.lap_conditions(compare_id) if compare and compare_kind == "lap" else None,
             "optimal": {"lap_s": run["lap_s"], "grip": run["grip"], "laps_used": run["laps_used"]}
             if run and run.get("trace") else None,
         }
@@ -998,6 +1061,7 @@ class Rig:
         if self._tyres_cold:
             avg = self._tyre_avg()
             out["tyres"] = {"cold": True, "avg_c": round(avg) if avg else None, "working_c": round(self._working_c())}
+        out["notice"] = self.conditions.current_notice(self._clock())  # a crash, worn tyres, the track changing...
         return out
 
     def _focus_fix(self, corner: int) -> str | None:
@@ -1192,9 +1256,12 @@ class Rig:
             return False
         d = self.track.drill.drill
         run_up = self.track.lead_in_m(d, float(self.config["drills"]["lead_in_s"]))
-        back = self.track.standing_start_m(d, min_m=run_up + self.TELEPORT_EXTRA_M)
+        back = self.track.standing_start_m(d, min_m=run_up + self.TELEPORT_EXTRA_M, run_up_m=run_up)
         p = (d.start_p - back / self.track.model.length_m) % 1.0
-        self.csp.send({"cmd": "teleport", "key": self._drill_key(), "p": p})
+        # Warm the tyres to what this car runs at on your laps (the reset leaves
+        # them cold, and before a teleport they may be cold too, e.g. after the pits).
+        tyre_c = (self.car_profile or {}).get("tyre_working_c")
+        self.csp.send({"cmd": "teleport", "key": self._drill_key(), "p": p, "tyre_c": tyre_c})
         self.emit({"type": "retry", "state": "teleporting"})
         return True
 
@@ -1213,12 +1280,15 @@ class Rig:
         # The in-game timer's target: the time to beat while it's quicker than
         # your best run, else your best (same as the side screen).
         target = st.target_ms if st.target_ms and (not st.best_ms or st.target_ms < st.best_ms) else st.best_ms
+        run_up_p = (d.start_p - lead / self.track.model.length_m) % 1.0
         return {
             "key": self._drill_key(),
             "name": d.name,
             "start_p": d.start_p,
             "end_p": d.end_p,
-            "run_up_p": (d.start_p - lead / self.track.model.length_m) % 1.0,
+            "run_up_p": run_up_p,
+            # retries start from the state saved here: only save it at your usual speed
+            "run_up_kmh": self.track.ref_kmh_at(run_up_p),
             "target_ms": target,
             "target_is_best": target is not None and target == st.best_ms,
         }
@@ -1244,6 +1314,7 @@ class Rig:
     def csp_sync(self, body: dict[str, Any]) -> dict[str, Any]:
         """The in-game app checking in (about 10 times a second)."""
         was = self.csp.connected
+        self.conditions.set_env(body.get("env") if isinstance(body.get("env"), dict) else None)
         for e in self.csp.sync(body):
             if e.get("type") == "teleport":
                 state = "teleported" if e.get("ok") else "no_teleport"

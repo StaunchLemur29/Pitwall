@@ -98,9 +98,10 @@ export function sessionSummary(
     new_personal_best: pbBefore === null || best.lap_time_ms < pbBefore,
     best_sectors_combined: rep.theoretical_best_ms ? fmtMs(rep.theoretical_best_ms) : null,
     best_lap_compared_with: rep.compare_label ?? null,
+    conditions_on_best_lap: rep.conditions ?? null,
     corners_on_best_lap: corners,
     practice_sections: rep.practice.map((ps) => ({
-      name: ps.name, this_lap_s: ps.time_s ?? null, best_lap_s: ps.ref_s ?? null, best_drill_run_s: ps.drill_best_s ?? null,
+      name: ps.name, this_lap_s: ps.time_s ?? null, best_lap_s: ps.ref_s ?? null, your_best_s: ps.drill_best_s ?? null,
     })),
     battery_and_drs: rep.systems?.notes ?? [],
     car_has: rep.car_systems ?? [],
