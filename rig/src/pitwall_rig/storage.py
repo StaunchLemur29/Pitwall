@@ -173,6 +173,8 @@ class Store:
                 self._db.execute("ALTER TABLE laps ADD COLUMN rewound INTEGER NOT NULL DEFAULT 0")
             if "unfinished" not in cols:  # ...and before unfinished laps were kept
                 self._db.execute("ALTER TABLE laps ADD COLUMN unfinished INTEGER NOT NULL DEFAULT 0")
+            if "conditions" not in cols:  # ...and before the conditions were kept with each lap
+                self._db.execute("ALTER TABLE laps ADD COLUMN conditions TEXT")
             self._db.execute(
                 "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
                 (SCHEMA_VERSION,),
@@ -184,7 +186,8 @@ class Store:
         with self._lock, self._db:
             cur = self._db.execute(
                 """INSERT INTO laps (game, car, track_key, lap_number, lap_time_ms, valid,
-                   out_lap, rewound, unfinished, started_at, sector_ms, trace) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   out_lap, rewound, unfinished, started_at, sector_ms, trace, conditions)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     lap.game,
                     lap.car,
@@ -198,6 +201,7 @@ class Store:
                     lap.started_at,
                     json.dumps(lap.sector_ms),
                     pack_trace(lap.trace),
+                    json.dumps(lap.conditions) if lap.conditions else None,
                 ),
             )
             lap.id = int(cur.lastrowid)
@@ -412,6 +416,10 @@ class Store:
                    created_at) VALUES (?,?,?,?,?,?,?,?)""",
                 (game, car, track_key, start_p, end_p, time_ms, int(clean), time.time()),
             )
+
+    def lap_conditions(self, lap_id: int) -> dict[str, Any] | None:
+        row = self._db.execute("SELECT conditions FROM laps WHERE id=?", (lap_id,)).fetchone()
+        return json.loads(row["conditions"]) if row and row["conditions"] else None
 
     def best_sections(self, game: str, car: str, track_key: str) -> list[tuple[float, float, int]]:
         """(start_p, end_p, best clean time) of every section you've drilled on this car + track."""

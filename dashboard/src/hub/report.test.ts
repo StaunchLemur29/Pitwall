@@ -20,6 +20,8 @@ describe("hub report matches the rig's", () => {
       expect(ts.compare_lap_id).toBe(py.compare_lap_id);
       expect(ts.compare_label).toBe(py.compare_label);
       expect(ts.compare_kind ?? null).toBe(py.compare_kind ?? null);
+      expect(ts.conditions ?? null).toEqual(py.conditions ?? null);
+      expect(ts.compare_conditions ?? null).toEqual(py.compare_conditions ?? null);
       expect(ts.theoretical_best_ms).toBe(py.theoretical_best_ms);
       expect(ts.car_systems).toEqual(py.car_systems);
       expect(ts.systems).toEqual(py.systems);

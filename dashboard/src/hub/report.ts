@@ -7,7 +7,7 @@
  * test checks both give the same answers on the same laps.
  */
 import { timeLookup, type Trace } from "../lib/profile";
-import type { CarProfile, CornerLap, CornerReport, LapReview, Mastery, TimeToBeat, TrackGeometry } from "../lib/types";
+import type { CarProfile, CornerLap, LapConditions, CornerReport, LapReview, Mastery, TimeToBeat, TrackGeometry } from "../lib/types";
 
 /** A lap as uploaded (the columns the report needs). */
 export interface HubLap {
@@ -24,6 +24,7 @@ export interface HubLap {
   systems: CornerReport["systems"];
   time_to_beat?: TimeToBeat | null; // the PC's targets as they stood after this lap
   review?: LapReview | null; // the PC's review of this lap, uploaded with it
+  conditions?: LapConditions | null; // the track, weather, tyre wear and damage as it ended
 }
 
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
@@ -257,6 +258,8 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
     compare_lap_id: cmp ? cmp.id : null,
     compare_label: label,
     compare_kind: kind,
+    conditions: shown?.conditions ?? null,
+    compare_conditions: kind === "lap" ? cmp?.conditions ?? null : null,
     chapters,
     practice,
     mastery: [...mastery.values()],

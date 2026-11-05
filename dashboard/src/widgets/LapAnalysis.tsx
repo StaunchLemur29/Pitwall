@@ -6,7 +6,7 @@ import { prettyName } from "../lib/format";
 import { practise, rig, useRig, type Combo } from "../lib/rig";
 import { useSource } from "../lib/source";
 import { GRADE_COLORS, indexAt, pathOf, type P } from "../lib/track";
-import type { CornerLap, CornerReport, LapSummary, TrackGeometry } from "../lib/types";
+import type { CornerLap, CornerReport, LapConditions, LapSummary, TrackGeometry } from "../lib/types";
 import { CornerDetail } from "./CornerDetail";
 import { DebriefCard } from "./DebriefCard";
 import { Panel, useSplit } from "./Panel";
@@ -216,6 +216,7 @@ export function LapAnalysis({
           <div className="muted">optimal run (estimate)</div>
         </div>
       ) : null}
+      <Conditions now={report?.conditions} other={report?.compare_conditions} label={label} />
       <div className="lsum__where">
         <div className="cd__sub">{losses.length ? "Where the time went" : rows.length && (other || report?.compare_kind) ? "No corner lost more than 0.03 s" : "Drive another clean lap to compare"}</div>
         {losses.map(({ r, c }) => (
@@ -523,6 +524,7 @@ export function LapAnalysis({
             {theo ? <span className="nsum__theo" title="best sectors combined">best sectors {lapTime(theo)}</span> : null}
             {optLap !== null ? <span className="nsum__theo" title={optTitle(report?.optimal)}>optimal run {lapTime(Math.round(optLap * 1000))}</span> : null}
           </div>
+          <Conditions now={report?.conditions} other={report?.compare_conditions} label={label} />
           {modes}
           <ColouredMap g={g} trace={trace} ref_={mapRef} mode={mode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
           <Legend mode={mode} label={label} showOpt={showOpt} noRef={!mapRef} />
@@ -541,6 +543,36 @@ function optTitle(o: { laps_used: number; grip: Record<string, number> } | null 
     `${o.laps_used} fastest lap${o.laps_used === 1 ? "" : "s"} here ` +
     `(cornering ${g.lat_g_100} g at 100 km/h, ${g.lat_g_200} g at 200; braking ${g.brake_g_100} g). ` +
     "An estimate: only as good as the laps it learnt from."
+  );
+}
+
+/** The conditions on this lap in one line, and what was different on the lap
+ * it's compared with (a hotter track or worn tyres explain a lot). */
+function Conditions({ now, other, label }: { now?: LapConditions | null; other?: LapConditions | null; label: string | null }) {
+  if (!now) return null;
+  const bits: string[] = [];
+  if (now.road_c != null) bits.push(`track ${Math.round(now.road_c)}°`);
+  if (now.air_c != null) bits.push(`air ${Math.round(now.air_c)}°`);
+  if (now.grip != null) bits.push(`grip ${Math.round(now.grip * 100)}%`);
+  if (now.tyre_wear_pct != null && now.tyre_wear_pct >= 1) bits.push(`tyres ${Math.round(now.tyre_wear_pct)}% worn`);
+  if (now.damage != null && now.damage >= 0.5) bits.push("car damaged");
+  if (now.rain != null && now.rain > 0.05) bits.push("rain");
+  if (now.time) bits.push(now.time);
+  if (!bits.length) return null;
+  const diff: string[] = [];
+  if (other) {
+    if (now.road_c != null && other.road_c != null && Math.abs(now.road_c - other.road_c) >= 4)
+      diff.push(`track ${Math.round(other.road_c)}°`);
+    if (now.grip != null && other.grip != null && Math.abs(now.grip - other.grip) >= 0.02)
+      diff.push(`grip ${Math.round(other.grip * 100)}%`);
+    if ((now.tyre_wear_pct ?? 0) - (other.tyre_wear_pct ?? 0) >= 3) diff.push(`fresher tyres`);
+    if ((now.damage ?? 0) >= 0.5 && (other.damage ?? 0) < 0.5) diff.push("no damage");
+  }
+  return (
+    <div className="lcond muted">
+      {bits.join(" · ")}
+      {diff.length > 0 && label ? <span className="lcond__diff"> · {label} had {diff.join(", ")}</span> : null}
+    </div>
   );
 }
 
