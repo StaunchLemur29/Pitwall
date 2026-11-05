@@ -501,6 +501,33 @@ def typical_corners(history: list[list[dict[str, Any]]], recent: int = 10) -> di
     return out
 
 
+SLIDE_DEG = 8.0  # the rear (or front) out this far for a moment: a slide you caught
+BIG_SLIDE_DEG = 25.0  # a big moment: nearly spun
+SLIDE_MIN_S = 0.3
+SPIN_DEG = 90.0  # side-on or worse: that's a spin, not a slide you caught
+
+
+def slide_runs(trace: dict[str, list[float]]) -> list[dict[str, Any]]:
+    """Where the car slid: the angle between where it pointed and where it went
+    stayed over SLIDE_DEG for at least SLIDE_MIN_S. Start (lap progress), how
+    long, and the worst angle. Empty for laps recorded before this was kept."""
+    slip = trace.get("slip")
+    if not slip:
+        return []
+    t, p = trace["t"], trace["p"]
+    out, start = [], None
+    for i, s in enumerate([*slip, 0.0]):
+        if s > SLIDE_DEG and i < len(slip):
+            if start is None:
+                start = i
+        elif start is not None:
+            secs = t[i - 1] - t[start]
+            if secs >= SLIDE_MIN_S:
+                out.append({"start_p": p[start], "seconds": round(secs, 1), "deg": round(max(slip[start:i]))})
+            start = None
+    return out
+
+
 def off_track_runs(trace: dict[str, list[float]], max_tyres_out: int = 2) -> list[dict[str, Any]]:
     """Where too many wheels left the track: start/end (lap progress), how long
     and how many wheels at worst. Empty for laps recorded before this was kept."""
@@ -566,6 +593,18 @@ def lap_review(
             wrong.append({"corner": None, "label": where[0].upper() + where[1:], "kind": "off", "lost_s": None,
                           "text": f"Went off {where} ({wheels}, {run['seconds']:.1f} s)."})
 
+    def near_corner(p: float) -> Any:
+        return next((c for c in model.corners
+                     if (p - (c.entry - 60 / length)) % 1.0 <= ((c.exit + 80 / length) - (c.entry - 60 / length)) % 1.0),
+                    None)
+
+    # Slides you caught: worst one per corner.
+    slide_corner: dict[int, dict[str, Any]] = {}
+    for sl in slide_runs(trace) if trace else []:
+        near = near_corner(sl["start_p"])
+        if near is not None and sl["deg"] > slide_corner.get(near.number, {}).get("deg", 0):
+            slide_corner[near.number] = sl
+
     for c in lap:
         if c.get("driven") is False:
             continue  # a lap you didn't finish (or jumped out of): only what you drove
@@ -573,9 +612,13 @@ def lap_review(
         t = typical.get(num)
         run = off_corner.get(num)
         lost = round(c["time_s"] - t["time_s"], 2) if t and t["laps"] >= 3 else None
+        sl = slide_corner.get(num)
         if run is not None:
             wheels = "all four wheels" if run["wheels"] >= 4 else f"{run['wheels']} wheels"
             text = f"Went off ({wheels}, {run['seconds']:.1f} s)"
+            if sl is not None:  # what put you off
+                text = (f"Spun ({sl['deg']} degrees) and went off ({wheels}, {run['seconds']:.1f} s)" if sl["deg"] >= SPIN_DEG
+                        else f"Slid ({sl['deg']} degrees for {sl['seconds']:.1f} s) and went off ({wheels}, {run['seconds']:.1f} s)")
             if lost is not None and lost > 0.05:
                 text += f" and lost {lost:.1f} s on your usual lap."
             elif lost is not None and lost < -0.05:
@@ -584,14 +627,43 @@ def lap_review(
                 text += "."
             wrong.append({"corner": num, "label": label(num), "kind": "off", "lost_s": lost, "text": text})
             continue
+        usual_min = t.get("min_speed_kmh") if t else None
+        spun = (lost is not None and usual_min and usual_min > 40
+                and c["min_speed_kmh"] < 0.55 * usual_min and lost > 0.3)
+        if sl is not None and sl["deg"] >= SPIN_DEG and not spun:
+            text = f"Spun: the car turned {sl['deg']} degrees."
+            if lost is not None and lost > 0.05:
+                text += f" Lost {lost:.1f} s."
+            wrong.append({"corner": num, "label": label(num), "kind": "spin", "lost_s": lost, "text": text})
+            continue
+        if sl is not None and not spun:
+            # A slide is worth knowing about even when it cost nothing this time.
+            big = sl["deg"] >= BIG_SLIDE_DEG
+            text = (f"{'Big slide, nearly spun' if big else 'Slid'}: the car was {sl['deg']} degrees "
+                    f"sideways for {sl['seconds']:.1f} s and you caught it.")
+            if lost is not None and lost > 0.05:
+                text += f" Lost {lost:.1f} s on your usual lap."
+            wrong.append({"corner": num, "label": label(num), "kind": "slide", "lost_s": lost, "text": text})
+            continue
         if lost is None or t is None:
             continue
         threshold = max(0.25, 2.5 * t["spread_s"])
-        usual_min = t.get("min_speed_kmh")
-        if usual_min and usual_min > 40 and c["min_speed_kmh"] < 0.55 * usual_min and lost > 0.3:
+        de = (c.get("exit_kmh") or 0) - (t.get("exit_kmh") or 0) if t.get("exit_kmh") is not None else 0
+        if spun:
             wrong.append({"corner": num, "label": label(num), "kind": "spin", "lost_s": lost,
                           "text": f"Spun or nearly stopped: down to {c['min_speed_kmh']:.0f} km/h "
                                   f"(usually {usual_min:.0f}). Lost {lost:.1f} s."})
+        elif (c.get("apex_gear") and t.get("apex_gear") and t["laps"] >= 3 and c["apex_gear"] != t["apex_gear"]
+              and lost > 0.05):
+            slower = f", {-de:.0f} km/h slower on the exit" if de <= -3 else ""
+            wrong.append({"corner": num, "label": label(num), "kind": "gear", "lost_s": lost,
+                          "text": f"Gear {c['apex_gear']} at the apex; you usually use {t['apex_gear']}{slower}. "
+                                  f"Lost {lost:.1f} s."})
+        elif (c.get("throttle_m") is not None and t.get("throttle_m") is not None
+              and c["throttle_m"] - t["throttle_m"] >= 15 and de <= -3 and lost > 0.05):
+            wrong.append({"corner": num, "label": label(num), "kind": "throttle", "lost_s": lost,
+                          "text": f"Slow on the power: full throttle {c['throttle_m'] - t['throttle_m']} m later "
+                                  f"than usual, {-de:.0f} km/h slower on the exit. Lost {lost:.1f} s."})
         elif lost >= threshold:
             notes = compare_notes(c, t, "your usual lap")[:2]
             why = " ".join(notes) if notes else "Small losses all the way through."
@@ -607,6 +679,7 @@ def lap_review(
             well.append({"corner": num, "label": label(num), "kind": "good", "lost_s": lost,
                          "text": f"{head}." + (f" {notes[0]}" if notes else "")})
 
-    wrong.sort(key=lambda w: (w["kind"] != "off" and w["kind"] != "spin", -(w["lost_s"] or 0)))
+    # Going off, spinning and slides first (what to look at first), then by time lost.
+    wrong.sort(key=lambda w: (w["kind"] not in ("off", "spin", "slide"), -(w["lost_s"] or 0)))
     well.sort(key=lambda w: w["lost_s"] or 0)
     return {"wrong": wrong[:5], "well": well[:3]}

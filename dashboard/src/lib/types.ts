@@ -283,7 +283,7 @@ export interface OptimalCorner {
 export interface ReviewItem {
   corner: number | null; // null: off a corner (e.g. went off on a straight)
   label: string;
-  kind: "off" | "spin" | "slow" | "good";
+  kind: "off" | "spin" | "slide" | "gear" | "throttle" | "slow" | "good";
   /** against your usual lap through there (negative = gained) */
   lost_s: number | null;
   text: string;

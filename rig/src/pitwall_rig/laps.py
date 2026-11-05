@@ -26,7 +26,21 @@ TRACE_CHANNELS = (
     "drs",  # 0 = closed / not available, 1 = available, 2 = open
     "off",  # wheels off the track (0..4): where you went off, for the lap review
     "ffb",  # force feedback output (|AC finalFF|, 0..1): 1 = clipping
+    "slip",  # degrees between where the car points and where it's going: a slide (0 at low speed)
 )
+
+
+def slip_deg(f: Frame) -> float:
+    """How far the car is sliding: the angle between its heading and its
+    direction of travel, in degrees (AC's heading runs the opposite way to
+    atan2(vx, vz); checked on the rig: about 0.4 degrees in normal driving)."""
+    if f.velocity is None or f.yaw is None:
+        return 0.0
+    vx, _, vz = f.velocity
+    if math.hypot(vx, vz) < 10.0:  # below ~36 km/h the direction of travel is noise
+        return 0.0
+    a = (math.atan2(vx, vz) + f.yaw + math.pi) % (2 * math.pi) - math.pi
+    return abs(math.degrees(a))
 
 
 REWIND = "rewind"  # jumped back along the track (Time Shift, a drill retry)
@@ -136,6 +150,7 @@ class _LapBuffer:
         tr["drs"].append(2 if f.drs_open else 1 if f.drs_available else 0)
         tr["off"].append(f.tyres_out)
         tr["ffb"].append(round(min(1.0, abs(f.ffb)), 3) if f.ffb is not None else 0.0)
+        tr["slip"].append(round(slip_deg(f), 1))
         if f.tyres_out > max_tyres_out:
             self.cuts.append(f.lap_progress)
         if f.sector != self.last_sector:
