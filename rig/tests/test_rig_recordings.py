@@ -50,7 +50,7 @@ def test_return_to_pits_reads_the_car_from_the_track_not_the_reset(tmp_path):
             captured["end"] = getattr(rig, "_last_track_snap", None)
             captured["frame_damage"] = rig.frame.damage
 
-    rig, _ = play("ac_spa_return_to_pits.pwrec", tmp_path, grab)
+    _, _ = play("ac_spa_return_to_pits.pwrec", tmp_path, grab)
     assert captured, "never got to the pits"
     assert max(captured["frame_damage"]) == 0  # the reset car, as AC shows it in the pits
     end = captured["end"]
