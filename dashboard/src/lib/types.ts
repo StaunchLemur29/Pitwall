@@ -506,7 +506,7 @@ export type ServerEvent =
   | { type: "shutdown" }
   | {
       type: "retry";
-      state: "rewinding" | "ready" | "no_rewind" | "timeout" | "stopped" | "teleporting" | "teleported" | "teleported_cold" | "no_teleport";
+      state: "rewinding" | "ready" | "no_rewind" | "timeout" | "stopped" | "teleporting" | "teleported" | "teleported_at_speed" | "teleported_cold" | "no_teleport";
     }
   | { type: "attempt"; attempt: Attempt & { start_p: number; end_p: number } };
 
