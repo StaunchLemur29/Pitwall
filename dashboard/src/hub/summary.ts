@@ -100,7 +100,7 @@ export function sessionSummary(
     best_lap_compared_with: rep.compare_label ?? null,
     corners_on_best_lap: corners,
     practice_sections: rep.practice.map((ps) => ({
-      name: ps.name, this_lap_s: ps.time_s ?? null, best_lap_s: ps.ref_s ?? null, best_drill_run_s: ps.drill_best_s ?? null,
+      name: ps.name, this_lap_s: ps.time_s ?? null, best_lap_s: ps.ref_s ?? null, your_best_s: ps.drill_best_s ?? null,
     })),
     battery_and_drs: rep.systems?.notes ?? [],
     car_has: rep.car_systems ?? [],

@@ -429,7 +429,7 @@ export function LapAnalysis({
             </div>
             {ps.drill_best_s || ps.to_beat_s ? (
               <div className="psec__sub">
-                {[ps.to_beat_s ? `to beat ${ps.to_beat_s.toFixed(2)}s` : "", ps.drill_best_s ? `best drill run ${ps.drill_best_s.toFixed(2)}s` : ""]
+                {[ps.to_beat_s ? `to beat ${ps.to_beat_s.toFixed(2)}s` : "", ps.drill_best_s ? `your best ${ps.drill_best_s.toFixed(2)}s` : ""]
                   .filter(Boolean)
                   .join(" · ")}
               </div>

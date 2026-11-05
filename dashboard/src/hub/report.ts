@@ -24,6 +24,7 @@ export interface HubLap {
   systems: CornerReport["systems"];
   time_to_beat?: TimeToBeat | null; // the PC's targets as they stood after this lap
   review?: LapReview | null; // the PC's review of this lap, uploaded with it
+  sections?: [number, number, number][] | null; // its clean passes through the practice sections: [start, end, ms]
 }
 
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
@@ -222,11 +223,20 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
     for (const c of lap) c.to_beat_s = targets.get(c.corner) ?? null;
   }
   const sectionTargets = new Map((tbAll?.sections ?? []).map((s) => [s.number, s.to_beat_s]));
+  // Your best through each section from any lap (rig.py _record_sections; the
+  // PC also counts drill runs, which aren't uploaded).
+  const sectionBest = (a: number, b: number): number | null => {
+    let best: number | null = null;
+    for (const l of inp.laps)
+      for (const [s, e, ms] of l.sections ?? [])
+        if (Math.abs(s - a) < 1e-4 && Math.abs(e - b) < 1e-4 && (best === null || ms < best)) best = ms;
+    return best !== null ? best / 1000 : null;
+  };
   const practice = inp.geometry.practice.map((ps) => ({
     ...ps,
     time_s: span(shownTrace, ps.start, ps.end),
     ref_s: span(refTrace, ps.start, ps.end),
-    drill_best_s: null,
+    drill_best_s: sectionBest(ps.start, ps.end),
     to_beat_s: sectionTargets.get(ps.number) ?? null,
   }));
   const chapters = inp.geometry.chapters.map((ch) => ({

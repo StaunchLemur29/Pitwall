@@ -124,7 +124,7 @@ export interface PracticeSection {
   end: number;
   time_s?: number | null;
   ref_s?: number | null;
-  drill_best_s?: number | null;
+  drill_best_s?: number | null; // your best through this section: a drill run or a clean pass on any lap
   /** time to beat through this section (a stretch from your usual) */
   to_beat_s?: number | null;
 }
