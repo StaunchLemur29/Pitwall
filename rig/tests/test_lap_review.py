@@ -148,3 +148,28 @@ def test_an_unfinished_lap_counts_for_the_corners_it_drove(demo, clock, config, 
     assert counted
     hist = rig._history(rig._live_ctx())
     assert [c["corner"] for c in hist[0]] == counted
+
+
+def _trace_with_slip(at_p, deg, seconds, n=4000, lap_s=100.0):
+    tr = {"t": [lap_s * i / n for i in range(n)], "p": [i / n for i in range(n)], "off": [0] * n, "slip": [0.5] * n}
+    i0 = int(at_p * n)
+    for i in range(i0, i0 + int(seconds / lap_s * n)):
+        tr["slip"][i] = deg
+    return tr
+
+
+def test_a_slide_you_caught_is_named_even_when_it_cost_nothing():
+    lap = [corner(1, 5.0), corner(2, 6.0), corner(3, 4.0)]
+    r = lap_review(lap, usual(), _trace_with_slip(0.415, 12.0, 0.6), Model())
+    assert [(w["corner"], w["kind"]) for w in r["wrong"]] == [(2, "slide")]
+    assert "12 degrees" in r["wrong"][0]["text"] and "caught it" in r["wrong"][0]["text"]
+    # a short wobble isn't a slide; a car turned round is a spin
+    assert lap_review(lap, usual(), _trace_with_slip(0.415, 12.0, 0.1), Model())["wrong"] == []
+    spun = lap_review(lap, usual(), _trace_with_slip(0.415, 170.0, 2.0), Model())["wrong"]
+    assert spun[0]["kind"] == "spin"
+
+
+def test_wrong_gear_and_slow_on_the_power_are_named():
+    lap = [corner(1, 5.3, gear=4, exit_kmh=140), corner(2, 6.3, throttle_m=45, exit_kmh=142), corner(3, 4.0)]
+    kinds = {w["corner"]: w["kind"] for w in lap_review(lap, usual(), None, Model())["wrong"]}
+    assert kinds == {1: "gear", 2: "throttle"}

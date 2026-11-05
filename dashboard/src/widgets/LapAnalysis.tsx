@@ -231,7 +231,7 @@ export function LapAnalysis({
 
   // The good and the bad of this lap, against your usual (worked out on the PC).
   const review = report?.review ?? null;
-  const KIND: Record<string, string> = { off: "went off", spin: "spin", slow: "slow", good: "" };
+  const KIND: Record<string, string> = { off: "went off", spin: "spin", slide: "slide", gear: "gear", throttle: "on the power", slow: "slow", good: "" };
   const reviewItem = (w: NonNullable<typeof review>["wrong"][number], good: boolean) => (
     <button
       key={`${w.kind}${w.corner ?? w.label}`}
