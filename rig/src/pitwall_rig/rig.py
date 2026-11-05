@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 import statistics
 import threading
@@ -332,6 +333,7 @@ class Rig:
                     self.csp.touch()
             if lap.id is not None:  # every lap: the corners it drove well count, finished or not
                 self._analyse(lap.id, lap.trace, track)
+                self._record_sections(lap, track)
             self._emit_corners(lap.id)
         with self.lock:
             s = self.session
@@ -412,6 +414,32 @@ class Rig:
             return
         self.store.set_lap_corners(lap_id, self._model_sig(track),
                                    analyse_lap(trace, track.model, self.config["laps"]["max_tyres_out"]))
+
+    def _record_sections(self, lap: Lap, track: TrackState) -> None:
+        """Keep this lap's clean passes through each practice section, so your best
+        through a section counts even if the lap was an out lap or you crashed
+        later. Not from a lap with a rewind (never a best), not a section you
+        went off in, and only where the lap was driven all the way through it."""
+        if lap.id is None or lap.rewound or not lap.trace.get("p"):
+            return
+        view = LapView.of(lap.trace)
+        off = lap.trace.get("off") or []
+        limit = self.config["laps"]["max_tyres_out"]
+        passes = []
+        for ps in track.model.practice:
+            a, b = ps.start, ps.end
+            if not (b > a and _covers(view, a, b)):
+                continue  # runs over the line, or the lap didn't drive all of it
+            i, j = view.at(a), view.at(b)
+            ts = lap.trace["t"][i:j + 1]
+            if any(t2 - t1 > 0.5 or t2 < t1 for t1, t2 in itertools.pairwise(ts)):
+                continue  # a gap in the telemetry: not driven through in one go
+            if any(o > limit for o in off[i:j + 1]):
+                continue
+            ms = round((view.time_at(b) - view.time_at(a)) * 1000)
+            if ms > 0:
+                passes.append((a, b, ms))
+        self.store.add_lap_sections(lap.id, lap.game, lap.car, lap.track_key, passes)
 
     def _history(self, ctx: AnalysisCtx, exclude: int | None = None, limit: int = 30,
                  skip_rewound: bool = False) -> list[list[dict[str, Any]]]:
@@ -614,7 +642,7 @@ class Rig:
             "corners_on_best_lap": corners,
             "practice_sections": [
                 {"name": ps["name"], "this_lap_s": ps.get("time_s"), "best_lap_s": ps.get("ref_s"),
-                 "best_drill_run_s": ps.get("drill_best_s")}
+                 "your_best_s": ps.get("drill_best_s")}
                 for ps in rep.get("practice", [])
             ],
             "battery_and_drs": (rep.get("systems") or {}).get("notes", []),
