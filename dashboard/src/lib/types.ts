@@ -465,6 +465,8 @@ export interface Live {
   time_to_beat_ms?: number | null;
   /** the side screen's coach strip */
   coach?: CoachLive | null;
+  /** how the stint went, while you're in the pits */
+  pit_report?: PitReport | null;
   driving_s: number;
   track: TrackLive | null;
 }
@@ -519,4 +521,20 @@ export interface LapConditions {
   time?: string | null; // "14:20", from the in-game app
   rain?: number | null;
   weather?: number | null;
+}
+
+/** The pit report: how the stint went. */
+export interface PitReport {
+  laps: number;
+  clean_laps: number;
+  best: string | null;
+  typical: string | null;
+  spread_s: number | null;
+  new_pb: boolean;
+  repeats: { label: string; kind: string; laps: number; lost_s: number; text: string }[];
+  worst: { label: string; kind: string; text: string }[];
+  counts: Record<string, number>;
+  car: string[];
+  next: string | null;
+  race?: { position: number } | null;
 }

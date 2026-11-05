@@ -134,6 +134,11 @@ class Rig:
         self.on_lap_saved: Callable[[], None] = lambda: None  # e.g. wake the cloud sync
         # (game, car, track_key) of a session that just ended, e.g. to write its debrief
         self.on_session_end: Callable[[str, str, str], None] = lambda g, c, t: None
+        self.on_pit: Callable[[str, str, str], None] = lambda g, c, t: None  # e.g. write the AI debrief so far
+        self.pit_report: dict[str, Any] | None = None  # how the stint went, while you're in the pits
+        self._in_pits = False
+        self._stint_t0 = time.time()  # when this stint started (you left the pits)
+        self._stint_cond: dict[str, Any] | None = None
         # rates for the lag meter: rig ticks/s and new game packets/s
         self._rate_t0 = time.perf_counter()
         self._ticks = 0
@@ -176,6 +181,7 @@ class Rig:
                     log.exception("Session-end hook failed")
             self.session = session
             self.conditions.reset()
+            self.pit_report, self._stint_t0, self._stint_cond = None, time.time(), None
             self._load_car_profile()
             if session is not None:
                 log.info("Session: %s on %s (%s)", session.car, session.track_key, session.session_type.value)
@@ -208,6 +214,7 @@ class Rig:
             self._save_car_profile()
         self._note_tyres(frame)
         self.conditions.update(frame, now)
+        self._note_pits(frame)
         self.laps.max_tyres_out = self.config["laps"]["max_tyres_out"]
         self._feed_wheel(frame)
         self.laps.practising = self.track is not None and self.track.drill is not None
@@ -229,6 +236,61 @@ class Rig:
                 self.emit({"type": "attempt", "attempt": attempt})
         else:
             self.track_live = None
+
+    # -- the pit report ------------------------------------------------------------
+
+    def _note_pits(self, f: Frame) -> None:
+        """Coming into the pits: work out how the stint went. Leaving: a new stint."""
+        if f.status != GameStatus.LIVE:
+            return
+        if self._stint_cond is None:
+            self._stint_cond = self.conditions.snapshot(f)
+        in_pits = f.in_pit_lane or f.in_pit_box
+        p0, self._stint_p = getattr(self, "_stint_p", None), f.lap_progress
+        if p0 is not None and 0 < (f.lap_progress - p0) % 1.0 < 0.01:
+            self._stint_laps_driven = getattr(self, "_stint_laps_driven", 0.0) + (f.lap_progress - p0) % 1.0
+        if not in_pits:
+            # the car as it was out on track: "return to pits" resets it before we see the pits
+            self._last_track_snap = self.conditions.snapshot(f)
+        if in_pits and not self._in_pits:
+            s = self.session
+            if s is not None:
+                end = getattr(self, "_last_track_snap", None) or self.conditions.snapshot(f)
+                # in a moment: the lap you just finished (or left) is still being saved
+                driven = getattr(self, "_stint_laps_driven", 0.0)
+                threading.Timer(2.0, self._build_pit_report, args=(s.game, s.car, s.track_key, end, driven)).start()
+        elif not in_pits and self._in_pits:
+            self.pit_report = None
+            self._stint_t0 = time.time()
+            self._stint_laps_driven = 0.0
+            self._stint_cond = self.conditions.snapshot(f)
+        self._in_pits = in_pits
+
+    def _build_pit_report(self, game: str, car: str, track_key: str, end: dict[str, Any] | None,
+                          driven: float = 0.0) -> None:
+        from .stint import stint_report
+
+        try:
+            laps = [x for x in self.store.laps(game, track_key, car, limit=200) if x["started_at"] >= self._stint_t0 - 1]
+            laps.sort(key=lambda x: x["started_at"])
+            if not laps:
+                return
+            reviews = {}
+            for x in laps:
+                rep = self.corner_report(x["id"], None, game=game, car=car, track_key=track_key)
+                reviews[x["id"]] = rep.get("review") or {}
+            best = self.store.best_lap(game, track_key, car)
+            f = self.frame
+            race = {"position": f.position} if f is not None and self.session is not None \
+                and self.session.session_type.value == "race" and f.position else None
+            with self.lock:
+                focus = (self._coach_live() or {}).get("focus")
+                self.pit_report = stint_report(laps, reviews, best["lap_time_ms"] if best else None,
+                                               self._stint_cond, end, focus, race, laps_driven=driven)
+                self.emit({"type": "pit_report", "report": self.pit_report})
+            self.on_pit(game, car, track_key)
+        except Exception:
+            log.exception("Couldn't build the pit report")
 
     def _session_changed(self, s: SessionInfo | None) -> bool:
         a, b = self.session, s
@@ -1317,10 +1379,11 @@ class Rig:
         self.conditions.set_env(body.get("env") if isinstance(body.get("env"), dict) else None)
         for e in self.csp.sync(body):
             if e.get("type") == "teleport":
-                state = "teleported" if e.get("ok") else "no_teleport"
-                if e.get("ok") and e.get("tyres") not in (None, "warm"):
-                    state = "teleported_cold"  # this CSP couldn't warm the tyres back up
-                self.emit({"type": "retry", "state": state})
+                self.emit({"type": "retry", "state": "teleported" if e.get("ok") else "no_teleport"})
+            if e.get("type") == "tyres":  # two seconds after a teleport: did the tyres really warm up?
+                log.info("Teleport tyres: %s (wanted %s, now %s)", e.get("result"), e.get("target_c"), e.get("now_c"))
+                if e.get("result") != "warm":
+                    self.emit({"type": "retry", "state": "teleported_cold"})  # this CSP couldn't warm them
             if e.get("type") == "retry" and self._retry is not None and self._retry.get("csp"):
                 self._retry = None
                 if e.get("ok"):
@@ -1399,6 +1462,7 @@ class Rig:
             "theoretical_best_ms": self.theoretical_best_ms,
             "time_to_beat_ms": self.time_to_beat_ms,
             "coach": self._coach_live(),
+            "pit_report": self.pit_report,
             "driving_s": round(self.driving_s, 1),
             "track": self.track_live,
         }

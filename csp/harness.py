@@ -112,7 +112,13 @@ def main() -> int:
     web = to_lua({})
     web.timeouts = lambda *a: None
     web.get = lambda url, cb: respond(cb, *http("GET", url))
-    web.post = lambda url, headers, data, cb: respond(cb, *http("POST", url, data))
+    posted: list[str] = []
+
+    def post(url, headers, data, cb):
+        posted.append(data or "")
+        respond(cb, *http("POST", url, data))
+
+    web.post = post
     g.web = web
     g.setInterval = lambda fn, every: state["intervals"].append(fn)
     g.os.preciseClock = lambda: state["now"]
@@ -269,6 +275,33 @@ def main() -> int:
           temps and target >= 75 and all(t["t"] == target and t["wheel"] == 15 for t in temps)
           and g.car.wheels[0].tyreCoreTemperature == target,
           str(temps)[:200])
+
+    def tyre_events():
+        out = []
+        for body in posted:
+            try:
+                out += [e for e in json.loads(body).get("events") or [] if e.get("type") == "tyres"]
+            except (ValueError, AttributeError):
+                pass
+        return out
+
+    # Two seconds on, the app checks the tyres really are warm before saying so.
+    for _ in range(125):
+        script.update(1 / 60)
+    tick(2)
+    ev = tyre_events()
+    check("... and checks they really are warm", ev and ev[-1]["result"] == "warm", str(ev)[-200:])
+    # A CSP that takes the call but doesn't warm them: say so, don't claim warm.
+    lua.execute("_realWarm = physics.setTyresTemperature; physics.setTyresTemperature = function () end")
+    posted.clear()
+    http("POST", RIG + "/api/drill", json.dumps({"corner": c1["n"], "teleport": True}))
+    tick(3)
+    for _ in range(125):
+        script.update(1 / 60)
+    tick(2)
+    ev = tyre_events()
+    check("... and says when they stayed cold", ev and ev[-1]["result"] == "no_effect", str(ev)[-200:])
+    lua.execute("physics.setTyresTemperature = _realWarm")
     g.car.speedKmh = 180
 
     p = (run_up - 0.01) % 1.0

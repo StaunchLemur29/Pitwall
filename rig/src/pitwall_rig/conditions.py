@@ -21,13 +21,15 @@ from .laps import slip_deg
 from .models import Frame, GameStatus
 
 DAMAGE_STEP = 0.5  # a jump in AC's damage numbers this big is contact, not noise
-DIRTY = 0.5  # AC tyre dirt level above this: picked up grass or gravel
+DIRTY = 1.0  # AC tyre dirt level (0..5) above this: grass or gravel (kerbs blip to ~0.3; seen on the rig)
 CLEAN = 0.1
 ROAD_STEP_C = 4.0  # track this much hotter or cooler than at the start of the stint
 GRIP_STEP = 0.02  # track grip (AC surfaceGrip, 0..1) up or down by two points
 WEAR_STEPS = (3.0, 6.0, 10.0)  # tyre wear lost since the stint started (AC's wear numbers)
 NOTICE_S = 20.0  # how long a notice stays up
-DAMAGE_PARTS = ("front", "rear", "left side", "right side", "centre")
+INCIDENT_S = 6.0  # one crash, one notice: everything that happens within this is the same incident
+SETTLE_S = 60.0  # the track readings settle at the start of a stint: no track notices before this
+DAMAGE_PARTS = ("front", "rear", "left", "right")  # AC's 5th value is the worst of these (seen on the rig)
 
 
 @dataclass
@@ -56,7 +58,11 @@ class Conditions:
     _dark: bool | None = None
     _last: Frame | None = None
     _speeds: deque = field(default_factory=lambda: deque(maxlen=400))  # (t, km/h) for the last moments
-    _stopped: bool = False
+    _incident_t: float = -1e9  # when the current incident started
+    _incident_parts: list[str] = field(default_factory=list)
+    _incident_stopped: bool = False
+    _dirty_t: float = 0.0
+    _stint_t: float = 0.0
 
     def set_env(self, env: dict[str, Any] | None) -> None:
         if not env:
@@ -98,39 +104,40 @@ class Conditions:
             self._wear_said = 0
             self._road_said = self._start.get("road_c")
             self._grip_said = self._start.get("grip")
+            self._stint_t = now
             return
 
-        # Contact: AC's damage numbers jump. Say where, and what else the crash did.
+        # A crash: damage jumps, or nearly stopped on track having been at speed
+        # moments ago, or the car side-on. One notice per incident (a crash goes
+        # on for a few seconds), saying everything it did.
+        parts: list[str] = []
         if f.damage and self._damage and len(f.damage) == len(self._damage):
-            jumps = [i for i, (a, b) in enumerate(zip(f.damage, self._damage, strict=False)) if a - b >= DAMAGE_STEP]
-            if jumps:
-                where = " and ".join(DAMAGE_PARTS[i] for i in jumps if i < len(DAMAGE_PARTS)) or "car"
-                self._say("crash", f"Contact: {where} damaged. The car won't be as quick from here: "
-                          "compare with care, and pit to repair if it's bad.", now)
+            parts = [DAMAGE_PARTS[i] for i, (a, b) in enumerate(zip(f.damage, self._damage, strict=False))
+                     if i < len(DAMAGE_PARTS) and a - b >= DAMAGE_STEP]
+            if not parts and f.damage[-1] - self._damage[-1] >= DAMAGE_STEP:
+                parts = ["the car"]
             self._damage = list(f.damage)
+        top = max(v for _, v in self._speeds)
+        stopped = not f.in_pit_lane and ((f.speed_kmh < 20 and top > 60) or slip_deg(f) > 90)
+        if parts or stopped:
+            if now - self._incident_t > INCIDENT_S:  # (since its last event: a long stop is still the same crash)
+                self._incident_parts, self._incident_stopped = [], False
+            self._incident_t = now
+            self._incident_parts += [p for p in parts if p not in self._incident_parts]
+            self._incident_stopped |= stopped
+            self._say("crash", self._incident_text(), now)
 
         # Off into the grass or gravel: dirty tyres for a bit.
         dirt = max(f.tyre_dirt) if f.tyre_dirt else None
         if dirt is not None:
             if not self._dirty and dirt > DIRTY:
-                self._dirty = True
-                self._say("dirt", "Dirty tyres after going off: less grip for the next few corners. "
-                          "Take it easy until they clean up.", now)
+                self._dirty, self._dirty_t = True, now
+                if now - self._incident_t > INCIDENT_S:  # a crash's notice already covers it
+                    self._say("dirt", "Dirty tyres after going off: less grip for a few corners.", now)
             elif self._dirty and dirt < CLEAN:
                 self._dirty = False
-                self._say("clean", "Tyres clean again: back to full grip.", now)
-
-        # Big moment: nearly stopped on track having been at speed moments ago, or
-        # the car turned side-on (a crash or a spin). Tyres cool, maybe dirty or
-        # flat-spotted. (Hard braking for a hairpin doesn't get below 20 km/h.)
-        top = max(v for _, v in self._speeds)
-        spun = slip_deg(f) > 90
-        if not self._stopped and not f.in_pit_lane and ((f.speed_kmh < 20 and top > 60) or spun):
-            self._stopped = True
-            self._say("crash", "You crashed or spun: the tyres will be cooler and may be dirty or flat-spotted. "
-                      "Build back up for a lap before pushing.", now)
-        elif self._stopped and f.speed_kmh > 80:
-            self._stopped = False
+                if now - self._dirty_t > 5 and now - self._incident_t > INCIDENT_S:  # not for a quick blip
+                    self._say("clean", "Tyres clean again: back to full grip.", now)
 
         cur = self._read(f)
         # Worn tyres: say it at a few steps through the stint.
@@ -142,14 +149,17 @@ class Conditions:
                 self._say("wear", f"Tyres worn about {lost:.0f}% this stint: less grip, so brake a little earlier "
                           "and expect the car to slide sooner.", now)
         # The track: hotter or cooler, grippier or slipperier.
+        settled = now - self._stint_t > SETTLE_S
+        if not settled:  # the first readings of a stint can jump: start from where they settle
+            self._road_said, self._grip_said = cur.get("road_c"), cur.get("grip")
         road = cur.get("road_c")
-        if road is not None and self._road_said is not None and abs(road - self._road_said) >= ROAD_STEP_C:
+        if settled and road is not None and self._road_said is not None and abs(road - self._road_said) >= ROAD_STEP_C:
             word = "hotter" if road > self._road_said else "cooler"
             self._say("track", f"Track {abs(road - self._road_said):.0f}° {word} than earlier ({road:.0f}°): "
                       f"{'a little less' if word == 'hotter' else 'different'} grip, lap times may move.", now)
             self._road_said = road
         grip = cur.get("grip")
-        if grip is not None and self._grip_said is not None and abs(grip - self._grip_said) >= GRIP_STEP:
+        if settled and grip is not None and self._grip_said is not None and abs(grip - self._grip_said) >= GRIP_STEP:
             word = "up" if grip > self._grip_said else "down"
             self._say("track", f"Track grip {word} to {grip * 100:.0f}%"
                       f"{' (rubbering in): you can brake a bit later' if word == 'up' else ': brake a bit earlier'}.", now)
@@ -168,6 +178,16 @@ class Conditions:
             if self._dark is not None and dark and not self._dark:
                 self._say("light", "Getting dark: braking markers are harder to see, pick your points early.", now)
             self._dark = dark
+
+    def _incident_text(self) -> str:
+        """One short line (it has to fit the coach strip)."""
+        p = self._incident_parts
+        if p:
+            names = p[0] if len(p) == 1 else ", ".join(p[:-1]) + " and " + p[-1]
+            text = f"Crash: {names} damaged"
+            text += ", tyres cooler and maybe dirty." if self._incident_stopped else "."
+            return text + " Pit if it's bad."
+        return "Crashed or spun: tyres cooler, maybe dirty or flat-spotted. Build back up for a lap."
 
     def _read(self, f: Frame) -> dict[str, Any]:
         return {

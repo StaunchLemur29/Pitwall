@@ -123,21 +123,43 @@ local function teleport(p, learnt)
   -- CSP's own debug app passes the direction reversed; if the car still comes
   -- out facing backwards it's turned round on the next frame (see settleStep)
   physics.setCarPosition(0, pos, -dir)
-  settle = { pos = pos, dir = dir, frames = 3, flipped = false, tyreTemp = temp }
+  -- keep warming for two seconds (the reset can land after the first go), then
+  -- check the tyres really are warm before saying so
+  settle = { pos = pos, dir = dir, frames = 120, age = 0, flipped = false, tyreTemp = temp }
   settle.tyres = warmTyres(temp)
   lastSpline = nil
   return nil
 end
 
+local function avgTyreTemp()
+  local ok, t = pcall(function ()
+    local sum = 0
+    for i = 0, 3 do sum = sum + car.wheels[i].tyreCoreTemperature end
+    return sum / 4
+  end)
+  return ok and t or nil
+end
+
 local function settleStep()
   local st = settle
-  if not st.flipped and car.look:dot(st.dir) < 0 then
+  st.age = st.age + 1
+  if st.age <= 3 and not st.flipped and car.look:dot(st.dir) < 0 then
     physics.setCarPosition(0, st.pos, st.dir)
     st.flipped = true
   end
-  warmTyres(st.tyreTemp) -- again for a few frames: the reset can land after the first go
+  if st.tyres == 'warm' then warmTyres(st.tyreTemp) end
   st.frames = st.frames - 1
-  if st.frames <= 0 then settle = nil end
+  if st.frames <= 0 then
+    -- Did it work? Only say "warm" if the tyres read warm now.
+    local now = avgTyreTemp()
+    local result = st.tyres
+    if result == 'warm' and not (now and st.tyreTemp and now >= st.tyreTemp - 8) then result = 'no_effect' end
+    events[#events + 1] = { type = 'tyres', result = result, target_c = st.tyreTemp, now_c = now }
+    if result ~= 'warm' then
+      say(string.format('Teleported: tyres are cold (%s°), this CSP can\'t warm them', now and math.floor(now + 0.5) or '?'))
+    end
+    settle = nil
+  end
 end
 
 local function handle(cmd)
@@ -147,9 +169,8 @@ local function handle(cmd)
       say('Teleport only works in offline practice')
     else
       local why = teleport(tonumber(cmd.p) or 0, tonumber(cmd.tyre_c))
-      events[#events + 1] = { type = 'teleport', ok = why == nil, reason = why, tyres = settle and settle.tyres or nil,
-                              tyre_c = settle and settle.tyreTemp or nil }
-      if settle and settle.tyres ~= 'warm' then say('Teleported: tyres are cold, this CSP can\'t warm them') end
+      -- whether the tyres warmed up is reported two seconds later (a 'tyres' event)
+      events[#events + 1] = { type = 'teleport', ok = why == nil, reason = why }
     end
   end
   if cmd.cmd == 'retry' then

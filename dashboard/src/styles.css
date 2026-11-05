@@ -2919,3 +2919,41 @@ select {
 .lcond__diff {
   color: var(--warn);
 }
+
+/* -- a drill still running while paused or in the pits ------------------------ */
+.drillbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* -- the pit report -------------------------------------------------------------- */
+.pitrep {
+  margin: 0 16px 12px;
+  padding: 16px 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 22px;
+}
+
+.pitrep ul {
+  margin: 4px 0 0;
+  padding-left: 1.1em;
+}
+
+.pitrep__sub {
+  color: var(--muted);
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pitrep__next {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+}
