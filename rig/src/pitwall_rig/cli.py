@@ -113,7 +113,8 @@ def cmd_run(args: argparse.Namespace) -> None:
     from .server import CLOUD_KEY
 
     cloud = (
-        CloudSync(store, data_dir, geometry_for=rig.track_geometry, extras_for=rig.cloud_extras)
+        CloudSync(store, data_dir, geometry_for=rig.track_geometry, extras_for=rig.cloud_extras,
+                  combo_for=rig.cloud_combo)
         if game not in ("demo", "replay")
         else None
     )

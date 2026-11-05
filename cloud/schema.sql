@@ -61,6 +61,19 @@ create table if not exists public.car_profiles (
   primary key (user_id, game, car)
 );
 
+-- Per car + track: the optimal run (so the hub can compare with it and colour
+-- the map against it) and your best drill runs through each section.
+create table if not exists public.combo_extras (
+  user_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  game        text not null,
+  car         text not null,
+  track_key   text not null,
+  optimal     jsonb,  -- {lap_s, trace}
+  drill_bests jsonb,  -- [[start, end, ms], ...]
+  updated_at  timestamptz not null default now(),
+  primary key (user_id, game, car, track_key)
+);
+
 -- AI debriefs (filled in later in phase 2).
 create table if not exists public.debriefs (
   id          bigint generated always as identity primary key,
@@ -83,11 +96,12 @@ alter table public.laps enable row level security;
 alter table public.tracks enable row level security;
 alter table public.car_profiles enable row level security;
 alter table public.debriefs enable row level security;
+alter table public.combo_extras enable row level security;
 
 do $$
 declare t text;
 begin
-  foreach t in array array['laps', 'tracks', 'car_profiles', 'debriefs'] loop
+  foreach t in array array['laps', 'tracks', 'car_profiles', 'debriefs', 'combo_extras'] loop
     execute format('drop policy if exists "own rows" on public.%I', t);
     execute format(
       'create policy "own rows" on public.%I for all to authenticated

@@ -456,6 +456,16 @@ class Store:
         row = self._db.execute("SELECT conditions FROM laps WHERE id=?", (lap_id,)).fetchone()
         return json.loads(row["conditions"]) if row and row["conditions"] else None
 
+    def best_drill_runs(self, game: str, car: str, track_key: str) -> list[list[float]]:
+        """Your best clean drill run through each section: [start, end, ms] (drill runs only)."""
+        rows = self._db.execute(
+            """SELECT start_p, end_p, MIN(time_ms) AS best FROM section_attempts
+               WHERE game=? AND car=? AND track_key=? AND clean=1 AND lap_id IS NULL
+               GROUP BY round(start_p, 4), round(end_p, 4)""",
+            (game, car, track_key),
+        ).fetchall()
+        return [[float(r["start_p"]), float(r["end_p"]), int(r["best"])] for r in rows]
+
     def best_sections(self, game: str, car: str, track_key: str) -> list[tuple[float, float, int]]:
         """(start_p, end_p, best clean time) of every section: drill runs and clean passes on any lap."""
         rows = self._db.execute(

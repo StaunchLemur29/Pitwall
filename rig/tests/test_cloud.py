@@ -96,3 +96,25 @@ def test_laps_from_an_older_upload_go_up_again_once(demo, clock, config, store, 
     assert restarted.sync_once() == len(store.laps(limit=100))
     CloudSync(store, tmp_path)  # and only once
     assert store.unsynced_count() == 0
+
+
+def test_the_optimal_run_and_drill_bests_reach_the_hub_once(demo, clock, config, store, tmp_path, supa):
+    """Per car + track: the optimal run (so the hub can compare with it) and your
+    best drill runs, uploaded when they change, not on every sync."""
+    rig = Rig(demo, store, config, emit=lambda e: None, clock=clock)
+    drive(rig, clock, laps=5)
+    rig._optimal_run(rig._live_ctx(), wait=True)
+    s = rig.session
+    store.add_section_attempt(s.game, s.car, s.track_key, 0.1, 0.2, 9000, True)
+    sync = CloudSync(store, tmp_path, geometry_for=rig.track_geometry, extras_for=rig.cloud_extras,
+                     combo_for=rig.cloud_combo)
+    sync.connect(supa.url, "anon", "me@example.com", "pw")
+    sync.sync_once()
+    (row,) = supa.rows("combo_extras")
+    assert row["optimal"]["lap_s"] > 0 and row["optimal"]["trace"]["speed"]
+    assert row["drill_bests"] == [[0.1, 0.2, 9000]]
+    # the same again: nothing new to send (the stored row isn't replaced)
+    supa.tables["combo_extras"][next(iter(supa.tables["combo_extras"]))]["marker"] = 1
+    sync._send_context(sync.client, store.laps(limit=10))
+    (row,) = supa.rows("combo_extras")
+    assert row.get("marker") == 1

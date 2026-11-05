@@ -1060,6 +1060,16 @@ class Rig:
             log.exception("Couldn't work out the optimal run for %s", model.track_key)
         return run
 
+    def cloud_combo(self, game: str, car: str, track_key: str) -> dict[str, Any] | None:
+        """What the hub needs per car + track that isn't in any one lap: the
+        optimal run (about every 4 m) and your best drill run through each section."""
+        opt = self.optimal_trace(game, car, track_key)
+        if opt:
+            keep = ("t", "p", "x", "z", "speed", "gas", "brake", "gear")
+            opt = {"lap_s": opt["lap_s"], "trace": {k: v for k, v in opt["trace"].items() if k in keep}}
+        drills = self.store.best_drill_runs(game, car, track_key)
+        return {"optimal": opt, "drill_bests": drills} if opt or drills else None
+
     def optimal_trace(self, game: str | None, car: str | None, track_key: str | None) -> dict[str, Any] | None:
         """The optimal run as a lap trace for the charts (about every 4 m)."""
         ctx = self.analysis_ctx(game, car, track_key)

@@ -137,6 +137,8 @@ export interface ReportInput {
   profile: CarProfile | null;
   /** Telemetry of the shown lap and of the best lap (for section and chapter times). */
   traces: Map<number, Trace>;
+  /** Per car + track, uploaded by the PC: the optimal run's lap time and your best drill runs. */
+  extras?: { optimal_lap_s: number | null; drill_bests: [number, number, number][] } | null;
 }
 
 export function buildReport(inp: ReportInput, lapId: number | null, compareId: number | null): CornerReport {
@@ -250,13 +252,13 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
     for (const c of lap) c.to_beat_s = targets.get(c.corner) ?? null;
   }
   const sectionTargets = new Map((tbAll?.sections ?? []).map((s) => [s.number, s.to_beat_s]));
-  // Your best through each section from any lap (rig.py _record_sections; the
-  // PC also counts drill runs, which aren't uploaded).
+  // Your best through each section: a clean pass on any lap (rig.py
+  // _record_sections) or a drill run (uploaded per car + track).
   const sectionBest = (a: number, b: number): number | null => {
     let best: number | null = null;
-    for (const l of inp.laps)
-      for (const [s, e, ms] of l.sections ?? [])
-        if (Math.abs(s - a) < 1e-4 && Math.abs(e - b) < 1e-4 && (best === null || ms < best)) best = ms;
+    const runs = [...inp.laps.flatMap((l) => l.sections ?? []), ...(inp.extras?.drill_bests ?? [])];
+    for (const [s, e, ms] of runs)
+      if (Math.abs(s - a) < 1e-4 && Math.abs(e - b) < 1e-4 && (best === null || ms < best)) best = ms;
     return best !== null ? best / 1000 : null;
   };
   const practice = inp.geometry.practice.map((ps) => ({
@@ -293,6 +295,8 @@ export function buildReport(inp: ReportInput, lapId: number | null, compareId: n
     compare: cmp?.corners ?? optCompare,
     compare_lap_id: cmp ? cmp.id : null,
     compare_label: label,
+    // the optimal run worked out on the PC (its trace comes separately, for the charts and map)
+    optimal: inp.extras?.optimal_lap_s ? { lap_s: inp.extras.optimal_lap_s, laps_used: 0, grip: {} } : null,
     compare_kind: kind,
     conditions: shown?.conditions ?? null,
     compare_conditions: kind === "lap" ? cmp?.conditions ?? null : null,
