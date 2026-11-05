@@ -1192,9 +1192,12 @@ class Rig:
             return False
         d = self.track.drill.drill
         run_up = self.track.lead_in_m(d, float(self.config["drills"]["lead_in_s"]))
-        back = self.track.standing_start_m(d, min_m=run_up + self.TELEPORT_EXTRA_M)
+        back = self.track.standing_start_m(d, min_m=run_up + self.TELEPORT_EXTRA_M, run_up_m=run_up)
         p = (d.start_p - back / self.track.model.length_m) % 1.0
-        self.csp.send({"cmd": "teleport", "key": self._drill_key(), "p": p})
+        # Warm the tyres to what this car runs at on your laps (the reset leaves
+        # them cold, and before a teleport they may be cold too, e.g. after the pits).
+        tyre_c = (self.car_profile or {}).get("tyre_working_c")
+        self.csp.send({"cmd": "teleport", "key": self._drill_key(), "p": p, "tyre_c": tyre_c})
         self.emit({"type": "retry", "state": "teleporting"})
         return True
 
@@ -1213,12 +1216,15 @@ class Rig:
         # The in-game timer's target: the time to beat while it's quicker than
         # your best run, else your best (same as the side screen).
         target = st.target_ms if st.target_ms and (not st.best_ms or st.target_ms < st.best_ms) else st.best_ms
+        run_up_p = (d.start_p - lead / self.track.model.length_m) % 1.0
         return {
             "key": self._drill_key(),
             "name": d.name,
             "start_p": d.start_p,
             "end_p": d.end_p,
-            "run_up_p": (d.start_p - lead / self.track.model.length_m) % 1.0,
+            "run_up_p": run_up_p,
+            # retries start from the state saved here: only save it at your usual speed
+            "run_up_kmh": self.track.ref_kmh_at(run_up_p),
             "target_ms": target,
             "target_is_best": target is not None and target == st.best_ms,
         }

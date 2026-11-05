@@ -46,6 +46,7 @@ class JumpDetector:
     BACK = 0.003  # lap fraction backwards in one frame (~15 m): only a rewind does that
     MAX_REWIND = 0.2  # further back than this (a fifth of a lap) is a teleport, not a Time Shift rewind
     SLACK_M = 8.0
+    MAX_REWIND_M = 300.0  # one frame of Time Shift playback is far less than this
 
     def __init__(self) -> None:
         self._prev: Frame | None = None
@@ -68,7 +69,17 @@ class JumpDetector:
         v = max(f.speed_kmh, prev.speed_kmh) / 3.6
         if moved <= v * dt * 1.5 + self.SLACK_M:
             return None
-        return REWIND if 0.0 < back <= self.MAX_REWIND else TELEPORT
+        if 0.0 < back <= self.MAX_REWIND:
+            return REWIND
+        # Time Shift plays the car backwards a few metres a frame, but AC only
+        # moves lap progress on every few frames: on the others the progress is
+        # unchanged, so tell by the way the car moved against its own velocity.
+        vel = prev.velocity or f.velocity
+        if back == 0.0 and vel and moved < self.MAX_REWIND_M:
+            step = [a - b for a, b in zip(f.world, prev.world, strict=False)]
+            if sum(a * b for a, b in zip(step, vel, strict=False)) < 0:
+                return REWIND
+        return TELEPORT
 
 
 @dataclass

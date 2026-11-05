@@ -57,3 +57,27 @@ def test_real_ac_recording_yields_a_valid_lap():
     assert lap.valid and not lap.out_lap
     assert lap.track_key == "spa@2022"
     assert len(lap.sector_ms) == 3 and sum(lap.sector_ms) == 148252
+
+
+def test_real_time_shift_rewind_is_never_a_teleport():
+    """A Time Shift rewind from the rig (Spa): AC moves the car back a few metres
+    a frame but only updates lap progress every few frames. It must read as a
+    rewind all the way, never a teleport (which would make the lap an out lap)."""
+    from pathlib import Path
+
+    from pitwall_rig.laps import REWIND, TELEPORT, JumpDetector
+
+    path = Path(__file__).parent / "fixtures" / "ac_spa_timeshift.pwrec"
+    t = [0.0]
+    rp = ReplayAdapter(path, clock=lambda: t[0], loop=False)
+    jd = JumpDetector()
+    seen = []
+    while t[0] < rp._duration:
+        t[0] += 1 / 60
+        f = rp.poll()
+        if f.status == GameStatus.LIVE:
+            j = jd.step(f)
+            if j:
+                seen.append(j)
+    assert seen.count(REWIND) > 10
+    assert TELEPORT not in seen

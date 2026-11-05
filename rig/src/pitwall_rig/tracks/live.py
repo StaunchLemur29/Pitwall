@@ -166,7 +166,8 @@ class TrackState:
                 return max(30.0, ((d.start_p - p) % 1.0) * length)
         return seconds * fallback_mps
 
-    STANDING_MARGIN = 0.85  # assume you accelerate a bit less hard than your best lap
+    STANDING_MARGIN = 0.7  # pulling away on cold tyres is slower than your best lap (seen on the rig: 0.85 fell 25 km/h short)
+    STANDING_EXTRA = 1.25  # and then some: being too far back costs a few seconds once, too close spoils every retry
     FALLBACK_ACCEL = 5.0  # m/s², with no reference lap to learn the car from
 
     def accel_by_speed(self) -> list[tuple[float, float]]:
@@ -191,10 +192,11 @@ class TrackState:
                 out.append(((band * 10 + 5) / 3.6, accs[int(len(accs) * 0.8)]))
         return out
 
-    def standing_start_m(self, d: Drill, min_m: float = 0.0) -> float:
+    def standing_start_m(self, d: Drill, min_m: float = 0.0, run_up_m: float = 0.0) -> float:
         """How far before the section start to park the car so that, pulling away
-        flat out, you reach the start at your reference lap's speed (lifting
-        for any corner on the way, as your reference lap did)."""
+        flat out, you're at your reference lap's speed by the run-up point
+        (``run_up_m`` before the start, where retries begin), lifting for any
+        corner on the way as your reference lap did."""
         length = self.model.length_m or 1.0
         v = self.ref_view
         accel = self.accel_by_speed()
@@ -211,11 +213,17 @@ class TrackState:
 
         # Walk back from the start: the speed you'd need at each point, falling
         # as far as the car's acceleration allows, until it's zero.
-        step, x, s = 2.0, 0.0, ref_mps(d.start_p)
+        start = d.start_p - run_up_m / length
+        step, x, s = 2.0, 0.0, ref_mps(start)
         while s > 0.5 and x < length / 2:
             x += step
-            s = min(ref_mps(d.start_p - x / length), math.sqrt(max(0.0, s * s - 2 * a_at(s) * step)))
-        return max(x, min_m)
+            s = min(ref_mps(start - x / length), math.sqrt(max(0.0, s * s - 2 * a_at(s) * step)))
+        return max(run_up_m + x * self.STANDING_EXTRA, min_m)
+
+    def ref_kmh_at(self, p: float) -> float | None:
+        """Your reference lap's speed at this point (None without one)."""
+        v = self.ref_view
+        return float(v.trace["speed"][v.at(p % 1.0)]) if v else None
 
     # -- drills ---------------------------------------------------------------
 
