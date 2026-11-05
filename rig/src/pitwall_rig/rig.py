@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import itertools
 import logging
-import statistics
 import threading
 import time
 from collections.abc import Callable
@@ -22,7 +21,6 @@ from .analysis import (
     counts,
     lap_review,
     line_vs_optimal,
-    time_to_beat,
     width_advice,
 )
 from .conditions import Conditions
@@ -33,51 +31,35 @@ from .laps import LapRecorder
 from .models import Frame, GameStatus, Lap, Mode, SessionInfo, mode_for
 from .optimal_run import lap_time, learn_grip, simulate
 from .reference import ReferenceLap, downsample
+from .rig_coach import CoachMixin
+from .rig_common import (
+    OPT_KEYS,
+    OPT_LAPS,
+    OPTIMAL,
+    AnalysisCtx,
+    Event,
+    _covers,
+    _locked,
+    _summary_targets,
+    fmt_ms,
+)
+from .rig_drills import DrillsMixin
+from .rig_pits import PitsMixin
+from .rig_wheel import WheelMixin
 from .storage import Store
-from .tips import SHOW_UNTIL_M, Tips, as_instruction
-from .tracks.live import Drill, TrackState
+from .tips import Tips
+from .tracks.live import TrackState
 from .tracks.loader import from_lap_trace
 from .tracks.model import TrackModel
 
 log = logging.getLogger(__name__)
 
-Event = dict[str, Any]
-
-
-class AnalysisCtx:
-    """Everything the analysis needs for one car on one track: the live session,
-    or any car + track you've driven before."""
-
-    def __init__(self, game: str, car: str, track_key: str, track: TrackState, ref_lap_id: int | None, live: bool):
-        self.game, self.car, self.track_key = game, car, track_key
-        self.track = track
-        self.ref_lap_id = ref_lap_id
-        self.live = live
-        self.lap_count = -1  # cache check for past combos
-
 
 # The optimal run learns the car's grip from this many of your fastest laps.
-OPT_LAPS = 8
 # What each corner row carries about the optimal run (also uploaded to the hub).
-OPTIMAL = -1  # compare_id meaning "the optimal run" (the benchmark when there's no faster lap of yours)
-TTB_LAPS = 10  # the time to beat starts from your usual over this many recent clean laps
-TTB_PAST_BEST = 0.003  # the lap's time to beat asks at most 0.3 % beyond your best lap
-OPT_KEYS = ("time_s", "brake_m", "entry_kmh", "peak_brake", "min_speed_kmh", "throttle_m", "exit_kmh")
 
 
-def _locked(fn):  # type: ignore[no-untyped-def]
-    """Rig state is touched by the telemetry thread and the web server: one at a time."""
-    import functools
-
-    @functools.wraps(fn)
-    def wrapper(self, *a, **kw):  # type: ignore[no-untyped-def]
-        with self.lock:
-            return fn(self, *a, **kw)
-
-    return wrapper
-
-
-class Rig:
+class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
     def __init__(
         self,
         adapter: GameAdapter,
@@ -242,58 +224,6 @@ class Rig:
 
     # -- the pit report ------------------------------------------------------------
 
-    def _note_pits(self, f: Frame) -> None:
-        """Coming into the pits: work out how the stint went. Leaving: a new stint."""
-        if f.status != GameStatus.LIVE:
-            return
-        if self._stint_cond is None:
-            self._stint_cond = self.conditions.snapshot(f)
-        in_pits = f.in_pit_lane or f.in_pit_box
-        p0, self._stint_p = getattr(self, "_stint_p", None), f.lap_progress
-        if p0 is not None and 0 < (f.lap_progress - p0) % 1.0 < 0.01:
-            self._stint_laps_driven = getattr(self, "_stint_laps_driven", 0.0) + (f.lap_progress - p0) % 1.0
-        if not in_pits:
-            # the car as it was out on track: "return to pits" resets it before we see the pits
-            self._last_track_snap = self.conditions.snapshot(f)
-        if in_pits and not self._in_pits:
-            s = self.session
-            if s is not None:
-                end = getattr(self, "_last_track_snap", None) or self.conditions.snapshot(f)
-                # in a moment: the lap you just finished (or left) is still being saved
-                driven = getattr(self, "_stint_laps_driven", 0.0)
-                threading.Timer(2.0, self._build_pit_report, args=(s.game, s.car, s.track_key, end, driven)).start()
-        elif not in_pits and self._in_pits:
-            self.pit_report = None
-            self._stint_t0 = time.time()
-            self._stint_laps_driven = 0.0
-            self._stint_cond = self.conditions.snapshot(f)
-        self._in_pits = in_pits
-
-    def _build_pit_report(self, game: str, car: str, track_key: str, end: dict[str, Any] | None,
-                          driven: float = 0.0) -> None:
-        from .stint import stint_report
-
-        try:
-            laps = [x for x in self.store.laps(game, track_key, car, limit=200) if x["started_at"] >= self._stint_t0 - 1]
-            laps.sort(key=lambda x: x["started_at"])
-            if not laps:
-                return
-            reviews = {}
-            for x in laps:
-                rep = self.corner_report(x["id"], None, game=game, car=car, track_key=track_key)
-                reviews[x["id"]] = rep.get("review") or {}
-            best = self.store.best_lap(game, track_key, car)
-            f = self.frame
-            race = {"position": f.position} if f is not None and self.session is not None \
-                and self.session.session_type.value == "race" and f.position else None
-            with self.lock:
-                focus = (self._coach_live() or {}).get("focus")
-                self.pit_report = stint_report(laps, reviews, best["lap_time_ms"] if best else None,
-                                               self._stint_cond, end, focus, race, laps_driven=driven)
-                self.emit({"type": "pit_report", "report": self.pit_report})
-            self.on_pit(game, car, track_key)
-        except Exception:
-            log.exception("Couldn't build the pit report")
 
     def _session_changed(self, s: SessionInfo | None) -> bool:
         a, b = self.session, s
@@ -340,38 +270,6 @@ class Rig:
 
     # -- the SF1000 wheel screen ------------------------------------------------------
 
-    def _wheel(self) -> Any:
-        """The SF1000 sender for the address in Settings (None when it's off)."""
-        cfg = self.config["sf1000"]
-        if not cfg.get("enabled") or not cfg.get("ip"):
-            self.sf1000 = None
-            return None
-        addr = (cfg["ip"], int(cfg.get("port") or 20777))
-        if self.sf1000 is None or self.sf1000.addr != addr:
-            from .sf1000 import Sf1000
-
-            self.sf1000 = Sf1000(*addr)
-        return self.sf1000
-
-    def _feed_wheel(self, frame: Frame) -> None:
-        wheel = self._wheel()
-        if wheel is not None:
-            wheel.send(frame, self.session)
-
-    def sf1000_status(self) -> dict[str, Any]:
-        w = self.sf1000
-        return {"enabled": w is not None, "sent": w.sent if w else 0, "error": w.error if w else None}
-
-    def sf1000_test(self, ip: str | None = None) -> dict[str, Any]:
-        """Sweep rev lights, gears and speed on the wheel to show the link works."""
-        from .sf1000 import Sf1000
-
-        target = ip or self.config["sf1000"].get("ip")
-        if not target:
-            return {"ok": False, "error": "Put in the wheel's IP first (on its Wi-Fi page)."}
-        w = Sf1000(target, int(self.config["sf1000"].get("port") or 20777))
-        w.test_pattern(self.session)
-        return {"ok": w.error is None, "sent": w.sent, "error": w.error}
 
     def _on_lap(self, lap: Lap) -> None:
         # Called from the telemetry thread as you cross the line: hand it on.
@@ -1000,19 +898,6 @@ class Rig:
             out.append(d)
         return out
 
-    @_locked
-    def drill_section(self, number: int) -> bool:
-        if self.track is None:
-            return False
-        ps = next((p for p in self.track.model.practice if p.number == number), None)
-        return ps is not None and self.start_drill(ps.start, ps.end, ps.name)
-
-    @_locked
-    def drill_chapter(self, number: int) -> bool:
-        if self.track is None:
-            return False
-        ch = next((c for c in self.track.model.chapters if c.number == number), None)
-        return ch is not None and self.start_drill(ch.start, ch.end, ch.name)
 
     # -- optimal run --------------------------------------------------------------
 
@@ -1127,341 +1012,21 @@ class Rig:
 
     # -- the coach strip (side screen) ---------------------------------------------
 
-    COLD_MARGIN_C = 12.0  # this far under the usual working temperature counts as cold
-    COLD_DEFAULT_C = 55.0  # until Pitwall has seen this car's tyres working
-
-    def _coach_after_lap(self, lap_id: int, rep: dict[str, Any], tb: dict[str, Any] | None) -> None:
-        """After a lap: its biggest mistake for the strip, and keep (or move on
-        from) the session's focus corner."""
-        info = self.store.lap(lap_id)
-        review = rep.get("review") or {}
-        wrong = (review.get("wrong") or [None])[0]
-        self._last_lap_note = {"lap": info["lap_number"] if info else None, "at": time.time(),
-                               "wrong": {"label": wrong["label"], "text": wrong["text"], "lost_s": wrong.get("lost_s")}
-                               if wrong else None}
-        rows = {c["corner"]: c for c in rep.get("lap") or []}
-        self._last_rows = rows
-        self.tips.add_lap(review.get("wrong") or [])
-        targets = {c["corner"]: c for c in (tb or {}).get("corners", [])}
-        f = self._focus
-        if f is not None and f["corner"] in rows and f["corner"] in targets:
-            mine = rows[f["corner"]]
-            if mine.get("driven") is not False and mine["time_s"] <= targets[f["corner"]]["target_s"]:
-                f["beaten"] += 1
-            if f["beaten"] >= 2:  # met twice: on to the next one
-                self._focus_met.add(f["corner"])
-                self._focus = f = None
-        if f is None:
-            self._pick_focus(tb)
-
-    def _pick_focus(self, tb: dict[str, Any] | None) -> None:
-        """The one corner to work on this session: the most time to gain against
-        its time to beat (one you haven't already met this session)."""
-        options = [c for c in (tb or {}).get("corners", []) if c["gain_s"] >= 0.05 and c["corner"] not in self._focus_met]
-        if options:
-            self._focus = {"corner": max(options, key=lambda c: c["gain_s"])["corner"], "beaten": 0}
-
-    def _coach_live(self) -> dict[str, Any] | None:
-        """What the side screen's coach strip shows (cheap: sent with every frame)."""
-        if self.track is None:
-            return None
-        out: dict[str, Any] = {"focus": None, "last_lap": None, "tyres": None}
-        f = self._focus
-        tb = self._ttb.get((self.session.game, self.session.car, self.session.track_key), {}).get("tb") if self.session else None
-        if f is not None and tb:
-            t = next((c for c in tb["corners"] if c["corner"] == f["corner"]), None)
-            c = next((c for c in self.track.model.corners if c.number == f["corner"]), None)
-            if t and c:
-                ps = next((p for p in self.track.model.practice if f["corner"] in p.corners), None)
-                out["focus"] = {
-                    "corner": c.number, "label": c.label, "to_beat_s": t["target_s"], "usual_s": t["usual_s"],
-                    "gain_s": t["gain_s"], "why": t["why"], "fix": self._focus_fix(c.number), "beaten": f["beaten"],
-                    "section": {"number": ps.number, "name": ps.name} if ps else None,
-                }
-        n = self._last_lap_note
-        if n and time.time() - n["at"] < 25:
-            out["last_lap"] = {k: v for k, v in n.items() if k != "at"}
-        if self._tyres_cold:
-            avg = self._tyre_avg()
-            out["tyres"] = {"cold": True, "avg_c": round(avg) if avg else None, "working_c": round(self._working_c())}
-        out["notice"] = self.conditions.current_notice(self._clock())  # a crash, worn tyres, the track changing...
-        out["tip"] = self._tip_live(out)
-        return out
-
-    def _tip_live(self, coach: dict[str, Any]) -> dict[str, Any] | None:
-        """This frame's live tip (see tips.py), or None."""
-        f, track = self.frame, self.track
-        if self.config["coach"].get("tips", "game") == "off" or f is None or track is None or f.status != GameStatus.LIVE:
-            return None
-        nc = track.model.next_corner(f.lap_progress)
-        quiet = bool(track.drill is not None or coach.get("notice") or coach.get("tyres") or f.in_pit_lane)
-        corners = track.model.corners
-        length = track.model.length_m or 1.0
-
-        def approach(num: int) -> int:
-            # back over linked corners (less than a reading-straight between them) to the run's first
-            i = next((k for k, c in enumerate(corners) if c.number == num), None)
-            if i is None:
-                return num
-            for _ in range(min(2, len(corners) - 1)):  # at most two corners back, or it's not "before" it
-                prev = corners[i - 1]
-                if ((corners[i].entry - prev.exit) % 1.0) * length >= SHOW_UNTIL_M:
-                    break
-                i -= 1
-            return corners[i].number
-
-        tip = self.tips.live(f.lap, nc[0].number if nc else None, nc[1] if nc else None, self._clock(),
-                             coach.get("focus"), quiet, approach)
-        if tip and nc and tip["corner"] != nc[0].number:
-            # given on the straight before a run of corners: say which one it's about
-            tip = {**tip, "label": f"{tip['label']}, after {nc[0].label}"}
-        return tip
-
-    def _focus_fix(self, corner: int) -> str | None:
-        """What to change at the focus corner, as something to do: from your
-        latest lap there, the first difference that cost time (not one where you
-        were quicker)."""
-        last = self._last_rows.get(corner)
-        if not last:
-            return None
-        notes = (last.get("notes") or []) + (last.get("opt_notes") or [])
-        return next((x for x in (as_instruction(n) for n in notes) if x), None)
-
-    def _tyre_avg(self) -> float | None:
-        f = self.frame
-        temps = f.tyre_core_temp_c if f else None
-        return sum(temps) / len(temps) if temps else None
-
-    def _working_c(self) -> float:
-        p = self.car_profile or {}
-        return float(p.get("tyre_working_c") or self.COLD_DEFAULT_C + self.COLD_MARGIN_C)
-
-    def _note_tyres(self, frame: Frame) -> None:
-        """Learn the temperature this car's tyres work at (on your laps, at speed),
-        and whether they're cold now (until they're back near it)."""
-        temps = frame.tyre_core_temp_c
-        if not temps or frame.status != GameStatus.LIVE:
-            return
-        avg = sum(temps) / len(temps)
-        if frame.speed_kmh > 80:
-            self._tyre_sum += avg
-            self._tyre_n += 1
-        working = self._working_c()
-        if frame.in_pit_box or frame.speed_kmh < 5:
-            self._tyres_cold = avg < working - self.COLD_MARGIN_C
-        elif self._tyres_cold and avg >= working - self.COLD_MARGIN_C / 2:
-            self._tyres_cold = False  # warmed up (with a margin so it doesn't flicker)
-        elif not self._tyres_cold and avg < working - self.COLD_MARGIN_C * 1.5:
-            self._tyres_cold = True  # e.g. after a reset or teleport
-
-    def _learn_tyre_temp(self, lap: Lap) -> None:
-        if self._tyre_n > 200 and lap.valid and self.car_profile is not None:
-            lap_avg = self._tyre_sum / self._tyre_n
-            old = self.car_profile.get("tyre_working_c")
-            self.car_profile["tyre_working_c"] = round(lap_avg if old is None else 0.7 * old + 0.3 * lap_avg, 1)
-            self._save_car_profile()
-        self._tyre_sum, self._tyre_n = 0.0, 0
 
     # -- time to beat ---------------------------------------------------------------
 
-    def _time_to_beat(self, ctx: AnalysisCtx | None) -> dict[str, Any] | None:
-        """A realistic stretch target for the lap and each corner (see
-        analysis.time_to_beat): your usual lap, minus what each corner's target
-        asks of you. None until there are 3 clean laps."""
-        if ctx is None:
-            return None
-        key = (ctx.game, ctx.car, ctx.track_key)
-        ids = self.store.valid_lap_ids(ctx.game, ctx.track_key, ctx.car, limit=TTB_LAPS)
-        run = self._opt_runs.get(key)
-        rows = run.get("rows") if run else None
-        sig = (tuple(ids), id(rows), self._model_sig(ctx.track))
-        known = self._ttb.get(key)
-        if known is not None and known["sig"] == sig:
-            return known["tb"]
-        tb = None
-        laps = [lap for lap in (self.store.lap(i) for i in ids) if lap and not lap.get("rewound")]
-        if len(laps) >= 3:
-            mastery = ctx.track.mastery or self._mastery(ctx)
-            corners = time_to_beat(mastery, rows)
-            usual = statistics.median(lap["lap_time_ms"] for lap in laps)
-            gain_ms = sum(c["gain_s"] for c in corners.values()) * 1000
-            # Every corner at its stretch at once adds up to more than one lap
-            # realistically gives: never ask for much more than your best lap.
-            best = self.store.best_lap(ctx.game, ctx.track_key, ctx.car)
-            floor = best["lap_time_ms"] * (1 - TTB_PAST_BEST) if best else 0
-            tb = {"lap_ms": round(min(usual, max(usual - gain_ms, floor))), "usual_lap_ms": round(usual),
-                  "corners": sorted(corners.values(), key=lambda c: c["corner"])}
-        self._ttb[key] = {"sig": sig, "tb": tb, "ids": ids, "views": None}
-        return tb
-
-    def _span_to_beat(self, ctx: AnalysisCtx | None, start_p: float, end_p: float,
-                      tb: dict[str, Any] | None | bool = True) -> dict[str, float] | None:
-        """Time to beat for a stretch of track (a drill, a practice section):
-        your usual time through it over recent clean laps, minus what the
-        corners in it ask of you. Seconds; None without enough laps."""
-        if tb is True:  # not worked out by the caller (it passes it, or None, to save asking again)
-            tb = self._time_to_beat(ctx)
-        if tb is None or ctx is None or not end_p > start_p:
-            return None
-        known = self._ttb[(ctx.game, ctx.car, ctx.track_key)]
-        if known["views"] is None:
-            known["views"] = [LapView.of(t) for t in (self.store.trace(i) for i in known["ids"]) if t]
-        spans = [v.time_at(end_p) - v.time_at(start_p) for v in known["views"] if v]
-        spans = [s for s in spans if s > 0]
-        if len(spans) < 3:
-            return None
-        usual = statistics.median(spans)
-        corners = {c.number: c for c in ctx.track.model.corners}
-        gain = sum(c["gain_s"] for c in tb["corners"]
-                   if c["corner"] in corners and start_p <= corners[c["corner"]].apex <= end_p)
-        return {"usual_s": round(usual, 3), "to_beat_s": round(usual - gain, 3)}
 
     # -- drills -----------------------------------------------------------------
 
-    @_locked
-    def start_drill(self, start_p: float, end_p: float, name: str, corner: int | None = None) -> bool:
-        s = self.session
-        if self.track is None or s is None:
-            return False
-        drill = Drill(name=name, start_p=start_p % 1.0, end_p=end_p % 1.0, corner=corner)
-        best = self.store.best_section_ms(s.game, s.car, s.track_key, drill.start_p, drill.end_p)
-        span = self._span_to_beat(self._live_ctx(), drill.start_p, drill.end_p)
-        self.track.start_drill(drill, best, int(span["to_beat_s"] * 1000) if span else None)
-        self.emit({"type": "drill", "drill": self.track.drill.to_wire() if self.track.drill else None})
-        return True
-
-    @_locked
-    def drill_corner(self, number: int) -> bool:
-        if self.track is None:
-            return False
-        m = self.track.model
-        c = next((c for c in m.corners if c.number == number), None)
-        if c is None:
-            return False
-        before, after = 150.0 / m.length_m, 60.0 / m.length_m
-        return self.start_drill(c.entry - before, c.exit + after, c.label, c.number)
 
     # -- automatic retry (hold Time Shift until we're back before the section) --
 
-    RETRY_EXTRA_M = 600.0  # don't stop if somehow way further back than the target
-
-    @_locked
-    def start_retry(self) -> bool:
-        if self.track is None or self.track.drill is None or self.frame is None:
-            return False
-        if self.csp.can_reset and self.csp.state.get("has_launch"):
-            # The in-game app saved the car at the run-up point: it puts you
-            # straight back there, at speed.
-            self.csp.send({"cmd": "retry", "key": self._drill_key()})
-            self._retry = {"t0": self._clock(), "csp": True}
-            self.emit({"type": "retry", "state": "rewinding"})
-            return True
-        return self._retry_with_time_shift()
-
-    def _retry_with_time_shift(self) -> bool:
-        if self.track is None or self.track.drill is None or self.frame is None:
-            return False
-        if not self.keys.down(self.config["games"]["ac"]["rewind_key"]):
-            return False
-        lead_s = float(self.config["drills"]["lead_in_s"])
-        target = self.track.lead_in_m(self.track.drill.drill, lead_s)
-        self._retry = {"t0": self._clock(), "p0": self.frame.lap_progress, "moved": 0.0, "target_m": target}
-        self.emit({"type": "retry", "state": "rewinding"})
-        return True
-
-    def _retry_step(self, f: Frame, now: float) -> None:
-        r = self._retry
-        assert r is not None and self.track is not None
-        if r.get("csp"):
-            if now - r["t0"] > 2.0:  # the app didn't answer: rewind with Time Shift instead
-                self._retry = None
-                self._retry_with_time_shift()
-            return
-        drill = self.track.drill
-        length = self.track.model.length_m
-        done = None
-        if drill is None:
-            done = "stopped"
-        else:
-            behind_m = ((drill.drill.start_p - f.lap_progress) % 1.0) * length
-            back_m = ((r["p0"] - f.lap_progress) % 1.0) * length
-            if back_m < length / 2:
-                r["moved"] = max(r["moved"], back_m)
-            if r["target_m"] <= behind_m <= r["target_m"] + self.RETRY_EXTRA_M and r["moved"] > 1:
-                done = "ready"
-            elif now - r["t0"] > 1.5 and r["moved"] < 1:
-                done = "no_rewind"  # Time Shift didn't react: key not bound?
-            elif now - r["t0"] > 20:
-                done = "timeout"
-        if done:
-            self.keys.up()
-            self._retry = None
-            self.emit({"type": "retry", "state": done})
 
     # -- getting to a drill: teleport (in-game app, offline) --------------------
 
-    TELEPORT_EXTRA_M = 50.0  # always park a bit before the Time Shift run-up
-
-    @_locked
-    def teleport_to_drill(self) -> bool:
-        """Park the car, stopped, far enough before the drill that pulling away
-        flat out gets you to the section at your usual speed. Only to get there:
-        retries rewind as normal."""
-        if self.track is None or self.track.drill is None or not self.csp.can_reset:
-            return False
-        d = self.track.drill.drill
-        run_up = self.track.lead_in_m(d, float(self.config["drills"]["lead_in_s"]))
-        back = self.track.standing_start_m(d, min_m=run_up + self.TELEPORT_EXTRA_M, run_up_m=run_up)
-        p = (d.start_p - back / self.track.model.length_m) % 1.0
-        # Warm the tyres to what this car runs at on your laps (the reset leaves
-        # them cold, and before a teleport they may be cold too, e.g. after the pits).
-        tyre_c = (self.car_profile or {}).get("tyre_working_c")
-        # At speed if the app has a car state saved before the run-up (warm tyres,
-        # your normal speed, from an earlier pass); else parked here, stopped.
-        run_up_p = (d.start_p - run_up / self.track.model.length_m) % 1.0
-        self.csp.send({"cmd": "teleport", "key": self._drill_key(), "p": p, "tyre_c": tyre_c, "run_up_p": run_up_p})
-        self.emit({"type": "retry", "state": "teleporting"})
-        return True
 
     # -- in-game CSP app ------------------------------------------------------
 
-    def _csp_save_ok(self) -> bool:
-        """Whether the car is fit to save as a "Go there" start: on track at speed,
-        tyres warm, no damage, not off or dirty, not mid-retry."""
-        f = self.frame
-        if f is None or f.status != GameStatus.LIVE or f.in_pit_lane or f.in_pit_box or f.speed_kmh < 40:
-            return False
-        if self._tyres_cold or self._retry is not None or f.tyres_out > 2:
-            return False
-        if f.damage and f.damage[-1] >= 0.5:
-            return False
-        return not (f.tyre_dirt and max(f.tyre_dirt) > 0.5)
-
-    def _drill_key(self) -> str | None:
-        d = self.track.drill.drill if self.track and self.track.drill else None
-        return f"{d.start_p:.5f}-{d.end_p:.5f}" if d else None
-
-    def _csp_drill(self) -> dict[str, Any] | None:
-        if self.track is None or self.track.drill is None:
-            return None
-        d = self.track.drill.drill
-        lead = self.track.lead_in_m(d, float(self.config["drills"]["lead_in_s"]))
-        st = self.track.drill
-        # The in-game timer's target: the time to beat while it's quicker than
-        # your best run, else your best (same as the side screen).
-        target = st.target_ms if st.target_ms and (not st.best_ms or st.target_ms < st.best_ms) else st.best_ms
-        run_up_p = (d.start_p - lead / self.track.model.length_m) % 1.0
-        return {
-            "key": self._drill_key(),
-            "name": d.name,
-            "start_p": d.start_p,
-            "end_p": d.end_p,
-            "run_up_p": run_up_p,
-            # retries start from the state saved here: only save it at your usual speed
-            "run_up_kmh": self.track.ref_kmh_at(run_up_p),
-            "target_ms": target,
-            "target_is_best": target is not None and target == st.best_ms,
-        }
 
     # -- car profile ----------------------------------------------------------
 
@@ -1480,75 +1045,6 @@ class Rig:
         self.store.set_car_profile(s.game, s.car, p)
         self.emit({"type": "car_profile", "car_profile": p, "summary": car_profile.summary(p)})
 
-    @_locked
-    def csp_sync(self, body: dict[str, Any]) -> dict[str, Any]:
-        """The in-game app checking in (about 10 times a second)."""
-        was = self.csp.connected
-        self.conditions.set_env(body.get("env") if isinstance(body.get("env"), dict) else None)
-        for e in self.csp.sync(body):
-            if e.get("type") == "teleport":
-                state = "teleported_at_speed" if e.get("ok") and e.get("at_speed") else "teleported" if e.get("ok") else "no_teleport"
-                self.emit({"type": "retry", "state": state})
-            if e.get("type") == "tyres":  # two seconds after a teleport: did the tyres really warm up?
-                log.info("Teleport tyres: %s (wanted %s, now %s)", e.get("result"), e.get("target_c"), e.get("now_c"))
-                if e.get("result") != "warm":
-                    self.emit({"type": "retry", "state": "teleported_cold"})  # this CSP couldn't warm them
-            if e.get("type") == "retry" and self._retry is not None and self._retry.get("csp"):
-                self._retry = None
-                if e.get("ok"):
-                    self.emit({"type": "retry", "state": "ready"})
-                else:
-                    self._retry_with_time_shift()  # e.g. no saved state yet
-        if not was:
-            self.emit({"type": "csp", "connected": True})
-        if self.car_profile is not None and car_profile.note_csp(self.car_profile, self.csp.state):
-            self._save_car_profile()
-        return {
-            "track_version": self.csp.version if self.track is not None else -1,
-            "drill": self._csp_drill(),
-            # the live tip, for the in-game overlay too (Settings: on the side screen and in the game)
-            "tip": (self.tips.showing or {}).get("text") if self.config["coach"].get("tips", "game") == "game" else None,
-            # the app saves car states as you drive (for "Go there" at speed) only when the car's fit
-            "save_states": self._csp_save_ok(),
-            "session": f"{self.session.car}@{self.session.track_key}" if self.session else None,
-            "overlay": self.config["overlay"],  # set in Pitwall's Settings
-            "commands": self.csp.take_commands(),
-        }
-
-    @_locked
-    def csp_track(self) -> dict[str, Any] | None:
-        """What the app needs to work out the next corner and brake point by itself."""
-        if self.track is None:
-            return None
-        m = self.track.model
-        ref = self.track.ref_corners
-        cue_corners, v = self.track.cue()  # the optimal run, or your best lap
-        corners = []
-        for c in m.corners:
-            r, t = ref.get(c.number, {}), cue_corners.get(c.number, {})
-            corners.append({
-                "n": c.number, "label": c.label, "dir": c.direction, "grade": c.grade,
-                "entry": c.entry, "apex": c.apex, "exit": c.exit,
-                "brake_p": t.get("brake_p"), "entry_kmh": t.get("entry_kmh"),
-                "min_kmh": t.get("min_speed_kmh"), "min_p": t.get("min_speed_p"),
-                "gear": r.get("apex_gear") or t.get("apex_gear") or None,
-            })
-        # The target's speed every 1/1000th of the lap, for the speed-adjusted brake point.
-        speed = [round(v.trace["speed"][v.at(i / 1000)], 1) for i in range(1000)] if v else []
-        return {"version": self.csp.version, "length_m": m.length_m, "corners": corners, "ref_speed": speed}
-
-    @_locked
-    def stop_drill(self) -> None:
-        if self.track is not None:
-            self.track.stop_drill()
-        self.emit({"type": "drill", "drill": None})
-
-    def _save_attempt(self, a: dict[str, Any]) -> None:
-        s = self.session
-        if s is not None:
-            self.store.add_section_attempt(
-                s.game, s.car, s.track_key, a["start_p"], a["end_p"], a["time_ms"], a["clean"]
-            )
 
     # -- snapshots for the dashboard ---------------------------------------
 
@@ -1698,28 +1194,3 @@ class Rig:
         self.emit({"type": "config", "config": self.config.data})
 
 
-def _summary_targets(rep: dict[str, Any], model_corners: dict[int, Any]) -> dict[str, Any] | None:
-    """The time to beat, condensed for the debrief: the lap, the corners with
-    the most to gain, and the practice sections."""
-    tb = rep.get("time_to_beat")
-    if not tb:
-        return None
-    top = sorted(tb["corners"], key=lambda c: -c["gain_s"])[:4]
-    return {
-        "lap": fmt_ms(tb["lap_ms"]),
-        "usual_lap": fmt_ms(tb["usual_lap_ms"]),
-        "corners": [{"corner": model_corners[c["corner"]].label if c["corner"] in model_corners else f"Corner {c['corner']}",
-                     "to_beat_s": c["target_s"], "usual_s": c["usual_s"], "why": c["why"]} for c in top],
-        "practice_sections": [{"name": ps["name"], "to_beat_s": ps.get("to_beat_s")}
-                              for ps in rep.get("practice", []) if ps.get("to_beat_s")],
-    }
-
-
-def _covers(view: LapView, a: float, b: float) -> bool:
-    """The lap's telemetry runs from ``a`` to ``b`` (an unfinished lap may stop short)."""
-    return bool(view.p) and view.p[0] <= a + 0.002 and view.p[-1] >= b - 0.002
-
-
-def fmt_ms(ms: int) -> str:
-    m, s = divmod(ms / 1000.0, 60)
-    return f"{int(m)}:{s:06.3f}"
