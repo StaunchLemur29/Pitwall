@@ -173,7 +173,15 @@ export function LapAnalysis({
   const mine = rows[ci];
   const otherRow = report?.compare?.find((x) => x.corner === corner?.number) ?? null;
   const section = (report?.practice?.length ? report.practice : g.practice).find((ps) => ps.corners.includes(corner?.number));
-  const step = (d: 1 | -1) => setPicked(g.corners[(ci + d + g.corners.length) % g.corners.length].number);
+  // Previous / next corner, skipping ones this lap didn't drive (an unfinished lap, a jump).
+  const step = (d: 1 | -1) => {
+    const n = g.corners.length;
+    for (let k = 1; k <= n; k++) {
+      const c = g.corners[(ci + d * k + n * k) % n];
+      const r = rows.find((x) => x.corner === c.number);
+      if (!r || r.driven !== false || k === n) return setPicked(c.number);
+    }
+  };
   const lapDelta =
     shown && other
       ? (shown.lap_time_ms - other.lap_time_ms) / 1000
@@ -498,7 +506,18 @@ export function LapAnalysis({
           <div className="la__split" role="separator" aria-label="Resize columns" title="Drag to resize · double-click to reset" onPointerDown={startSplit} onDoubleClick={resetSplit} />
           <div className="la__right">
             {corner && mine && mine.driven === false ? (
-              <div className="upcoming">This lap didn't drive {corner.label} all the way through (it wasn't finished, or jumped past it). Pick a corner it drove.</div>
+              <div className="cd">
+                <div className="cd__head">
+                  <button className="btn btn--sm btn--ghost" onClick={() => step(-1)} aria-label="Previous corner">‹</button>
+                  <div className="cd__title">
+                    <span className="cd__name">
+                      {corner.number}. {corner.label}
+                    </span>
+                  </div>
+                  <button className="btn btn--sm btn--ghost" onClick={() => step(1)} aria-label="Next corner">›</button>
+                </div>
+                <div className="upcoming">This lap didn't drive {corner.label} all the way through (it wasn't finished, or jumped past it). The arrows go to the corners it did drive.</div>
+              </div>
             ) : corner && mine ? (
               <CornerDetail
                 g={g}
