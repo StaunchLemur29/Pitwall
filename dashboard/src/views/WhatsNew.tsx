@@ -12,6 +12,46 @@ interface Entry {
 
 export const NEWS: Entry[] = [
   {
+    id: "2026-11-06-tips",
+    date: "6 Nov 2026",
+    title: "Live tips and blind spots",
+    what: [
+      "One short tip a lap on the straight before a corner: something that keeps going wrong this session, or your focus corner, always as something to do (\"Brake 12 m later\").",
+      "Blind spots (analysis window): habits across your recent laps, like coasting or braking early, each with where it shows most and a drill.",
+    ],
+    todo: "Settings → Coaching → Live tips: on the side screen and in the game, side screen only, or off.",
+  },
+  {
+    id: "2026-11-06-hub",
+    date: "6 Nov 2026",
+    title: "The hub catches up",
+    what: [
+      "The website compares your best lap with the optimal run and colours the map against it, like the PC.",
+      "Section bests count drill runs and every lap, and older laps are filled in.",
+      "Fixed: the website wasn't showing each lap's conditions or section bests.",
+    ],
+  },
+  {
+    id: "2026-11-05-goto",
+    date: "5 Nov 2026",
+    title: "Go there at speed, pit report",
+    what: [
+      "Go there now drops you in at your normal speed with warm tyres, from a pass earlier in the session (drive one normal lap first).",
+      "Coming into the pits: a report on the stint (times, what kept going wrong, fuel per lap, wear, damage, what to work on next), and the AI debrief so far.",
+      "A drill can be stopped while paused or in the pits.",
+    ],
+  },
+  {
+    id: "2026-11-05-coach",
+    date: "5 Nov 2026",
+    title: "The coach names the mistake",
+    what: [
+      "Slides you caught, spins, wrong gear and slow on the power, not just slow corners.",
+      "Conditions with every lap (track and air temperature, grip, tyre wear, damage, time of day), and a notice when they change: a crash and what it damaged, dirty or worn tyres, the track, rain, dusk.",
+      "Your best lap always has something faster to compare with, and a section's best counts from any lap, crashes and out laps included.",
+    ],
+  },
+  {
     id: "2026-11-sf1000",
     date: "Nov 2026",
     title: "SF1000 wheel screen",
