@@ -132,6 +132,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     app[AI_KEY] = debriefer
     if game not in ("demo", "replay"):
         rig.on_session_end = debriefer.session_ended
+        rig.on_pit = debriefer.session_ended  # the debrief so far, while you're in the pits
 
     def on_action(a: str, pressed: bool = True) -> None:
         loop = hub._loop

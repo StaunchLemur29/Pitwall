@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { prettyName } from "../lib/format";
-import { minimizeWindow, perf, rig, stopPitwall, useRig } from "../lib/rig";
+import { minimizeWindow, perf, rig, stopDrill, stopPitwall, useRig } from "../lib/rig";
 import { LagMeter } from "../widgets/LagMeter";
 import type { Mode } from "../lib/types";
 import { WIDGETS } from "../widgets";
 import { FullscreenButton } from "../widgets/Fullscreen";
+import { PitReportCard } from "../widgets/PitReportCard";
 
 const GAME_NAMES: Record<string, string> = { ac: "Assetto Corsa", demo: "Demo", replay: "Replay" };
 
@@ -52,6 +53,9 @@ export function Dashboard() {
     };
   }, [layoutMode, pages.length]);
 
+  // The drill card isn't on the paused / pits layout: keep a way to stop it there.
+  const drillName = useRig((s) => s.live.track?.drill?.name ?? null);
+  const pitReport = useRig((s) => s.live.pit_report ?? null);
   const slots = pages[page] ?? [];
   const banner = stopped
     ? "Pitwall has stopped. You can close this window."
@@ -107,6 +111,17 @@ export function Dashboard() {
       </header>
       <LagMeter />
       {banner && <div className={`banner ${connected ? "" : "banner--warn"}`}>{banner}</div>}
+      {pitReport && mode !== "driving" && <PitReportCard r={pitReport} />}
+      {drillName && mode !== "driving" && (
+        <div className="banner drillbar">
+          <span>
+            Drill running: <b>{drillName}</b>
+          </span>
+          <button className="btn btn--ghost" onClick={() => void stopDrill()}>
+            Stop drill
+          </button>
+        </div>
+      )}
       <main className="dash__stack">
         {slots.map((slot, i) => {
           const W = WIDGETS[slot.widget]?.component;
