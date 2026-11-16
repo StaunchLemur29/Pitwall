@@ -179,6 +179,8 @@ class Store:
                 self._db.execute("ALTER TABLE section_attempts ADD COLUMN lap_id INTEGER")
             if "conditions" not in cols:  # ...and before the conditions were kept with each lap
                 self._db.execute("ALTER TABLE laps ADD COLUMN conditions TEXT")
+            if "sections_done" not in cols:  # ...and before every lap's section passes were kept
+                self._db.execute("ALTER TABLE laps ADD COLUMN sections_done INTEGER NOT NULL DEFAULT 0")
             self._db.execute(
                 "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
                 (SCHEMA_VERSION,),
@@ -427,12 +429,22 @@ class Store:
         """A lap's clean passes through the practice sections (start, end, ms), so
         a section's best counts however the lap ended. Replaces any earlier ones."""
         with self._lock, self._db:
+            self._db.execute("UPDATE laps SET sections_done=1 WHERE id=?", (lap_id,))
             self._db.execute("DELETE FROM section_attempts WHERE lap_id=?", (lap_id,))
             self._db.executemany(
                 """INSERT INTO section_attempts (game, car, track_key, start_p, end_p, time_ms, clean,
                    created_at, lap_id) VALUES (?,?,?,?,?,?,1,?,?)""",
                 [(game, car, track_key, a, b, ms, time.time(), lap_id) for a, b, ms in passes],
             )
+
+    def laps_without_sections(self, game: str, track_key: str, car: str, limit: int = 2000) -> list[int]:
+        """Laps driven before every lap's section passes were kept, newest first."""
+        rows = self._db.execute(
+            """SELECT id FROM laps WHERE game=? AND track_key=? AND car=? AND sections_done=0
+               ORDER BY started_at DESC LIMIT ?""",
+            (game, track_key, car, limit),
+        ).fetchall()
+        return [int(r["id"]) for r in rows]
 
     def lap_sections(self, lap_id: int) -> list[list[float]]:
         """This lap's clean passes through the practice sections: [start, end, ms]."""

@@ -452,10 +452,33 @@ class Rig:
         self.csp.touch()
         self.emit({"type": "track", "track": model.geometry(compute_optimal=False)})
         self._emit_corners(None)
+        # Laps from before every lap's section passes were kept: fill them in, in
+        # the background, so your section bests count from all your laps here.
+        if self.store.laps_without_sections(s.game, s.track_key, s.car, limit=1):
+            threading.Thread(target=self._backfill_sections, args=(s.game, s.car, s.track_key, self.track),
+                             daemon=True, name="section-backfill").start()
         if not model.optimal_ready():
             # A few seconds on a long track: work it out off the telemetry thread,
             # then send the map (and the corner tips that use it) again.
             threading.Thread(target=self._optimal_line, args=(model,), daemon=True, name="optimal-line").start()
+
+    def _backfill_sections(self, game: str, car: str, track_key: str, track: TrackState) -> None:
+        n = 0
+        try:
+            for lap_id in self.store.laps_without_sections(game, track_key, car):
+                info, trace = self.store.lap(lap_id), self.store.trace(lap_id)
+                if info is None:
+                    continue
+                lap = Lap(game=game, car=car, track_key=track_key, lap_number=info["lap_number"],
+                          lap_time_ms=info["lap_time_ms"], valid=info["valid"], out_lap=info["out_lap"],
+                          started_at=info["started_at"], trace=trace or {}, id=lap_id,
+                          rewound=bool(info.get("rewound")), unfinished=bool(info.get("unfinished")))
+                self._record_sections(lap, track)
+                n += 1
+        except Exception:
+            log.exception("Couldn't fill in the section bests of older laps")
+        if n:
+            log.info("Section bests: filled in %d older laps on %s", n, track_key)
 
     def _optimal_line(self, model: TrackModel) -> None:
         try:
@@ -487,7 +510,10 @@ class Rig:
         through a section counts even if the lap was an out lap or you crashed
         later. Not from a lap with a rewind (never a best), not a section you
         went off in, and only where the lap was driven all the way through it."""
-        if lap.id is None or lap.rewound or not lap.trace.get("p"):
+        if lap.id is None:
+            return
+        if lap.rewound or not lap.trace.get("p"):
+            self.store.add_lap_sections(lap.id, lap.game, lap.car, lap.track_key, [])  # looked at: nothing counts
             return
         view = LapView.of(lap.trace)
         off = lap.trace.get("off") or []
