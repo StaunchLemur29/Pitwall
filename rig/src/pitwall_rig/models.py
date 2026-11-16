@@ -137,6 +137,7 @@ class Frame:
     yaw: float | None = None  # the game's raw heading angle (radians); calibrated downstream
     world_t: float | None = None  # rig-clock time the game last moved ``world`` (for precise prediction)
     session_time_left_s: float | None = None
+    session_laps: int = 0  # laps in the session when it's run to a lap count (a race), else 0
     position: int = 0
 
     # car systems (None when the game doesn't report them)

@@ -9,7 +9,6 @@ import { useRig } from "../lib/rig";
 export function StatusLine() {
   const live = useRig((s) => s.live);
   const caps = useRig((s) => s.capabilities);
-  const breakMin = useRig((s) => s.config?.session_timer.break_reminder_min ?? 0);
   const lastLap = useRig((s) => s.lastLap);
   const [, tick] = useState(0);
   useEffect(() => {
@@ -21,7 +20,9 @@ export function StatusLine() {
   const d = live.delta_s;
   const el = live.electronics; // real levels when the in-game app is running
   const bb = el?.bb ?? f?.brake_bias;
-  const breakDue = breakMin > 0 && live.driving_s >= breakMin * 60;
+  const timer = live.timer;
+  const breakDue = !!timer?.break_due;
+  const race = timer?.race;
   const flash = lastLap && Date.now() - lastLap.at < 6000 ? lastLap : null;
 
   return (
@@ -50,7 +51,17 @@ export function StatusLine() {
         {el?.kers_present && live.car_has?.battery && el.kers_charge != null && <Item label="Batt" value={`${Math.round(el.kers_charge * 100)}%`} />}
         {el?.mguk_delivery_count && live.car_has?.battery ? <Item label="Deploy" value={String(el.mguk_delivery ?? "–")} /> : null}
         {el?.engine_brake_count && el.engine_brake_count > 1 ? <Item label="EB" value={String(el.engine_brake ?? "–")} /> : null}
-        <Item label={breakDue ? "Break" : "Driving"} value={clock(live.driving_s)} tone={breakDue ? "warn" : ""} />
+        {race?.position ? <Item label="Pos" value={`P${race.position}`} /> : null}
+        {race?.laps_left != null ? (
+          <Item label="Laps left" value={String(race.laps_left)} tone={race.laps_left <= 1 ? "warn" : ""} />
+        ) : race?.time_left_s != null ? (
+          <Item label="Left" value={clock(race.time_left_s)} tone={race.time_left_s < 120 ? "warn" : ""} />
+        ) : null}
+        {breakDue ? (
+          <Item label="Take a break" value={clock(timer?.since_break_s ?? live.driving_s)} tone="warn" />
+        ) : (
+          <Item label="Stint" value={clock(timer?.stint_s ?? live.driving_s)} />
+        )}
       </div>
     </section>
   );

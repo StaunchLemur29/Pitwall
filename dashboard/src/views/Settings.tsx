@@ -382,7 +382,7 @@ function Coaching({ draft, edit }: EditProps) {
           onChange={(e) => edit((c) => (c.drills.lead_in_s = Number(e.target.value)))}
         />
       </Field>
-      <Field label="Break reminder" hint="Minutes of driving before a gentle reminder. 0 = off.">
+      <Field label="Break reminder" hint="Minutes of driving since your last break (5 minutes out of the car) before a reminder. Shown in the pits or on a straight, never mid-corner. 0 = off.">
         <input
           type="number"
           min={0}
