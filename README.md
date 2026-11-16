@@ -1,17 +1,44 @@
 # Pitwall
 
-A sim-racing coach and racing hub. A live dashboard runs on a vertical second
-monitor while you drive; laps, lessons and guides follow later (see
-[SPEC.md](SPEC.md) for the whole plan).
+![Pitwall: lap analysis on the main screen, live coaching on the side screen](docs/screenshots/hero.png)
 
-**What it does today.** Reads Assetto Corsa telemetry and records every lap.
-Reads each track's layout from the game files (corners, severity, practice
-sections, Nordschleife chapters). While you drive, the side screen shows the
-next corner, a brake countdown, the road ahead and a coach strip (this
-session's focus, each lap's biggest mistake, cold tyres). Drills use one-button
-rewind (CSP Time Shift) with a timer in the game. After a lap: corner-by-corner
-analysis against a faster lap or the optimal run, "good and bad", a time to
-beat, and an AI debrief. Laps sync to a cloud hub you can open on the MacBook.
+A sim-racing coach for Assetto Corsa. A live dashboard runs on a vertical
+second monitor while you drive; after each lap it shows where the time went
+and what to change. Laps sync to a cloud hub you can open on a laptop or
+phone. [SPEC.md](SPEC.md) has the whole plan.
+
+## What it does
+
+**While you drive.** The side screen shows the next corner, a brake
+countdown, the road ahead and a coach strip (this session's focus, each
+lap's biggest mistake, cold tyres). A second page has the lap timer, live
+delta, track map and tyres. Drills use one-button rewind (CSP Time Shift)
+with a timer in the game.
+
+![The side screen: next corner and brake countdown, lap delta and tyres](docs/screenshots/live.png)
+
+**After the lap.** Corner-by-corner analysis against your best lap or the
+optimal run, "good and bad", a time to beat, and an AI debrief from Claude.
+
+![Lap analysis: where the time went, with the optimal line on the map](docs/screenshots/analysis.png)
+
+**The optimal run.** Pitwall reads each track's layout from the game files
+(corners, practice sections, Nordschleife chapters), works out a racing line
+from the track's edges and drives it at your car's grip, learnt from your
+fastest laps. Each corner gets speed, brake and throttle against it, plus
+plain notes on what to change.
+
+![One corner against the optimal run: notes, close-up and pedal traces](docs/screenshots/corner.png)
+
+**Rig tools.** A force-feedback clipping meter and a brake-pedal check for
+the T-LCM, both read from your recent laps.
+
+![Force-feedback clipping and brake pedal checks](docs/screenshots/tools.png)
+
+The screenshots come from the built-in demo car (see
+[Screenshots](#screenshots)).
+
+## What's in the repo
 
 ```
 rig/        Python service: reads the game, records laps, serves the dashboard
@@ -19,6 +46,7 @@ dashboard/  React + TypeScript dashboard (portrait 1080×1920, also works on a l
 csp/        In-game CSP app (overlay, drills)
 cloud/      Supabase schema and the debrief function
 scripts/    Windows helpers (setup, start, demo)
+docs/       Research notes, reviews, and the screenshots with the script that makes them
 ```
 
 ## Running it on the rig PC (Windows)
@@ -225,6 +253,22 @@ npm test
 ```
 
 On macOS/Linux there's no Assetto Corsa, so use `--game demo` or `--game replay`.
+
+### Screenshots
+
+The images in `docs/screenshots/` (2560×1600, 16:10) are made from the demo
+car by a script, so they can be remade after the UI changes:
+
+```bash
+cd dashboard && npm run build && cd ..
+node docs/screenshots/make.js
+```
+
+It needs uv and Playwright with Chromium (both are in Claude Code cloud
+sessions). It starts its own service on port 8799 with a throwaway data
+folder, lets the demo car drive about ten clean laps at 8× speed, then
+screenshots the dashboard, analysis and Tools pages and lays them out. To add
+or change an image, edit the `LAYOUTS` and `capture()` parts of the script.
 
 ### How it fits together
 
