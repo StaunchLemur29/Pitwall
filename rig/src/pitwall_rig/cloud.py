@@ -321,11 +321,13 @@ class CloudSync:
             if not extra:
                 continue
             opt = extra.get("optimal")
-            sig = (opt["lap_s"] if opt else None, json.dumps(extra.get("drill_bests")))
+            sig = (opt["lap_s"] if opt else None, json.dumps(extra.get("drill_bests")),
+                   json.dumps(extra.get("blind_spots"), sort_keys=True))
             if self._combo_sent.get(key) == sig:
                 continue
             combos.append({"user_id": client.user_id, "game": key[0], "car": key[1], "track_key": key[2],
-                           "optimal": opt, "drill_bests": extra.get("drill_bests"), "updated_at": _iso(time.time())})
+                           "optimal": opt, "drill_bests": extra.get("drill_bests"),
+                           "blind_spots": extra.get("blind_spots"), "updated_at": _iso(time.time())})
             self._combo_sent[key] = sig
         client.upsert("combo_extras", combos, "user_id,game,car,track_key")
 

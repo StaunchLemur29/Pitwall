@@ -557,6 +557,12 @@ export function LapAnalysis({
           <ColouredMap g={g} trace={trace} ref_={mapRef} mode={mapMode} rows={rows} focus={focus ?? corner?.number ?? null} onPick={setFocus} onSelect={setPicked} showOpt={showOpt} labelled={losses.map((x) => x.c!.number)} />
           <Legend mode={mapMode} label={label} showOpt={showOpt} byCorner={mapMode !== mode} />
           {list}
+          {src.blindSpots && (
+            <section className="la__blind">
+              <h3>Blind spots</h3>
+              <BlindSpots src={src} combo={active} refresh={latest?.lap_id ?? null} canDrill={canDrill} />
+            </section>
+          )}
         </div>
       )}
     </Card>

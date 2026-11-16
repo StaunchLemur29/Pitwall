@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Trace } from "../lib/profile";
 import type { Combo } from "../lib/rig";
 import type { AnalysisSource } from "../lib/source";
-import type { CarProfile, CornerReport, Debrief, LapSummary, TrackGeometry } from "../lib/types";
+import type { BlindSpot, CarProfile, CornerReport, Debrief, LapSummary, TrackGeometry } from "../lib/types";
 import { buildReport, type HubLap } from "./report";
 import { debriefLap, MIN_CLEAN_LAPS, sessionSummary } from "./summary";
 
@@ -75,12 +75,19 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     }
     return profiles.get(k)!;
   };
-  const extras = new Map<string, Promise<{ optimal: { lap_s: number; trace: Trace } | null; drill_bests: [number, number, number][] } | null>>();
+  type Scan = { findings: BlindSpot[]; laps: number };
+  const extras = new Map<string, Promise<{ optimal: { lap_s: number; trace: Trace } | null; drill_bests: [number, number, number][]; blind_spots: Scan | null } | null>>();
   const comboExtras = (c: Combo) => {
     const k = key(c);
     if (!extras.has(k)) {
-      extras.set(k, Promise.resolve(sb.from("combo_extras").select("optimal,drill_bests").eq("game", c.game).eq("car", c.car).eq("track_key", c.track_key).maybeSingle())
-        .then(({ data }) => (data ? { optimal: data.optimal ?? null, drill_bests: data.drill_bests ?? [] } : null)));
+      const ask = (cols: string) => Promise.resolve(sb.from("combo_extras").select(cols).eq("game", c.game).eq("car", c.car).eq("track_key", c.track_key).maybeSingle());
+      extras.set(k, ask("optimal,drill_bests,blind_spots")
+        // (a database from before the scan was uploaded has no such column: ask without it)
+        .then((r) => (r.error ? ask("optimal,drill_bests") : r))
+        .then(({ data }) => {
+          const d = data as { optimal?: { lap_s: number; trace: Trace } | null; drill_bests?: [number, number, number][]; blind_spots?: Scan | null } | null;
+          return d ? { optimal: d.optimal ?? null, drill_bests: d.drill_bests ?? [], blind_spots: d.blind_spots ?? null } : null;
+        }));
     }
     return extras.get(k)!;
   };
@@ -155,6 +162,8 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     trace: (id) => trace(id),
     // Worked out on the rig PC and uploaded per car + track (for the charts and the map).
     optimal: async (c) => (c ? (await comboExtras(c))?.optimal ?? null : null),
+    // The blind-spot scan, as the PC last worked it out.
+    blindSpots: async (c) => (c ? (await comboExtras(c))?.blind_spots : null) ?? { findings: [], laps: 0 },
 
     async debriefs(c) {
       const { data } = await sb.from("debriefs").select("game,car,track_key,session_start,created_at,model,body")

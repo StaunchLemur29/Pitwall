@@ -113,6 +113,7 @@ def test_the_optimal_run_and_drill_bests_reach_the_hub_once(demo, clock, config,
     (row,) = supa.rows("combo_extras")
     assert row["optimal"]["lap_s"] > 0 and row["optimal"]["trace"]["speed"]
     assert row["drill_bests"] == [[0.1, 0.2, 9000]]
+    assert row["blind_spots"]["laps"] >= 5 and isinstance(row["blind_spots"]["findings"], list)  # the scan, for the hub
     # the same again: nothing new to send (the stored row isn't replaced)
     supa.tables["combo_extras"][next(iter(supa.tables["combo_extras"]))]["marker"] = 1
     sync._send_context(sync.client, store.laps(limit=10))
