@@ -26,6 +26,7 @@ local launch = nil -- { key, data, kmh } car state saved at the run-up point
 local settle = nil -- just teleported: { pos, dir, frames, flipped, tyreTemp }
 local run = nil -- the drill run you're on: { key, elapsed } (game time, so pauses don't count)
 local runResult = nil -- the run just finished: { time, target, isBest, untilT }
+local tipText = nil -- the live tip, while Pitwall shows one (once a lap, on the straight before its corner)
 local connected = false
 local syncBusy, trackBusy = false, false
 local trackVersion = -1
@@ -250,6 +251,7 @@ local function sync()
     if type(d) ~= 'table' then return end
     drill = type(d.drill) == 'table' and d.drill or nil
     saveStates = d.save_states == true
+    tipText = type(d.tip) == 'string' and d.tip or nil
     if d.session ~= statesFor then states, statesFor, lastCheckpoint = {}, d.session, nil end
     local o = d.overlay
     if type(o) == 'table' then
@@ -432,7 +434,7 @@ local function text(str, font, size, x, y, w, h, align, colour)
   ui.popDWriteFont()
 end
 
-local drawCard, drawDrill -- below
+local drawCard, drawDrill, drawTip -- below
 
 function script.windowMain(dt)
   local W = ui.windowWidth()
@@ -457,9 +459,24 @@ function script.windowMain(dt)
   if alpha > 0 and held.c and (settings.showBrake or settings.showTurn) then
     cardH = drawCard(W, now, held.c, held.b) + 8
   end
+  local drillH = 0
   if settings.showDrill ~= false and drill and (run or (runResult and now < runResult.untilT)) then
     drawDrill(W, cardH + 1)
+    drillH = 48
   end
+  if tipText and connected then drawTip(W, cardH + drillH + 1, tipText) end
+end
+
+-- The live tip: one short line (wrapped), under whatever else is showing.
+drawTip = function (W, y, str)
+  local PW, H = math.min(W - 8, 300), 58
+  local x0 = (W - PW) / 2
+  ui.drawRectFilled(vec2(x0, y), vec2(x0 + PW, y + H), CARD, 8)
+  ui.drawRect(vec2(x0, y), vec2(x0 + PW, y + H), EDGE, 8)
+  ui.pushDWriteFont(FONT_BOLD)
+  ui.setCursor(vec2(x0 + 10, y))
+  ui.dwriteTextAligned(str, 13, ui.Alignment.Start, ui.Alignment.Center, vec2(PW - 20, H), true, WHITE)
+  ui.popDWriteFont()
 end
 
 -- During a drill: the run's time (counting) and the target; then the result for a moment.

@@ -24,15 +24,21 @@ export function DrillCard() {
     // track) first; then cold tyres; then the lap just finished; then the focus.
     const notice = coach?.notice ?? null;
     const cold = !notice && !!coach?.tyres?.cold;
-    const last = notice || cold ? null : coach?.last_lap;
-    const focus = notice || cold ? null : coach?.focus;
-    const busy = !!notice || cold || !!last || !!focus;
+    const tip = notice || cold ? null : coach?.tip ?? null;
+    const last = notice || cold || tip ? null : coach?.last_lap;
+    const focus = notice || cold || tip ? null : coach?.focus;
+    const busy = !!notice || cold || !!tip || !!last || !!focus;
     return (
       <Card title={busy ? undefined : "Coach"} dim={!busy} className={busy ? "coach" : ""}>
         {notice ? (
           <div className={notice.kind === "clean" ? "coach__lap" : "coach__warn"}>
             <span className="coach__tag">{NOTICE_TAG[notice.kind] ?? "Heads up"}</span>
             {notice.text}
+          </div>
+        ) : tip ? (
+          <div className="coach__lap coach__tip">
+            <span className="coach__tag">Tip</span>
+            <b>{tip.label}</b> <span>{tip.text.startsWith(tip.label) ? tip.text.slice(tip.label.length).replace(/^[:\s]+/, "") : tip.text}</span>
           </div>
         ) : cold ? (
           <div className="coach__warn">

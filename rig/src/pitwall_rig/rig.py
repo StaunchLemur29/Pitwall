@@ -34,6 +34,7 @@ from .models import Frame, GameStatus, Lap, Mode, SessionInfo, mode_for
 from .optimal_run import lap_time, learn_grip, simulate
 from .reference import ReferenceLap, downsample
 from .storage import Store
+from .tips import SHOW_UNTIL_M, Tips, as_instruction
 from .tracks.live import Drill, TrackState
 from .tracks.loader import from_lap_trace
 from .tracks.model import TrackModel
@@ -109,7 +110,8 @@ class Rig:
         self._last_lap_note: dict[str, Any] | None = None
         self._tyre_sum, self._tyre_n = 0.0, 0  # this lap's tyre core temperature at speed
         self._tyres_cold = False
-        self.conditions = Conditions()  # the track, weather, tyre wear and damage; notices when they change
+        self.conditions = Conditions()
+        self.tips = Tips()  # live tips: one a lap, on the straight before the corner  # the track, weather, tyre wear and damage; notices when they change
         self._cue_mode: str | None = None  # the brake-cue setting last applied
         self._opt_busy: set[tuple[str, str, str]] = set()
         self._ac_tracks = None  # track loader for past AC tracks when another adapter is running
@@ -181,6 +183,7 @@ class Rig:
                     log.exception("Session-end hook failed")
             self.session = session
             self.conditions.reset()
+            self.tips.reset()
             self.pit_report, self._stint_t0, self._stint_cond = None, time.time(), None
             self._load_car_profile()
             if session is not None:
@@ -1117,6 +1120,7 @@ class Rig:
                                if wrong else None}
         rows = {c["corner"]: c for c in rep.get("lap") or []}
         self._last_rows = rows
+        self.tips.add_lap(review.get("wrong") or [])
         targets = {c["corner"]: c for c in (tb or {}).get("corners", [])}
         f = self._focus
         if f is not None and f["corner"] in rows and f["corner"] in targets:
@@ -1160,15 +1164,47 @@ class Rig:
             avg = self._tyre_avg()
             out["tyres"] = {"cold": True, "avg_c": round(avg) if avg else None, "working_c": round(self._working_c())}
         out["notice"] = self.conditions.current_notice(self._clock())  # a crash, worn tyres, the track changing...
+        out["tip"] = self._tip_live(out)
         return out
 
+    def _tip_live(self, coach: dict[str, Any]) -> dict[str, Any] | None:
+        """This frame's live tip (see tips.py), or None."""
+        f, track = self.frame, self.track
+        if self.config["coach"].get("tips", "game") == "off" or f is None or track is None or f.status != GameStatus.LIVE:
+            return None
+        nc = track.model.next_corner(f.lap_progress)
+        quiet = bool(track.drill is not None or coach.get("notice") or coach.get("tyres") or f.in_pit_lane)
+        corners = track.model.corners
+        length = track.model.length_m or 1.0
+
+        def approach(num: int) -> int:
+            # back over linked corners (less than a reading-straight between them) to the run's first
+            i = next((k for k, c in enumerate(corners) if c.number == num), None)
+            if i is None:
+                return num
+            for _ in range(min(2, len(corners) - 1)):  # at most two corners back, or it's not "before" it
+                prev = corners[i - 1]
+                if ((corners[i].entry - prev.exit) % 1.0) * length >= SHOW_UNTIL_M:
+                    break
+                i -= 1
+            return corners[i].number
+
+        tip = self.tips.live(f.lap, nc[0].number if nc else None, nc[1] if nc else None, self._clock(),
+                             coach.get("focus"), quiet, approach)
+        if tip and nc and tip["corner"] != nc[0].number:
+            # given on the straight before a run of corners: say which one it's about
+            tip = {**tip, "label": f"{tip['label']}, after {nc[0].label}"}
+        return tip
+
     def _focus_fix(self, corner: int) -> str | None:
-        """What to change at the focus corner: from your latest lap there."""
+        """What to change at the focus corner, as something to do: from your
+        latest lap there, the first difference that cost time (not one where you
+        were quicker)."""
         last = self._last_rows.get(corner)
         if not last:
             return None
-        notes = last.get("notes") or last.get("opt_notes") or []
-        return notes[0] if notes else None
+        notes = (last.get("notes") or []) + (last.get("opt_notes") or [])
+        return next((x for x in (as_instruction(n) for n in notes) if x), None)
 
     def _tyre_avg(self) -> float | None:
         f = self.frame
@@ -1449,6 +1485,8 @@ class Rig:
         return {
             "track_version": self.csp.version if self.track is not None else -1,
             "drill": self._csp_drill(),
+            # the live tip, for the in-game overlay too (Settings: on the side screen and in the game)
+            "tip": (self.tips.showing or {}).get("text") if self.config["coach"].get("tips", "game") == "game" else None,
             # the app saves car states as you drive (for "Go there" at speed) only when the car's fit
             "save_states": self._csp_save_ok(),
             "session": f"{self.session.car}@{self.session.track_key}" if self.session else None,

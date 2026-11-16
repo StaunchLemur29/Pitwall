@@ -66,7 +66,9 @@ DEFAULTS: dict[str, Any] = {
     # braking points (the car at its grip on the optimal line: where to get to);
     # "best" = your best lap's (where you are). Falls back to "best" until the
     # optimal run has been worked out.
-    "coach": {"brake_cue": "optimal"},
+    # tips: live tips, one a lap on the straight before the corner they're about.
+    # "game" = on the side screen and in the game, "screen" = side screen only, "off".
+    "coach": {"brake_cue": "optimal", "tips": "game"},
     # The in-game overlay (CSP app): what it shows as a braking point approaches.
     "overlay": {
         "show_turn": True,  # rally-style: direction + how sharp (R3) and the gear
@@ -187,6 +189,8 @@ def validate(cfg: dict[str, Any]) -> list[str]:
     from_m = cfg.get("overlay", {}).get("show_from_m")
     if not isinstance(from_m, (int, float)) or not 100 <= from_m <= 600:
         errs.append("overlay.show_from_m must be between 100 and 600 metres")
+    if cfg.get("coach", {}).get("tips", "game") not in ("game", "screen", "off"):
+        errs.append("coach.tips must be game, screen or off")
     lead = cfg.get("drills", {}).get("lead_in_s")
     if not isinstance(lead, (int, float)) or not 0 <= lead <= 15:
         errs.append("drills.lead_in_s must be between 0 and 15 seconds")
