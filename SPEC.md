@@ -245,7 +245,7 @@ Reads AC `cfg/*.ini`; writes only after one-click confirm, with automatic backup
 ## 13. Extras
 
 - **Music**: now playing + play/pause/skip via Windows media session (Spotify, Apple Music) and wheel buttons.
-- **Session timer**: compact — race time/laps remaining when relevant, rig-session timer, optional break reminder.
+- **Session timer**: compact — race time/laps remaining when relevant, rig-session timer, optional break reminder. **Done 2026-11-16:** the status line shows this stint's driving time (since you left the pits); in a race, your position and laps left (or time left in a timed race). The break reminder (off by default; Settings, minutes) counts driving since your last real break (5 minutes out of the car: pits, menus, game closed) and resets after one; it's only shown in the pits or on a straight (150 m+ from the next corner, off the brake), never spoken.
 - **Discord** (low priority): Rich Presence status ("Nordschleife · 911 GT3 · PB 7:12.4 · learning Fuchsröhre") via local IPC.
 - **Car systems & hardware** (from docs/research/car-and-hardware.md):
   - done: car systems strip (DRS, battery, deploy, engine brake), battery & DRS along the lap in analysis ("ran out of battery", "DRS available but not opened"), per-car profile of which systems a car has (used by the UI now, by coaching later)

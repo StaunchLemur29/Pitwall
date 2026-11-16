@@ -470,6 +470,14 @@ export interface Live {
   /** how the stint went, while you're in the pits */
   pit_report?: PitReport | null;
   driving_s: number;
+  /** The session timer: this stint, since your last break (5 minutes out of the car), what's left of a race. */
+  timer?: {
+    stint_s: number;
+    since_break_s: number;
+    /** A break reminder is due and it's a safe moment to show it. */
+    break_due: boolean;
+    race: { position: number | null; laps_left: number | null; time_left_s: number | null } | null;
+  };
   track: TrackLive | null;
 }
 
