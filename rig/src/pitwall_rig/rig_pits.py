@@ -59,10 +59,11 @@ class PitsMixin:
             f = self.frame
             race = {"position": f.position} if f is not None and self.session is not None \
                 and self.session.session_type.value == "race" and f.position else None
+            advice = self.advice(game, car, track_key)["advice"]
             with self.lock:
                 focus = (self._coach_live() or {}).get("focus")
                 self.pit_report = stint_report(laps, reviews, best["lap_time_ms"] if best else None,
-                                               self._stint_cond, end, focus, race, laps_driven=driven)
+                                               self._stint_cond, end, focus, race, laps_driven=driven, advice=advice)
                 self.emit({"type": "pit_report", "report": self.pit_report})
             self.on_pit(game, car, track_key)
         except Exception:

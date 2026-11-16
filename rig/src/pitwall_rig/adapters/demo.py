@@ -234,11 +234,19 @@ class DemoAdapter(GameAdapter):
             rpm=rpm,
             fuel_l=self._fuel,
             brake_bias=self._bb,
-            abs=0.3,
-            tc=0.2,
+            # ABS / TC "in action", as AC reports them: only while they're working
+            abs=0.3 if braking and brake > 0.45 else 0.0,  # (the demo driver never brakes harder than half)
+            tc=0.2 if gas > 0.9 and gear <= 2 else 0.0,
             abs_active=braking and brake > 0.9,
             tc_active=gas > 0.9 and gear <= 2,
-            tyre_pressure_psi=[27.4, 27.6, 26.9, 27.1],
+            tyre_pressure_psi=[28.8, 27.4, 26.9, 27.1],
+            # the front left locks under the hardest braking; the rears spin out of slow corners
+            wheel_speed=[
+                self._v / 0.33 * (0.5 if braking and brake > 0.47 and k > 0 else 1.0),
+                self._v / 0.33,
+                self._v / 0.34 * (1.3 if gas > 0.9 and gear <= 1 and abs(k) > 0.004 else 1.0),
+                self._v / 0.34 * (1.3 if gas > 0.9 and gear <= 1 and abs(k) > 0.004 else 1.0),
+            ],
             tyre_core_temp_c=[82, 84, 78, 79],
             # force feedback grows with cornering load; tight, fast corners max it out
             ffb=max(-1.0, min(1.0, k * 46 * self._v * 3.6 / 120)),

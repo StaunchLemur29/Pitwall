@@ -129,6 +129,13 @@ Post-session race-engineer debrief: explains *why*, answers follow-up questions,
 2. Tyre pressures (AC reports them live).
 3. Deeper garage setup (springs, dampers, aero…) — only once earlier stages are mastered.
 
+**Advisor built 2026-11-16** (advisor.py; suggestions only, Pitwall never changes the car):
+- **What it watches:** each wheel's speed against the car's. A wheel 25 %+ slower while braking for 0.15 s is a lock-up (fronts and rears told apart: they call for opposite changes); 20 %+ faster on the throttle for 0.25 s is wheelspin. Also how much of your braking the ABS is working, how much of your flat-out driving the TC is cutting, and hot tyre pressures. Wheel radius is learnt as you drive (rolling freely in a straight line), so it works for any mod.
+- **When it speaks:** from your last 8 laps **on the current settings** (same brake bias, ABS and TC level): change one and it starts again. Needs 3 laps, and a habit: the same corner on 2 laps, or half your laps.
+- **What it says:** rear lock-ups: bias 1 % forward. Front lock-ups: more ABS if it's on, else bias 1 % rearward. Wheelspin: more TC if it's on, else throttle technique. TC cutting 35 %+ of flat-out time: try a step less. ABS working 50 %+ of braking: brake to just under it. Pressures: even out left and right on an axle (1 psi+), or against the car's ideal hot pressure when known (read from the car's tyres.ini if its data folder is unpacked, else typed in on the Tools page).
+- **Where:** Tools page card; the pit report's "Settings to try" (top two); and, for lock-ups and wheelspin at a corner, the live tip slot (after repeated mistakes, before the focus; the same suggestion at most every third lap).
+- **Not done:** reading packed data.acd for ideal pressures; brake bias as fuel burns off; the garage setup stage; advice on the hub.
+
 ---
 
 ## 7. Reference laps & targets
