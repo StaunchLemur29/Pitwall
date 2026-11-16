@@ -43,6 +43,22 @@ def slip_deg(f: Frame) -> float:
     return abs(math.degrees(a))
 
 
+def next_lap_tail(trace: dict[str, list[float]]) -> int:
+    """How many samples at the end of a lap's trace belong to the next lap.
+
+    AC resets the lap clock at the line a frame or so before it counts the
+    lap, so the last sample or two read t = 0.0-something (seen on every lap
+    of the rig recordings). They'd make the trace's time run backwards at the
+    very end."""
+    t = trace.get("t") or []
+    n = len(t)
+    for i in range(n - 1, max(0, n - 30), -1):
+        if t[i] < t[i - 1] - 1.0:
+            # (a rewind early in a lap also runs the clock back: not that)
+            return n - i if t[i - 1] > 20.0 and all(x < 5.0 for x in t[i:]) else 0
+    return 0
+
+
 REWIND = "rewind"  # jumped back along the track (Time Shift, a drill retry)
 TELEPORT = "teleport"  # jumped forward, or somewhere else entirely
 
@@ -235,13 +251,27 @@ class LapRecorder:
                 buf = self._new_buffer(frame, jumped=False)
                 buf.discard = True
 
+        carried: dict[str, list[float]] | None = None
         if buf is not None and frame.lap > buf.lap_number:
+            # The clock reset at the line before the lap was counted: those
+            # last samples are the start of the new lap, not the end of this one.
+            k = next_lap_tail(buf.trace)
+            if k:
+                carried = {ch: v[-k:] for ch, v in buf.trace.items()}
+                for v in buf.trace.values():
+                    del v[-k:]
+                buf.cuts = buf.cuts[: len(buf.cuts) - sum(1 for o in carried["off"] if o > self.max_tyres_out)]
             self._pending = (buf, buf.last_lap_ms_at_start, frame.t)
             buf = None
             self._maybe_finalize(frame)
 
         if buf is None:
             buf = self._new_buffer(frame, jumped=bool(jump))
+            if carried:
+                for ch, v in carried.items():
+                    buf.trace[ch].extend(v)
+                buf.cuts.extend(p for p, o in zip(carried["p"], carried["off"], strict=True) if o > self.max_tyres_out)
+                buf.first_lap_time_ms = int(carried["t"][0] * 1000)
         self._buf = buf
         buf.add(frame, self.max_tyres_out)
 

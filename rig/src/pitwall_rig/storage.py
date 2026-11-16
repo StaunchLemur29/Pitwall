@@ -12,6 +12,7 @@ from array import array
 from pathlib import Path
 from typing import Any, Self
 
+from .laps import next_lap_tail
 from .models import Lap
 
 SCHEMA = """
@@ -362,6 +363,9 @@ class Store:
         if not row:
             return None
         tr = unpack_trace(row["trace"])
+        k = next_lap_tail(tr)  # laps saved before the recorder stopped keeping these
+        if k:
+            tr = {ch: v[:-k] for ch, v in tr.items()}
         with self._lock:
             self._traces[lap_id] = tr
             while len(self._traces) > self.TRACE_CACHE:

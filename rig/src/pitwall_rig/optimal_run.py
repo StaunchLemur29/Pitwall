@@ -21,9 +21,11 @@ looks slower than it is.
 
 from __future__ import annotations
 
+import itertools
 import math
 from bisect import bisect_left
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from typing import Any
 
 from .tracks.model import TrackModel
@@ -45,6 +47,17 @@ class Grip:
     accel_v: list[float]  # accelerating: table by speed
     accel_a: list[float]
     top_speed: float  # m/s, the fastest it's been
+    gears: dict[int, int] = field(default_factory=dict)  # speed bin → the gear you pull in at that speed
+
+    def gear(self, v: float) -> int:
+        """The gear you use on the power at this speed (0: not known)."""
+        if not self.gears:
+            return 0
+        b = int(v / BIN_MS)
+        if b in self.gears:
+            return self.gears[b]
+        near = min(self.gears, key=lambda k: abs(k - b))
+        return self.gears[near]
 
     def lat(self, v: float) -> float:
         return self.lat0 + self.lat_k * v * v
@@ -107,7 +120,12 @@ def _samples(tr: dict[str, list[float]]) -> list[tuple[float, float, float, floa
     n = len(t)
     if n < 50 or len(x) != n:
         return []
-    rate = (n - 1) / max(1e-6, t[-1] - t[0])
+    # Samples a second, from the usual gap between them (not first to last: a
+    # pause, a rewind or a stray sample at either end would throw that off).
+    gaps = sorted(b - a for a, b in itertools.pairwise(t) if b > a)
+    if not gaps:
+        return []
+    rate = 1.0 / gaps[len(gaps) // 2]
     k = max(1, round(rate * 0.15))  # ±0.15 s
     out = []
     for i in range(k, n - k):
@@ -115,8 +133,8 @@ def _samples(tr: dict[str, list[float]]) -> list[tuple[float, float, float, floa
             continue  # still before the line
         a, b = i - k, i + k
         dt = t[b] - t[a]
-        if dt <= 0:
-            continue
+        if dt <= 0 or dt > 4 * k / rate:
+            continue  # the clock jumped inside the window (a pause, a rewind)
         ax, az, bx, bz, cx, cz = x[a], z[a], x[i], z[i], x[b], z[b]
         l1 = math.hypot(bx - ax, bz - az)
         l2 = math.hypot(cx - bx, cz - bz)
@@ -127,6 +145,23 @@ def _samples(tr: dict[str, list[float]]) -> list[tuple[float, float, float, floa
         curv = 2 * area2 / (l1 * l2 * l3) if l3 > 0 else 0.0
         v = spd[i] / 3.6
         out.append((v, v * v * curv, (spd[b] - spd[a]) / 3.6 / dt, tr["brake"][i], tr["gas"][i]))
+    return out
+
+
+def learn_gears(traces: list[dict[str, list[float]]]) -> dict[int, int]:
+    """Which gear you're in on the power at each speed (10 km/h bins): the
+    commonest, and never a lower gear at a higher speed."""
+    seen: dict[int, Counter[int]] = {}
+    for tr in traces:
+        for v, gas, gear in zip(tr.get("speed", []), tr.get("gas", []), tr.get("gear", []), strict=False):
+            if gas > 0.2 and gear >= 1 and v > 20:
+                seen.setdefault(int(v / 3.6 / BIN_MS), Counter())[int(gear)] += 1
+    out: dict[int, int] = {}
+    top = 0
+    for b in sorted(seen):
+        if sum(seen[b].values()) >= 10:
+            top = max(top, seen[b].most_common(1)[0][0])
+            out[b] = top
     return out
 
 
@@ -168,7 +203,7 @@ def learn_grip(traces: list[dict[str, list[float]]]) -> Grip | None:
     return Grip(
         lat0=max(3.0, lat0), lat_k=lat_k,
         brake0=max(3.0, brake0), brake_k=brake_k,
-        accel_v=acc_v, accel_a=acc_a, top_speed=top,
+        accel_v=acc_v, accel_a=acc_a, top_speed=top, gears=learn_gears(traces),
     )
 
 
@@ -204,9 +239,14 @@ def simulate(model: TrackModel, grip: Grip) -> dict[str, list[float]] | None:
         return None
     line = model.line
     pts = offsets_to_points(line, off)
-    n = len(pts)
-    xs = [p[0] for p in pts]
-    zs = [p[1] for p in pts]
+    length = model.length_m or line.length
+    return simulate_path([p[0] for p in pts], [p[1] for p in pts], [d / length for d in line.dist], grip)
+
+
+def simulate_path(xs: list[float], zs: list[float], progress: list[float], grip: Grip) -> dict[str, list[float]]:
+    """Any closed path driven at the car's grip, as a lap trace. ``progress``:
+    lap progress (0..1) of each point."""
+    n = len(xs)
     ds = [math.hypot(xs[(i + 1) % n] - xs[i], zs[(i + 1) % n] - zs[i]) for i in range(n)]  # i → i+1
     curv = _curvature(xs, zs, ds)
     vmax = []
@@ -228,7 +268,6 @@ def simulate(model: TrackModel, grip: Grip) -> dict[str, list[float]] | None:
 
     tr: dict[str, list[float]] = {k: [] for k in ("t", "p", "x", "z", "speed", "brake", "gas", "gear")}
     t = 0.0
-    length = model.length_m or line.length
     for i in range(n):
         if i:
             t += ds[i - 1] / max(0.5, (v[i - 1] + v[i]) / 2)
@@ -241,13 +280,13 @@ def simulate(model: TrackModel, grip: Grip) -> dict[str, list[float]] | None:
             brake = 0.0
             gas = 1.0 if v[i] >= grip.top_speed * 0.995 else max(0.2, min(1.0, acc / room)) if room > 0 else 1.0
         tr["t"].append(round(t, 3))
-        tr["p"].append(round(line.dist[i] / length, 5))
+        tr["p"].append(round(progress[i], 5))
         tr["x"].append(round(xs[i], 2))
         tr["z"].append(round(zs[i], 2))
         tr["speed"].append(round(v[i] * 3.6, 1))
         tr["brake"].append(round(brake, 3))
         tr["gas"].append(round(gas, 3))
-        tr["gear"].append(0)  # unknown
+        tr["gear"].append(grip.gear(v[i]))  # the gear you pull in at this speed (0: unknown)
     return tr
 
 
