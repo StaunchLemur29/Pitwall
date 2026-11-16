@@ -341,14 +341,16 @@ class Store:
             "SELECT sector_ms FROM laps WHERE game=? AND track_key=? AND car=? AND valid=1 AND rewound=0",
             (game, track_key, car),
         ).fetchall()
-        best: list[int] = []
-        for r in rows:
-            secs = json.loads(r["sector_ms"])
-            if not best:
-                best = list(secs)
-            elif len(secs) == len(best):
-                best = [min(a, b) for a, b in zip(best, secs, strict=True)]
-        return best
+        laps = [s for s in (json.loads(r["sector_ms"]) for r in rows) if s]
+        if not laps:
+            return []
+        # The track's sector count is what most laps have: one odd lap (recorded
+        # across a layout change, or cut short) mustn't decide it.
+        counts: dict[int, int] = {}
+        for s in laps:
+            counts[len(s)] = counts.get(len(s), 0) + 1
+        n = max(counts, key=lambda k: counts[k])
+        return [min(s[i] for s in laps if len(s) == n) for i in range(n)]
 
     TRACE_CACHE = 4  # recently read laps kept unpacked (a long lap takes a while to unpack)
 

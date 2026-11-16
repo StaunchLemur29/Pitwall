@@ -12,6 +12,18 @@ interface Entry {
 
 export const NEWS: Entry[] = [
   {
+    id: "2026-11-16-optimal-fix",
+    date: "16 Nov 2026",
+    title: "The optimal run works on real laps",
+    what: [
+      "Fixed: the optimal run could only be worked out on the demo car, never from your own laps. Assetto Corsa resets the lap clock a moment before it counts the lap, and that tripped it up. Your saved laps are fine: nothing to redo.",
+      "With it come the things that depend on it: the optimal braking cue, three of the blind-spot habits, and the optimal run on the website.",
+      "The optimal run now has a gear at each corner (the gear you pull at that speed).",
+      "Best sectors no longer go missing when one odd lap has a different number of sectors.",
+    ],
+    todo: "Drive 4 clean laps, open a corner in the analysis window and look for the dotted \"Optimal run\" line. docs/rig-checklist.md lists everything else to try, in order.",
+  },
+  {
     id: "2026-11-06-tips",
     date: "6 Nov 2026",
     title: "Live tips and blind spots",

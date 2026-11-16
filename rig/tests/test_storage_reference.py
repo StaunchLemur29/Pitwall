@@ -135,3 +135,20 @@ def test_traces_pack_small_and_round_trip_including_old_ones():
     assert back == {k: [float(x) for x in v] for k, v in tr.items()}
     legacy = zlib.compress(json.dumps(tr).encode())  # laps saved before the binary format
     assert unpack_trace(legacy) == tr
+
+
+def test_best_sectors_go_by_the_sector_count_most_laps_have(tmp_path):
+    from pitwall_rig.models import Lap
+    from pitwall_rig.storage import Store
+
+    store = Store(tmp_path / "p.sqlite")
+
+    def add(sectors):
+        store.add_lap(Lap(game="g", car="c", track_key="t", lap_number=1, lap_time_ms=sum(sectors) or 60000, valid=True,
+                          out_lap=False, started_at=1.0, sector_ms=sectors, trace={"t": [0.0], "p": [0.0]}))
+
+    add([])  # an odd lap first used to decide the count, and no sectors ever showed
+    add([20000, 21000, 22000])
+    add([20500, 20000, 23000])
+    add([30000, 33000])
+    assert store.best_sectors("g", "t", "c") == [20000, 20000, 22000]

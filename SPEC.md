@@ -315,3 +315,37 @@ Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
 - Background wheel input: DirectInput `DISCL_BACKGROUND | DISCL_NONEXCLUSIVE` (or SDL with `SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS=1`).
 - Reference platforms (Track Titan, Coach Dave Delta, VRS) have no public APIs; Garage61 (iRacing) has one.
 - Discord Rich Presence still works via local IPC (`\\.\pipe\discord-ipc-0`).
+
+---
+
+## 18. How the numbers are worked out (audit, 2026-11-16)
+
+For whoever works on this next. Each line: where it lives, how it's worked out, how it was checked, and what's weak. "Rig lap" = the one full recorded lap (`rig/tests/fixtures/ac_spa_one_lap.pwrec`: Spa, RSS Mercer V8, 2:28.25).
+
+**Facts about AC that the code depends on** (all seen in the rig recordings):
+- AC resets the lap clock at the line one frame *before* it counts the lap. The recorder moves that sample to the next lap (`laps.next_lap_tail`); laps saved earlier are cleaned as they're read (`Store.trace`). Never work out a sample rate from a trace's first and last time.
+- Lap progress wraps to 0 a few metres *before* the timing line, while the clock still runs. `LapView` drops those samples (progress must rise).
+- Shared memory `abs` and `tc` are how hard the system is working right now (0 = not working), not the setting. The setting comes only from the in-game app (`car.absMode`, `car.tractionControlMode`).
+- A lap is not a closed path: the car crosses the line in a different place each lap (3 m sideways on the rig lap). Anything that treats a lap's line as a loop has a kink at the seam.
+
+| What | Where | How | Checked | Weak spots |
+|---|---|---|---|---|
+| Lap, valid, out lap, rewound | `laps.py` | Lap = AC's lap counter; valid = never more than 2 wheels off, driven line to line; a Time Shift rewind erases what it undid and flags the lap | Tests on the four recordings | A session restart on lap 0 is told from a rewind only by the jump detector |
+| Sector times | `laps.py` | Clock at each change of AC's sector number | Rig lap: sums to the lap time | Laps with a different number of sectors from most are left out of the best sectors |
+| Per-corner numbers (braking point, slowest point, full throttle, time) | `analysis.analyse_corner` | Braking point = start of the last braking phase before the apex (40 m off the brake starts a new one); time = entry to exit, interpolated | Unit tests, demo | Corner entry and exit come from the track's curvature (radius under 500 m), so "time through the corner" covers different lengths at different corners |
+| Corner grades (green / amber / red) | `analysis.corner_mastery` | Spread and gap to best over the last 10 clean passes, fixed thresholds in seconds | Unit tests | The thresholds are absolute (0.08 s, 0.2 s): a long corner is graded harder than a short one. Scaling by the corner's time would be fairer; not changed, it would regrade every corner |
+| Slides and spins | `laps.slip_deg`, `analysis.slide_runs` | Angle between heading and direction of travel: over 8° for 0.3 s is a slide, 90° a spin; ignored under 36 km/h | Rig recording (the 40° moment and the spin) | One car, one session |
+| Section bests | `rig._record_sections` | Clean pass through the section on any lap without a rewind, no telemetry gap over 0.5 s | Unit tests | Sections that run over the start line are skipped |
+| Optimal run | `optimal_run.py` | See §7 and the module's docstring. Hills, the top-of-data fit and local grip arrive with pull request 53 | **The real-line check** (below): on main the model is slower than the rig lap on 23 % of it, with pull request 53 on 8 % | Banking, kerbs, tyre state aren't modelled; needs 500 samples and the track's edges |
+| Blind-spot scan | `scan.py` | A habit = 40 %+ of passes at a corner, 2+ corners, 6+ passes each | Demo; rig lap for brake release only (20 %, quiet) | Thresholds from one session; three of the six checks need the optimal run |
+| Live tips | `tips.py` | Same mistake at the same corner on 2+ of the last 4 laps, else a trouble spot, else (with the advisor, pull request 54) a setting to change, else the focus | Unit tests, in-game harness | Not driven on the rig yet |
+| Time to beat | `analysis.time_to_beat` | 35 to 60 % of the way from your usual to your best (or the optimal run), by grade | Unit tests | The stretch factors are a judgement, not fitted |
+| Pedal and FFB checks | `tools.py` | Brake stops: peak, time to peak, time from the last 90 %-of-peak moment to off | Rig lap | "Abrupt" is under 0.15 s, fixed |
+
+**The real-line check** (`test_the_model_can_drive_your_real_line_as_fast_as_you_did`, in `rig/tests/test_optimal_run.py` once pull request 53 is merged): learn the car from a real lap, then drive that lap's own line with the model. It should be as quick as the lap or quicker nearly everywhere; where it's much slower, the model is missing something the car really did. This is how the missing hills were found. Use it for any change to `optimal_run.py`. Ignore the first 3 % of the lap (the seam, above).
+
+**The in-game app's CSP calls, checked 2026-11-16** against CSP's public sources (`ac-custom-shaders-patch/acc-lua-sdk` and `app-csp-defaults`; both can be cloned). Those don't list the functions built into CSP itself, so "not found" means not confirmed, not wrong. The full list is on the PC: `assettocorsa/extension/internal/lua-sdk/ac_apps/lib.lua`.
+- **Confirmed in CSP's own apps:** `ui.pushDWriteFont`/`popDWriteFont`, `ui.drawRectFilled`, `ui.drawRect`, `ui.drawImage`, `ui.windowWidth`, `ui.text`, `ui.textWrapped`, `ui.textColored`, `ui.setCursor`, `ui.separator`, `ui.checkbox`, `os.preciseClock`, `ac.trackProgressToWorldCoordinate`, `ac.isCarResetAllowed`, `ac.saveCarStateAsync`, `ac.loadCarState`, `ac.onCarJumped`, `ac.getSim`, `ac.getCar`, `JSON.parse`/`stringify`, `web.get`; car fields `absMode(s)`, `tractionControlMode(s)`, `brakeBias`, `drs*`, `kers*`, `mguk*`, `fuelMap`, `currentEngineBrakeSetting`, `engineBrakeSettingsCount`, `speedKmh`, `splinePosition`, `look`, `wheels`; sim fields `isPaused`, `isReplayActive`, `trackLengthM`, `weatherType`, `rainIntensity`, `ambientTemperature`.
+- **Confirmed in the SDK only:** `web.post`, `web.timeouts`, `ac.Wheel`, `ui.Alignment`.
+- **Not found in either, but working on the rig:** `ui.dwriteTextAligned`, `ui.measureDWriteText` (the overlay draws), `physics.setCarPosition` (Go there works).
+- **Not found, and not proven on the rig:** `physics.setTyresTemperature` (guarded; on the rig it was accepted but the tyres stayed cold), `sim.timeHours`, `sim.timeMinutes`, `sim.roadGrip`. These three are now read one at a time, so a missing one no longer loses the weather and rain with it. Check them in `lib.lua` on the PC.
