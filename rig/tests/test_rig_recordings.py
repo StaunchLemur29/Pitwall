@@ -1,6 +1,7 @@
 """Real moments from the rig (Spa, 100 % damage, 5x tyre wear), played back
 through Pitwall, so what the coach says about them can't quietly change."""
 
+import itertools
 from pathlib import Path
 
 from pitwall_rig.adapters.replay import ReplayAdapter
@@ -64,3 +65,32 @@ def test_pausing_doesnt_count_as_driving(tmp_path):
     rig, _ = play("ac_spa_return_to_pits.pwrec", tmp_path, lambda r: statuses.add(r.frame.status))
     assert GameStatus.PAUSED in statuses
     assert rig.store.laps(limit=10) == [] or all(not lap["valid"] for lap in rig.store.laps(limit=10))
+
+
+def test_a_real_lap_ends_at_the_line_and_the_optimal_run_can_learn_from_it(tmp_path):
+    """AC resets the lap clock a frame before it counts the lap. That sample is
+    the start of the next lap: left on the end of this one, time ran backwards
+    there and the optimal run couldn't learn the car from any real lap."""
+    from pitwall_rig.optimal_run import learn_grip
+
+    rig, _ = play("ac_spa_one_lap.pwrec", tmp_path)
+    lap = next(l for l in rig.store.laps("ac", "spa@2022", "rss_gtmx_mercer_extreme_v8") if l["valid"])
+    tr = rig.store.trace(lap["id"])
+    assert all(b >= a for a, b in itertools.pairwise(tr["t"]))  # time only runs forwards
+    assert tr["t"][0] < 0.05  # and the lap has its own first sample
+    assert abs(tr["t"][-1] * 1000 - lap["lap_time_ms"]) < 100
+    grip = learn_grip([tr])
+    assert grip is not None
+    g = grip.to_dict()
+    assert 1.2 < g["lat_g_100"] < 2.2 and 1.3 < g["brake_g_100"] < 2.3 and 250 < g["top_kmh"] < 280
+    assert grip.gear(60 / 3.6) < grip.gear(250 / 3.6)  # the gear you pull at each speed
+
+
+def test_laps_saved_with_the_stray_sample_are_cleaned_when_read(tmp_path):
+    from pitwall_rig.laps import next_lap_tail
+
+    tr = {"t": [147.9, 148.0, 148.1, 0.001, 0.02], "p": [0.99, 0.995, 0.0002, 0.0003, 0.0005]}
+    assert next_lap_tail(tr) == 2
+    assert next_lap_tail({"t": [10.0, 10.1, 4.0, 4.1], "p": [0.2, 0.21, 0.1, 0.11]}) == 0  # a rewind early in a lap
+    assert next_lap_tail({"t": [50.0, 50.1, 40.0, 40.1], "p": [0.5, 0.51, 0.4, 0.41]}) == 0
+    assert next_lap_tail({"t": [1.0, 1.1, 1.2], "p": [0.1, 0.2, 0.3]}) == 0
