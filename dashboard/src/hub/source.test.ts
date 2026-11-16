@@ -30,12 +30,16 @@ describe("hub source", () => {
     const src = hubSource(fakeSb({
       laps: [lap],
       tracks: [{ ...combo, geometry }],
-      combo_extras: [{ ...combo, optimal: { lap_s: 58.2, trace: { t: [0], p: [0] } }, drill_bests: [[0.1, 0.2, 9100]] }],
+      combo_extras: [{ ...combo, optimal: { lap_s: 58.2, trace: { t: [0], p: [0] } }, drill_bests: [[0.1, 0.2, 9100]],
+        blind_spots: { laps: 12, findings: [{ key: "coasting", title: "You coast into corners", share: 0.5, weight: 2, corners: ["Turn 3"], detail: "d", why: "w", drill: null }] } }],
     }));
     const rep = await src.corners(1, null, combo as never);
     expect(rep.conditions).toEqual({ road_c: 31 });
     expect(rep.practice[0].drill_best_s).toBe(9.1); // the drill run beats the lap pass
     expect(rep.optimal?.lap_s).toBe(58.2);
     expect((await src.optimal(combo as never))?.lap_s).toBe(58.2);
+    const scan = await src.blindSpots!(combo as never);
+    expect(scan.laps).toBe(12);
+    expect(scan.findings[0].title).toBe("You coast into corners");
   });
 });

@@ -1,5 +1,6 @@
 /** Blind spots: habits across your recent laps here (rig scan.py), each with
- * where it shows most and the drill to fix it. PC only. */
+ * where it shows most and the drill to fix it. Worked out on the PC; the hub
+ * shows what it last uploaded (without the Practise button). */
 import { useEffect, useState } from "react";
 import { practise, type Combo } from "../lib/rig";
 import type { AnalysisSource } from "../lib/source";
