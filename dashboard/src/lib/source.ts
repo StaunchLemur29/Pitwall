@@ -6,7 +6,7 @@
 import { createContext, useContext } from "react";
 import type { Trace } from "./profile";
 import { fetchCombos, fetchCorners, fetchGeometry, fetchLaps, fetchOptimal, fetchTrace, type Combo } from "./rig";
-import type { CornerReport, Debrief, LapSummary, TrackGeometry } from "./types";
+import type { BlindSpot, CornerReport, Debrief, LapSummary, TrackGeometry } from "./types";
 
 export interface AnalysisSource {
   /** A game session can be running here (live laps, drills, the analysis window). */
@@ -21,6 +21,8 @@ export interface AnalysisSource {
   optimal(combo: Combo | null): Promise<{ lap_s: number; trace: Trace } | null>;
   /** AI debriefs for this car + track, newest first. */
   debriefs(combo: Combo): Promise<Debrief[]>;
+  /** Habits your recent laps here show (rig PC only). */
+  blindSpots?(combo: Combo | null): Promise<{ findings: BlindSpot[]; laps: number }>;
   /** Write one now (rig PC only, with an API key set). */
   writeDebrief?(combo: Combo): Promise<Debrief>;
   /** Whether debriefs can be written here (an API key is set). */
@@ -40,6 +42,10 @@ export const rigSource: AnalysisSource = {
   debriefs: async (c) => {
     const r = await fetch(`/api/debriefs?${q(c)}`);
     return r.ok ? r.json() : [];
+  },
+  blindSpots: async (c) => {
+    const r = await fetch(`/api/blindspots${c ? `?${q(c)}` : ""}`);
+    return r.ok ? r.json() : { findings: [], laps: 0 };
   },
   writeDebrief: async (c) => {
     const r = await fetch("/api/debrief", {

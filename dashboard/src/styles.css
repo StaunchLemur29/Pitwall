@@ -2957,3 +2957,28 @@ select {
   border-left: 3px solid var(--accent);
   padding-left: 10px;
 }
+
+/* -- blind spots (habits across your recent laps) ---------------------------- */
+.blind {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.blind__item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.blind__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.blind__why {
+  color: var(--muted);
+  font-size: 0.92em;
+}

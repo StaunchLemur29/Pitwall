@@ -7,6 +7,7 @@ import { practise, rig, useRig, type Combo } from "../lib/rig";
 import { useSource } from "../lib/source";
 import { GRADE_COLORS, indexAt, pathOf, type P } from "../lib/track";
 import type { CornerLap, CornerReport, LapConditions, LapSummary, TrackGeometry } from "../lib/types";
+import { BlindSpots } from "./BlindSpots";
 import { CornerDetail } from "./CornerDetail";
 import { DebriefCard } from "./DebriefCard";
 import { Panel, useSplit } from "./Panel";
@@ -495,6 +496,11 @@ export function LapAnalysis({
               {reviewBlock}
             </Panel>
             <DebriefCard panel combo={report?.game && report.car && report.track_key ? { game: report.game, car: report.car, track_key: report.track_key } : null} />
+            {src.blindSpots && (
+              <Panel id="blind" title="Blind spots" right={<span className="muted pnl__hint">habits across your recent laps</span>}>
+                <BlindSpots src={src} combo={active} refresh={latest?.lap_id ?? null} canDrill={canDrill} />
+              </Panel>
+            )}
             {systemsBlock && <Panel id="systems" title="Car systems">{systemsBlock}</Panel>}
             <Panel id="map" title="Map" height={420} minHeight={220}>
               {modes}
