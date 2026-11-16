@@ -248,7 +248,7 @@ Reads AC `cfg/*.ini`; writes only after one-click confirm, with automatic backup
 - **Session timer**: compact — race time/laps remaining when relevant, rig-session timer, optional break reminder.
 - **Discord** (low priority): Rich Presence status ("Nordschleife · 911 GT3 · PB 7:12.4 · learning Fuchsröhre") via local IPC.
 - **Car systems & hardware** (from docs/research/car-and-hardware.md):
-  - done: car systems strip (DRS, battery, deploy, engine brake), battery & DRS along the lap in analysis ("ran out of battery", "DRS available but not opened"), per-car profile of which systems a car has (used by the UI now, by coaching later)
+  - done: car systems strip (DRS, battery, deploy, engine brake), battery & DRS along the lap in analysis ("ran out of battery", "DRS available but not opened"), per-car profile of which systems a car has (used by the UI; by the coach since 2026-11-16: DRS left shut or the battery running out on the same straight on 2 of your last 4 laps becomes a live tip on that straight)
   - FFB clipping meter from AC's `finalFF` (per lap, per car, with a gain suggestion) for the TS-PC — **done 2026-11-04** (Tools page: % of the time clipping over your last 10 clean laps, where, and how much to change the car's gain)
   - T-LCM pedal check: peak brake per stop vs 100 %, consistency, release smoothness; calibration advice — **done 2026-11-04** (Tools page)
   - "What's new" page (`#/news`, linked from Settings with a dot when there's something unread): each change in plain words plus anything you have to do yourself; add an entry at the top of `views/WhatsNew.tsx` when a change ships — **done 2026-11-04**
@@ -289,7 +289,7 @@ Metric (km/h, m, °C), tyre pressure in **psi**, NZ date/time formats.
 
 ## 15b. Notes for later
 
-- **In-game CSP Lua app** (v0.1 built: `csp/Pitwall`, installed by start.bat; next corner + brake countdown overlay, instant drill retry via saved car state, "Go there" teleport to a drill (stopped, `physics.setCarPosition`), real ABS/TC/BB. In-game drill timer done 2026-11-04: run time counting through the section with the time to beat (or your best once you've beaten it), then the result for 4 s; game time, cancelled by a rewind/retry; Settings toggle. Still to do: coaching tips in game). Original plan: zero-latency overlays (brake countdown, next corner, drill), real ABS/TC levels (`car.absMode`, `car.tractionControlMode`), its own rewind using `ac.saveCarStateAsync` / `ac.loadCarState` (same approach as Time Shift), talking to the rig over `web.get/post`.
+- **In-game CSP Lua app** (v0.1 built: `csp/Pitwall`, installed by start.bat; next corner + brake countdown overlay, instant drill retry via saved car state, "Go there" teleport to a drill (stopped, `physics.setCarPosition`), real ABS/TC/BB. In-game drill timer done 2026-11-04: run time counting through the section with the time to beat (or your best once you've beaten it), then the result for 4 s; game time, cancelled by a rewind/retry; Settings toggle. Coaching tips in game: done 2026-11-06, one line under the overlay). Original plan: zero-latency overlays (brake countdown, next corner, drill), real ABS/TC levels (`car.absMode`, `car.tractionControlMode`), its own rewind using `ac.saveCarStateAsync` / `ac.loadCarState` (same approach as Time Shift), talking to the rig over `web.get/post`.
 - A deeper AC/CSP **mod** is also an option if an app can't do something.
 - Second-screen smoothness depends on GPU headroom: capping AC's frame rate leaves room for Chrome.
 
