@@ -19,7 +19,7 @@ from .rig_common import (
     TTB_PAST_BEST,
     AnalysisCtx,
 )
-from .tips import SHOW_UNTIL_M, as_instruction
+from .tips import SHOW_UNTIL_M, as_instruction, systems_mistakes
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +40,9 @@ class CoachMixin:
                                if wrong else None}
         rows = {c["corner"]: c for c in rep.get("lap") or []}
         self._last_rows = rows
-        self.tips.add_lap(review.get("wrong") or [])
+        track = self.track
+        slips = systems_mistakes(rep.get("systems"), track.model) if track is not None else []
+        self.tips.add_lap([*(review.get("wrong") or []), *slips])  # for the live tips: DRS and battery too
         targets = {c["corner"]: c for c in (tb or {}).get("corners", [])}
         f = self._focus
         if f is not None and f["corner"] in rows and f["corner"] in targets:
