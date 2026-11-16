@@ -38,6 +38,8 @@ interface LapRow {
   systems?: HubLap["systems"];
   time_to_beat?: HubLap["time_to_beat"];
   review?: HubLap["review"];
+  sections?: HubLap["sections"];
+  conditions?: HubLap["conditions"];
 }
 
 export function hubSource(sb: SupabaseClient): AnalysisSource {
@@ -73,6 +75,15 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     }
     return profiles.get(k)!;
   };
+  const extras = new Map<string, Promise<{ optimal: { lap_s: number; trace: Trace } | null; drill_bests: [number, number, number][] } | null>>();
+  const comboExtras = (c: Combo) => {
+    const k = key(c);
+    if (!extras.has(k)) {
+      extras.set(k, Promise.resolve(sb.from("combo_extras").select("optimal,drill_bests").eq("game", c.game).eq("car", c.car).eq("track_key", c.track_key).maybeSingle())
+        .then(({ data }) => (data ? { optimal: data.optimal ?? null, drill_bests: data.drill_bests ?? [] } : null)));
+    }
+    return extras.get(k)!;
+  };
   const trace = (id: number) => {
     if (!traces.has(id)) {
       traces.set(id, Promise.resolve(sb.from("laps").select("trace").eq("id", id).maybeSingle()).then(({ data }) => (data?.trace as Trace) ?? null));
@@ -84,9 +95,10 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     (await comboLaps(c)).map((r) => ({
       id: r.id, lap_number: r.lap_number, lap_time_ms: r.lap_time_ms, valid: r.valid, out_lap: r.out_lap, rewound: !!r.rewound, unfinished: !!r.unfinished,
       started_at: unix(r.started_at), sector_ms: r.sector_ms, corners: r.corners ?? null, systems: r.systems ?? null, review: r.review ?? null, time_to_beat: r.time_to_beat ?? null,
+      sections: r.sections ?? null, conditions: r.conditions ?? null,
     }));
   const report = async (combo: Combo, lapId: number | null, compareId: number | null): Promise<CornerReport> => {
-    const [laps, geo, profile] = await Promise.all([hubLaps(combo), trackGeometry(combo), carProfile(combo)]);
+    const [laps, geo, profile, ex] = await Promise.all([hubLaps(combo), trackGeometry(combo), carProfile(combo), comboExtras(combo)]);
     const valid = laps.filter((l) => l.valid);
     const shown = lapId ?? [...valid].sort((a, b) => b.started_at - a.started_at)[0]?.id ?? null;
     const best = [...valid].sort((a, b) => a.lap_time_ms - b.lap_time_ms || a.id - b.id)[0]?.id ?? null;
@@ -97,7 +109,8 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
       if (t) tr.set(id, t);
     }
     const empty: TrackGeometry = { track_key: combo.track_key, length_m: 0, source: "laps", has_edges: false, progress: [], center: [], left: [], right: [], corners: [], sections: [], chapters: [], practice: [] };
-    return buildReport({ ...combo, laps, geometry: geo ?? empty, profile, traces: tr }, lapId, compareId);
+    const extrasIn = ex ? { optimal_lap_s: ex.optimal?.lap_s ?? null, drill_bests: ex.drill_bests } : null;
+    return buildReport({ ...combo, laps, geometry: geo ?? empty, profile, traces: tr, extras: extrasIn }, lapId, compareId);
   };
   let canWrite: Promise<boolean> | null = null;
 
@@ -140,8 +153,8 @@ export function hubSource(sb: SupabaseClient): AnalysisSource {
     },
 
     trace: (id) => trace(id),
-    // Worked out on the rig PC; the hub gets its per-corner numbers with each lap.
-    optimal: async () => null,
+    // Worked out on the rig PC and uploaded per car + track (for the charts and the map).
+    optimal: async (c) => (c ? (await comboExtras(c))?.optimal ?? null : null),
 
     async debriefs(c) {
       const { data } = await sb.from("debriefs").select("game,car,track_key,session_start,created_at,model,body")

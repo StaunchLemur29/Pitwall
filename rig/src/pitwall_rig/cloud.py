@@ -121,11 +121,14 @@ class CloudSync:
         geometry_for: Callable[[str, str, str], dict[str, Any] | None] = lambda g, c, t: None,
         extras_for: Callable[[int], dict[str, Any] | None] = lambda lap_id: None,
         every_s: float = 20.0,
+        combo_for: Callable[[str, str, str], dict[str, Any] | None] = lambda g, c, t: None,
     ) -> None:
         self.store = store
         self.path = data_dir / "cloud.json"
         self.geometry_for = geometry_for
         self.extras_for = extras_for  # the PC's full analysis of a lap (advice, battery & DRS)
+        self.combo_for = combo_for  # per car + track: the optimal run and your drill bests
+        self._combo_sent: dict[tuple[str, str, str], Any] = {}  # what was last uploaded, to skip repeats
         self.every_s = every_s
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -308,6 +311,23 @@ class CloudSync:
                 self._cars_done.add(ck)
         client.upsert("tracks", tracks, "user_id,game,track_key")
         client.upsert("car_profiles", cars, "user_id,game,car")
+        combos = []
+        for key in {(r["game"], r["car"], r["track_key"]) for r in laps}:
+            try:
+                extra = self.combo_for(*key)
+            except Exception:
+                log.exception("Couldn't get the optimal run for %s", key)
+                continue
+            if not extra:
+                continue
+            opt = extra.get("optimal")
+            sig = (opt["lap_s"] if opt else None, json.dumps(extra.get("drill_bests")))
+            if self._combo_sent.get(key) == sig:
+                continue
+            combos.append({"user_id": client.user_id, "game": key[0], "car": key[1], "track_key": key[2],
+                           "optimal": opt, "drill_bests": extra.get("drill_bests"), "updated_at": _iso(time.time())})
+            self._combo_sent[key] = sig
+        client.upsert("combo_extras", combos, "user_id,game,car,track_key")
 
     # -- background thread ------------------------------------------------------------
 
