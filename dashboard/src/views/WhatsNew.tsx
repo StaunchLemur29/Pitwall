@@ -12,6 +12,16 @@ interface Entry {
 
 export const NEWS: Entry[] = [
   {
+    id: "2026-11-22-smooth",
+    date: "22 Nov 2026",
+    title: "The map stays smooth while you drive",
+    what: [
+      "Pitwall and its side-screen window now get a little priority over the game, so Assetto Corsa can't starve the map on heavy tracks.",
+      "Windows and Chrome no longer slow the side screen down because the game has focus, and the map always draws on the graphics card.",
+    ],
+    todo: "Nothing: it's on. If the game ever stutters because of it, turn it off in Settings → General → \"Keep Pitwall smooth while you drive\".",
+  },
+  {
     id: "2026-11-16-optimal-fix",
     date: "16 Nov 2026",
     title: "The optimal run works on real laps",

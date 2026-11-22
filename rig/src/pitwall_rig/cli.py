@@ -185,6 +185,10 @@ def cmd_run(args: argparse.Namespace) -> None:
         os._exit(0)
 
     rig.on_shutdown = shutdown
+    if config["display"].get("high_priority", True):
+        from .priority import boost_self
+
+        boost_self()
     if args.open or config["display"]["open_browser"]:
 
         async def open_when_ready(_app: web.Application) -> None:

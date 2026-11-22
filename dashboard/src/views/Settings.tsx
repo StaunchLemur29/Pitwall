@@ -338,6 +338,16 @@ function General({ draft, edit }: EditProps) {
           <option value="chrome">Chrome</option>
         </select>
       </Field>
+      <Field
+        label="Keep Pitwall smooth while you drive"
+        hint="Gives Pitwall and its windows a little priority over the game, so the map doesn't stutter on heavy tracks. Costs the game almost nothing. Takes effect next time Pitwall starts."
+      >
+        <input
+          type="checkbox"
+          checked={draft.display.high_priority ?? true}
+          onChange={(e) => edit((c) => (c.display.high_priority = e.target.checked))}
+        />
+      </Field>
 
     </div>
   );

@@ -424,6 +424,8 @@ export interface Config {
     accent: string;
     open_browser: boolean;
     browser: "auto" | "edge" | "chrome";
+    /** above-normal priority for Pitwall and its windows, so the game can't starve them */
+    high_priority?: boolean;
     monitor: "auto" | "manual";
     window_x: number;
     window_y: number;

@@ -85,6 +85,7 @@ DEFAULTS: dict[str, Any] = {
         "accent": "#ff5a36",
         "open_browser": True,
         "browser": "auto",  # auto (Chrome, then Edge) | chrome | edge
+        "high_priority": True,  # above-normal priority for Pitwall and its windows (priority.py)
         "monitor": "auto",  # auto = find the vertical monitor; manual = use window_x/window_y
         "window_x": 1920,  # manual only: top-left of the monitor in Windows' desktop coordinates
         "window_y": 0,

@@ -11,10 +11,23 @@ from typing import Any
 
 from .config import default_data_dir
 from .monitors import Monitor, list_monitors, pick_dashboard_monitor
+from .priority import Keeper
 
 log = logging.getLogger(__name__)
 
 _windows: dict[str, subprocess.Popen] = {}
+
+
+def _open_pids() -> list[int]:
+    return [p.pid for p in list(_windows.values()) if p.poll() is None]
+
+
+_keeper = Keeper(_open_pids)  # above-normal priority for the windows (priority.py)
+
+# Chrome features that slow a window without focus (the game always has focus):
+# Windows' occlusion check, efficiency mode (EcoQoS) for background processes,
+# and the once-a-minute timer limit for hidden pages.
+_UNTHROTTLE = "CalculateNativeWinOcclusion,UseEcoQoSForBackgroundProcess,IntensiveWakeUpThrottling"
 
 
 def _browser(which: str) -> str | None:
@@ -64,9 +77,16 @@ def _launch(
             "--disable-background-timer-throttling",
             "--disable-backgrounding-occluded-windows",
             "--disable-renderer-backgrounding",
+            f"--disable-features={_UNTHROTTLE}",
+            # Draw with the graphics card even if Chrome doesn't trust its driver,
+            # so the map doesn't fall back to the CPU the game is using.
+            "--ignore-gpu-blocklist",
+            "--enable-gpu-rasterization",
             *extra,
         ]
     )
+    if display.get("high_priority", True):
+        _keeper.start()
     return True
 
 
