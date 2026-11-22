@@ -51,3 +51,10 @@ Merge one, try it, then the next. They don't depend on each other.
 - Merge, drive a few laps so the PC uploads, then open the website on the MacBook.
 - The analysis page has a "Blind spots" panel matching the PC's, without Practise buttons.
 - On a phone it's under the corner list.
+
+### Map lag on heavy tracks (priority boost)
+- Merge, restart Pitwall, then drive a track where the map used to lag.
+- **The map:** it should keep moving smoothly on the side screen.
+- **Task Manager → Details:** right-click `python.exe` and the `chrome.exe` processes for Pitwall's window → Set priority. They should show "Above normal".
+- **The game:** no new stutter in AC. If there is, turn it off in Settings → General → "Keep Pitwall smooth while you drive" and say so.
+- Still laggy? Cap AC's frame rate a little below what it reaches (Content Manager → Settings → Assetto Corsa → Video → FPS limit) and say whether that fixed it.
