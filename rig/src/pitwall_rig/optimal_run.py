@@ -237,14 +237,23 @@ def _trace_hills(x: list[float], y: list[float], z: list[float]) -> tuple[list[f
     return [kv[q] for q in at], [slope[q] for q in at]
 
 
-def learn_gears(traces: list[dict[str, list[float]]]) -> dict[int, int]:
+def lap_gears(tr: dict[str, list[float]]) -> dict[int, Counter[int]]:
+    """One lap's gears on the power per speed bin (for learn_gears; kept per lap)."""
+    seen: dict[int, Counter[int]] = {}
+    for v, gas, gear in zip(tr.get("speed", []), tr.get("gas", []), tr.get("gear", []), strict=False):
+        if gas > 0.2 and gear >= 1 and v > 20:
+            seen.setdefault(int(v / 3.6 / BIN_MS), Counter())[int(gear)] += 1
+    return seen
+
+
+def learn_gears(traces: list[dict[str, list[float]]],
+                per_lap: list[dict[int, Counter[int]]] | None = None) -> dict[int, int]:
     """Which gear you're in on the power at each speed (10 km/h bins): the
     commonest, and never a lower gear at a higher speed."""
     seen: dict[int, Counter[int]] = {}
-    for tr in traces:
-        for v, gas, gear in zip(tr.get("speed", []), tr.get("gas", []), tr.get("gear", []), strict=False):
-            if gas > 0.2 and gear >= 1 and v > 20:
-                seen.setdefault(int(v / 3.6 / BIN_MS), Counter())[int(gear)] += 1
+    for lap in per_lap if per_lap is not None else [lap_gears(tr) for tr in traces]:
+        for b, c in lap.items():
+            seen.setdefault(b, Counter()).update(c)
     out: dict[int, int] = {}
     top = 0
     for b in sorted(seen):
@@ -275,27 +284,47 @@ def _fit_top(points: list[tuple[float, float, int]], below: float = 0.12, band: 
     return a, k
 
 
-def learn_grip(traces: list[dict[str, list[float]]]) -> Grip | None:
-    """The car's limits from laps on this track; None without enough driving."""
-    per_lap = [_samples(tr) for tr in traces]
+def lap_samples(tr: dict[str, list[float]]) -> list[tuple[float, float, float, float, float, float, float]]:
+    """One lap's samples for learn_grip (the slow part): worked out once per
+    lap and kept by the caller, so redoing the optimal run is quick."""
+    return _samples(tr)
+
+
+def learn_grip(traces: list[dict[str, list[float]]],
+               per_lap: list[list[tuple[float, ...]]] | None = None,
+               gears: list[dict[int, Counter[int]]] | None = None) -> Grip | None:
+    """The car's limits from laps on this track; None without enough driving.
+    ``per_lap`` / ``gears``: each lap's ``lap_samples`` / ``lap_gears``, if
+    already worked out (the slow part: kept per lap by the caller)."""
+    if per_lap is None:
+        per_lap = [_samples(tr) for tr in traces]
     samples = [s for lap in per_lap for s in lap]
     if len(samples) < 500:
         return None
+    # Sorted into speed bins once (the fits below go over them several times).
+    by_bin: dict[str, dict[int, list[tuple[float, float, float]]]] = {"lat": {}, "brake": {}, "accel": {}}
+    for v, lat, lon, brake, gas, load, _p in samples:
+        k = int(v / BIN_MS)
+        by_bin["lat"].setdefault(k, []).append((v, lat, load))
+        if brake > 0.3:
+            by_bin["brake"].setdefault(k, []).append((v, -lon, load))
+        if gas > 0.95 and brake < 0.05:
+            by_bin["accel"].setdefault(k, []).append((v, lon, 1.0))
+
     def table(key: str, q: float, lat_k: float = 0.0, brake_k: float = 0.0) -> list[tuple[float, float, int]]:
         # On flat ground: only the weight's share of the grip changes with the
         # load (a + k·v²: a is the weight's, k·v² the aero's).
-        bins: dict[int, list[float]] = {}
-        for v, lat, lon, brake, gas, load, _p in samples:
-            if key == "lat":
-                val = (lat - lat_k * v * v) / load + lat_k * v * v
-            elif key == "brake" and brake > 0.3:
-                val = (-lon - brake_k * v * v) / load + brake_k * v * v
-            elif key == "accel" and gas > 0.95 and brake < 0.05:
-                val = lon
-            else:
+        aero = lat_k if key == "lat" else brake_k if key == "brake" else None
+        out = []
+        for k, rows in sorted(by_bin[key].items()):
+            if len(rows) < MIN_SAMPLES:
                 continue
-            bins.setdefault(int(v / BIN_MS), []).append(val)
-        return [((k + 0.5) * BIN_MS, _percentile(b, q), len(b)) for k, b in sorted(bins.items()) if len(b) >= MIN_SAMPLES]
+            if aero is None:
+                vals = [val for _v, val, _l in rows]
+            else:
+                vals = [(val - aero * v * v) / load + aero * v * v for v, val, load in rows]
+            out.append(((k + 0.5) * BIN_MS, _percentile(vals, q), len(vals)))
+        return out
 
     acc = table("accel", 0.9)
     lat_k = brake_k = 0.0
@@ -314,7 +343,7 @@ def learn_grip(traces: list[dict[str, list[float]]]) -> Grip | None:
     for j in range(len(acc_a) - 2, -1, -1):
         acc_a[j] = max(acc_a[j], acc_a[j + 1])
     lat0 = max(3.0, lat0)
-    grip = _grip(lat0, lat_k, brake0, brake_k, acc_v, acc_a, top, traces)
+    grip = _grip(lat0, lat_k, brake0, brake_k, acc_v, acc_a, top, traces, gears)
     grip.local = _local_grip(per_lap, grip)
     return grip
 
@@ -355,11 +384,12 @@ def _local_grip(per_lap: list[list[tuple[float, ...]]], grip: Grip) -> list[floa
 
 
 def _grip(lat0: float, lat_k: float, brake0: float, brake_k: float, acc_v: list[float], acc_a: list[float],
-          top: float, traces: list[dict[str, list[float]]]) -> Grip:
+          top: float, traces: list[dict[str, list[float]]],
+          gears: list[dict[int, Counter[int]]] | None = None) -> Grip:
     return Grip(
         lat0=lat0, lat_k=lat_k,
         brake0=max(3.0, brake0), brake_k=brake_k,
-        accel_v=acc_v, accel_a=acc_a, top_speed=top, gears=learn_gears(traces),
+        accel_v=acc_v, accel_a=acc_a, top_speed=top, gears=learn_gears(traces, gears),
         # The tyres had at least this to give at the slowest speed you were flat out at.
         traction0=acc_a[0] * lat0 / (lat0 + lat_k * acc_v[0] ** 2),
     )
