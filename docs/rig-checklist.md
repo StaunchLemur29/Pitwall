@@ -43,6 +43,10 @@ Merge one, try it, then the next. They don't depend on each other.
 - **In a race:** it shows your position and laps left (or time left). Check the laps-left number against the game's.
 - **Break reminder** (off unless you turn it on): set Settings → Break reminder to 1 minute, drive 2 minutes. "Take a break" should show on straights only. Sit in the pits 5 minutes: it should be gone when you drive out.
 
+### 58: DRS and battery tips
+- In a car with DRS, leave it shut down the same straight on two laps. On the next lap a tip should show on that straight: "Open the DRS on the way to …".
+- In a hybrid, run the battery flat before the same corner on two laps. The tip should say to save some earlier.
+
 ### 56: Blind spots on the hub
 - Merge, drive a few laps so the PC uploads, then open the website on the MacBook.
 - The analysis page has a "Blind spots" panel matching the PC's, without Practise buttons.

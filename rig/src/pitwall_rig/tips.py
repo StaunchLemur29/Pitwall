@@ -23,7 +23,28 @@ SETUP_EVERY = 3  # laps between repeats of the same setting suggestion
 
 
 KIND_WORDS = {"off": "went off", "spin": "spun", "slide": "slid", "gear": "wrong gear",
-              "throttle": "slow on the power", "slow": "lost time"}
+              "throttle": "slow on the power", "slow": "lost time", "drs": "DRS left shut",
+              "battery": "battery ran out"}
+
+
+def systems_mistakes(systems: dict[str, Any] | None, model: Any) -> list[dict[str, Any]]:
+    """Battery and DRS slips on a lap (analysis.analyse_systems) in the shape of
+    the lap review's mistakes, each put with the corner at the end of the
+    straight it happened on: a tip about it then shows on that straight, which
+    is where you'd open the DRS or want the battery."""
+    out: list[dict[str, Any]] = []
+    for kind, items in (("drs", ((systems or {}).get("drs") or {}).get("missed") or []),
+                        ("battery", ((systems or {}).get("battery") or {}).get("empty") or [])):
+        for x in items:
+            nc = model.next_corner(x["end_p"])
+            if not nc:
+                continue
+            c = nc[0]
+            text = (f"Open the DRS on the way to {c.label}. It was available for {x['metres']} m and stayed shut."
+                    if kind == "drs" else
+                    f"The battery ran out before {c.label}. Save some earlier in the lap, or deploy less.")
+            out.append({"corner": c.number, "label": c.label, "kind": kind, "text": text, "lost_s": None})
+    return out
 
 
 _RULES = [

@@ -51,3 +51,25 @@ def test_differences_become_instructions_and_good_ones_are_skipped():
     assert as_instruction("6 km/h slower at the slowest point than your best lap.") == "Carry 6 km/h more to the apex."
     assert as_instruction("Back to full throttle 126 m earlier than your best lap.") is None  # that's better
     assert as_instruction("4 km/h faster on the exit than your best lap.") is None
+
+
+def test_drs_left_shut_on_two_laps_becomes_a_tip_on_that_straight():
+    from types import SimpleNamespace
+
+    from pitwall_rig.tips import systems_mistakes
+
+    corner = SimpleNamespace(number=5, label="Turn 5")
+    model = SimpleNamespace(next_corner=lambda p: (corner, 120.0))
+    systems = {"drs": {"open_m": 0, "missed": [{"start_p": 0.30, "end_p": 0.36, "metres": 310, "near": "before Turn 5"}]},
+               "battery": {"empty": [{"start_p": 0.5, "end_p": 0.52, "metres": 120, "near": "before Turn 5"}]}}
+    slips = systems_mistakes(systems, model)
+    assert [(s["kind"], s["corner"]) for s in slips] == [("drs", 5), ("battery", 5)]
+    assert systems_mistakes(None, model) == [] and systems_mistakes({"drs": None, "battery": None}, model) == []
+
+    t = Tips()
+    t.add_lap(slips[:1])
+    t.add_lap([])
+    t.add_lap(slips[:1])
+    tip = t.pick(None)
+    assert tip["corner"] == 5 and tip["kind"] == "drs"
+    assert tip["text"] == "Open the DRS on the way to Turn 5. (2 of your last 3 laps.)"
