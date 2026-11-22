@@ -7,13 +7,14 @@ export function SessionBar() {
   const startedAt = useRig((s) => s.startedAt);
   const drivingS = useRig((s) => s.live.driving_s);
   const left = useRig((s) => s.live.frame?.session_time_left_s ?? null);
-  const breakMin = useRig((s) => s.config?.session_timer.break_reminder_min ?? 0);
+  const timer = useRig((s) => s.live.timer);
   const [now, setNow] = useState(Date.now() / 1000);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now() / 1000), 1000);
     return () => clearInterval(id);
   }, []);
-  const breakDue = breakMin > 0 && drivingS >= breakMin * 60;
+  const breakDue = !!timer?.break_due;
+  const race = timer?.race;
 
   return (
     <section className={`sbar ${breakDue ? "sbar--break" : ""}`}>
@@ -23,11 +24,27 @@ export function SessionBar() {
       <span>
         <b>Driving</b> {clock(drivingS)}
       </span>
-      {left !== null && (
+      {timer && (
         <span>
-          <b>Left</b> {clock(left)}
+          <b>Stint</b> {clock(timer.stint_s)}
         </span>
       )}
+      {race?.laps_left != null ? (
+        <span>
+          <b>Laps left</b> {race.laps_left}
+        </span>
+      ) : (
+        left !== null && (
+          <span>
+            <b>Left</b> {clock(left)}
+          </span>
+        )
+      )}
+      {race?.position ? (
+        <span>
+          <b>Pos</b> P{race.position}
+        </span>
+      ) : null}
       {breakDue && <span className="sbar__break">Time for a break</span>}
     </section>
   );

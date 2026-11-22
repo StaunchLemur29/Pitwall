@@ -12,6 +12,7 @@ from typing import Any
 from . import car_profile
 from .adapters.base import GameAdapter
 from .adapters.replay import Recorder
+from .advisor import Advisor, advise, ideal_pressures
 from .analysis import (
     LapView,
     analyse_lap,
@@ -29,7 +30,7 @@ from .csp import CspLink
 from .input import InputEvent
 from .laps import LapRecorder
 from .models import Frame, GameStatus, Lap, Mode, SessionInfo, mode_for
-from .optimal_run import lap_time, learn_grip, simulate
+from .optimal_run import lap_gears, lap_samples, lap_time, learn_grip, simulate
 from .reference import ReferenceLap, downsample
 from .rig_coach import CoachMixin
 from .rig_common import (
@@ -93,9 +94,12 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
         self._tyre_sum, self._tyre_n = 0.0, 0  # this lap's tyre core temperature at speed
         self._tyres_cold = False
         self.conditions = Conditions()
+        self.advisor = Advisor()  # lock-ups, wheelspin, ABS / TC use, hot pressures
+        self._advice: dict[str, Any] | None = None  # the latest advice for the live car + track
         self.tips = Tips()  # live tips: one a lap, on the straight before the corner  # the track, weather, tyre wear and damage; notices when they change
         self._cue_mode: str | None = None  # the brake-cue setting last applied
         self._opt_busy: set[tuple[str, str, str]] = set()
+        self._lap_samples: dict[int, tuple] = {}  # lap id -> its optimal-run samples and gears (worked out once)
         self._ac_tracks = None  # track loader for past AC tracks when another adapter is running
         self.mode: Mode = Mode.IDLE
         self.reference: ReferenceLap | None = None
@@ -103,6 +107,9 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
         self.delta_s: float | None = None
         self.started_at = time.time()
         self.driving_s = 0.0
+        self.since_break_s = 0.0  # driving since your last real break (BREAK_S off the track)
+        self.stint_s = 0.0  # driving since you last left the pits
+        self._idle_s = 0.0
         self._last_tick: float | None = None
         self.pending_bind: str | None = None
         self.on_open_analysis: Callable[[], object] = lambda: None
@@ -165,6 +172,8 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
                     log.exception("Session-end hook failed")
             self.session = session
             self.conditions.reset()
+            self.advisor.reset()
+            self._advice = None
             self.tips.reset()
             self.pit_report, self._stint_t0, self._stint_cond = None, time.time(), None
             self._load_car_profile()
@@ -181,8 +190,18 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
             self.mode = mode
             self.emit({"type": "mode", "mode": mode.value})
 
-        if self._last_tick is not None and mode == Mode.DRIVING:
-            self.driving_s += now - self._last_tick
+        if self._last_tick is not None:
+            dt = max(0.0, now - self._last_tick)
+            if mode == Mode.DRIVING:
+                self.driving_s += dt
+                self.since_break_s += dt
+                self._idle_s = 0.0
+                if not frame.in_pit_lane:
+                    self.stint_s += dt
+            else:
+                self._idle_s += dt
+                if self._idle_s >= self.BREAK_S:
+                    self.since_break_s = 0.0  # that was a break
         self._last_tick = now
 
         self._ticks += 1
@@ -199,6 +218,7 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
             self._save_car_profile()
         self._note_tyres(frame)
         self.conditions.update(frame, now)
+        self.advisor.feed(frame)
         self._note_pits(frame)
         self.laps.max_tyres_out = self.config["laps"]["max_tyres_out"]
         self._feed_wheel(frame)
@@ -224,6 +244,29 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
 
     # -- the pit report ------------------------------------------------------------
 
+
+    BREAK_S = 300.0  # this long out of the car (pits, menus, game closed) counts as a break
+
+    def _timer_live(self) -> dict[str, Any]:
+        """The session timer: this stint, since your last break, what's left of a
+        race, and whether a break reminder is due (only said where it's safe to
+        read: not driving, or on a straight)."""
+        f, s = self.frame, self.session
+        every = self.config["session_timer"]["break_reminder_min"]
+        due = bool(every) and self.since_break_s >= every * 60
+        if due and self.mode == Mode.DRIVING and f is not None:
+            nc = self.track.model.next_corner(f.lap_progress) if self.track is not None else None
+            in_corner = nc is not None and nc[1] < 150  # in one, or nearly at it
+            due = not in_corner and f.brake < 0.1
+        race = None
+        if f is not None and s is not None and s.session_type.value == "race":
+            race = {
+                "position": f.position or None,
+                "laps_left": max(0, f.session_laps - f.lap) if f.session_laps > 0 else None,
+                "time_left_s": f.session_time_left_s if f.session_laps <= 0 else None,
+            }
+        return {"stint_s": round(self.stint_s, 1), "since_break_s": round(self.since_break_s, 1),
+                "break_due": due, "race": race}
 
     def _session_changed(self, s: SessionInfo | None) -> bool:
         a, b = self.session, s
@@ -274,6 +317,7 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
     def _on_lap(self, lap: Lap) -> None:
         # Called from the telemetry thread as you cross the line: hand it on.
         lap.conditions = self.conditions.snapshot(self.frame)
+        lap.aids = self.advisor.end_lap(self._car_settings())
         if self._post_lap is not None:
             self._post_lap.put(lap)
         else:
@@ -303,6 +347,15 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
                 self._analyse(lap.id, lap.trace, track)
                 self._record_sections(lap, track)
             self._emit_corners(lap.id)
+        if lap.aids is not None:
+            try:
+                advice = self.advice(lap.game, lap.car, lap.track_key)
+                with self.lock:
+                    self._advice = advice
+                    self.tips.setup = next((a for a in advice["advice"] if a.get("corner") is not None), None)
+                self.emit({"type": "advice", "advice": advice})
+            except Exception:
+                log.exception("Couldn't work out the electronics advice")
         with self.lock:
             s = self.session
             if s is not None:
@@ -659,6 +712,43 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
         return {"game": ctx.game, "car": ctx.car, "track_key": ctx.track_key,
                 "ffb": ffb_report(traces, ctx.track.model), "pedals": pedal_report(traces)}
 
+    def _car_settings(self) -> dict[str, Any]:
+        """The settings the advisor's advice depends on, as they are now: brake
+        bias, and the ABS / TC levels when the in-game app reports them."""
+        out: dict[str, Any] = {}
+        f = self.frame
+        if f is not None and f.brake_bias is not None:
+            out["bb"] = round(f.brake_bias, 4)
+        el = self.csp.electronics() or {}
+        for k in ("abs", "tc"):
+            if el.get(k) is not None:
+                out[k] = int(el[k])
+        return out
+
+    ADVICE_GAP_S = 3 * 3600  # laps older than this aren't "recent" for the advisor
+
+    def advice(self, game: str | None = None, car: str | None = None, track_key: str | None = None) -> dict[str, Any]:
+        """Brake bias, ABS, TC and tyre-pressure suggestions from your recent laps
+        on the current settings (see advisor.py)."""
+        ctx = self.analysis_ctx(game, car, track_key)
+        if ctx is None:
+            return {"laps": 0, "settings": None, "advice": [], "psi": None, "target_psi": None}
+        latest = self.store.laps(ctx.game, ctx.track_key, ctx.car, limit=1)
+        since = latest[0]["started_at"] - self.ADVICE_GAP_S if latest else 0.0
+        laps = self.store.recent_aids(ctx.game, ctx.car, ctx.track_key, since=since)
+        model = ctx.track.model
+
+        def corner_at(p: float) -> tuple[int, str] | None:
+            nc = model.next_corner(p)
+            return (nc[0].number, nc[0].label) if nc else None
+
+        target = self.config["advisor"]["target_psi"].get(ctx.car)
+        if not (isinstance(target, list) and len(target) == 2):
+            target = ideal_pressures(self.config["games"].get("ac", {}).get("install_dir"), ctx.car) if ctx.game == "ac" else None
+        out = advise(laps, self.car_profile if ctx.live else self.store.car_profile(ctx.game, ctx.car), corner_at, tuple(target) if target else None)
+        out.update(game=ctx.game, car=ctx.car, track_key=ctx.track_key)
+        return out
+
     def blind_spots(self, game: str | None = None, car: str | None = None, track_key: str | None = None) -> dict[str, Any]:
         """Habits your recent laps on this car + track show (see scan.py)."""
         from .analysis import corner_mastery
@@ -954,15 +1044,27 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
     def _work_out_run(self, model: TrackModel, ids: list[int], sig: tuple) -> dict[str, Any]:
         run: dict[str, Any] = {"sig": sig}
         try:
-            traces = [t for t in (self.store.trace(i) for i in ids) if t]
-            grip = learn_grip(traces)
+            # Each lap's samples are worked out once and kept: redoing the run
+            # after a new fast lap only reads that lap.
+            per_lap, gears = [], []
+            for i in ids:
+                got = self._lap_samples.get(i)
+                if got is None:
+                    tr = self.store.trace(i)
+                    got = (lap_samples(tr), lap_gears(tr)) if tr else ([], {})
+                    if len(self._lap_samples) > 200:
+                        self._lap_samples.clear()
+                    self._lap_samples[i] = got
+                per_lap.append(got[0])
+                gears.append(got[1])
+            grip = learn_grip([], per_lap=per_lap, gears=gears)
             tr = simulate(model, grip) if grip else None
             if grip and tr:
                 run.update(
                     trace=tr,
                     lap_s=round(lap_time(tr), 3),
                     grip=grip.to_dict(),
-                    laps_used=len(traces),
+                    laps_used=sum(1 for s in per_lap if s),
                     rows={r["corner"]: r for r in analyse_lap(tr, model)},
                 )
         except Exception:
@@ -1078,6 +1180,7 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
             "coach": self._coach_live(),
             "pit_report": self.pit_report,
             "driving_s": round(self.driving_s, 1),
+            "timer": self._timer_live(),
             "track": self.track_live,
         }
 

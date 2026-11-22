@@ -68,13 +68,22 @@ local function loadTrack(version)
 end
 
 -- Time of day and weather, which only CSP knows (for the coach: rain, dusk,
--- and the conditions kept with each lap). Fields as CSP's own apps read them.
+-- and the conditions kept with each lap). Each field is read by itself: asking
+-- CSP's state for a name this version doesn't have is an error, and one
+-- missing name mustn't lose the rest. (weatherType, rainIntensity and
+-- ambientTemperature are read by CSP's own apps; timeHours, timeMinutes and
+-- roadGrip couldn't be confirmed there, 2026-11.)
+local function simField(name)
+  local ok, v = pcall(function () return sim[name] end)
+  if ok then return v end
+  return nil
+end
+
 local function envNow()
-  local ok, e = pcall(function ()
-    return { time_h = sim.timeHours, time_m = sim.timeMinutes, weather = sim.weatherType,
-             rain = sim.rainIntensity, ambient_c = sim.ambientTemperature, road_grip = sim.roadGrip }
-  end)
-  return ok and e or nil
+  local e = { time_h = simField('timeHours'), time_m = simField('timeMinutes'), weather = simField('weatherType'),
+              rain = simField('rainIntensity'), ambient_c = simField('ambientTemperature'), road_grip = simField('roadGrip') }
+  if next(e) == nil then return nil end
+  return e
 end
 
 -- -- teleport to a drill -------------------------------------------------------

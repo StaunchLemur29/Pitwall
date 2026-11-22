@@ -210,6 +210,7 @@ class AssettoCorsaAdapter(GameAdapter):
             grip=float(gfx.surfaceGrip) or None,
             ffb=float(phys.finalFF),
             tyres_out=int(phys.numberOfTyresOut),
+            wheel_speed=[float(v) for v in phys.wheelAngularSpeed],
             lap=int(gfx.completedLaps),
             lap_time_ms=int(gfx.iCurrentTime),
             last_lap_ms=int(gfx.iLastTime),
@@ -230,6 +231,7 @@ class AssettoCorsaAdapter(GameAdapter):
             ers_recovery=int(phys.ersRecoveryLevel),
             engine_brake=int(phys.engineBrake),
             position=int(gfx.position),
+            session_laps=max(0, int(gfx.numberOfLaps)),
         )
 
     def session(self) -> SessionInfo | None:

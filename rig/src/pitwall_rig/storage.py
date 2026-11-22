@@ -180,6 +180,8 @@ class Store:
                 self._db.execute("ALTER TABLE section_attempts ADD COLUMN lap_id INTEGER")
             if "conditions" not in cols:  # ...and before the conditions were kept with each lap
                 self._db.execute("ALTER TABLE laps ADD COLUMN conditions TEXT")
+            if "aids" not in cols:  # ...and before the advisor's findings were kept with each lap
+                self._db.execute("ALTER TABLE laps ADD COLUMN aids TEXT")
             if "sections_done" not in cols:  # ...and before every lap's section passes were kept
                 self._db.execute("ALTER TABLE laps ADD COLUMN sections_done INTEGER NOT NULL DEFAULT 0")
             self._db.execute(
@@ -193,8 +195,8 @@ class Store:
         with self._lock, self._db:
             cur = self._db.execute(
                 """INSERT INTO laps (game, car, track_key, lap_number, lap_time_ms, valid,
-                   out_lap, rewound, unfinished, started_at, sector_ms, trace, conditions)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   out_lap, rewound, unfinished, started_at, sector_ms, trace, conditions, aids)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     lap.game,
                     lap.car,
@@ -209,6 +211,7 @@ class Store:
                     json.dumps(lap.sector_ms),
                     pack_trace(lap.trace),
                     json.dumps(lap.conditions) if lap.conditions else None,
+                    json.dumps(lap.aids) if lap.aids else None,
                 ),
             )
             lap.id = int(cur.lastrowid)
@@ -341,14 +344,16 @@ class Store:
             "SELECT sector_ms FROM laps WHERE game=? AND track_key=? AND car=? AND valid=1 AND rewound=0",
             (game, track_key, car),
         ).fetchall()
-        best: list[int] = []
-        for r in rows:
-            secs = json.loads(r["sector_ms"])
-            if not best:
-                best = list(secs)
-            elif len(secs) == len(best):
-                best = [min(a, b) for a, b in zip(best, secs, strict=True)]
-        return best
+        laps = [s for s in (json.loads(r["sector_ms"]) for r in rows) if s]
+        if not laps:
+            return []
+        # The track's sector count is what most laps have: one odd lap (recorded
+        # across a layout change, or cut short) mustn't decide it.
+        counts: dict[int, int] = {}
+        for s in laps:
+            counts[len(s)] = counts.get(len(s), 0) + 1
+        n = max(counts, key=lambda k: counts[k])
+        return [min(s[i] for s in laps if len(s) == n) for i in range(n)]
 
     TRACE_CACHE = 4  # recently read laps kept unpacked (a long lap takes a while to unpack)
 
@@ -459,6 +464,15 @@ class Store:
     def lap_conditions(self, lap_id: int) -> dict[str, Any] | None:
         row = self._db.execute("SELECT conditions FROM laps WHERE id=?", (lap_id,)).fetchone()
         return json.loads(row["conditions"]) if row and row["conditions"] else None
+
+    def recent_aids(self, game: str, car: str, track_key: str, since: float = 0.0, limit: int = 12) -> list[dict[str, Any]]:
+        """The advisor's findings for your latest laps here (newest first), from ``since`` on."""
+        rows = self._db.execute(
+            """SELECT aids FROM laps WHERE game=? AND car=? AND track_key=? AND started_at>=? AND aids IS NOT NULL
+               ORDER BY started_at DESC LIMIT ?""",
+            (game, car, track_key, since, limit),
+        ).fetchall()
+        return [json.loads(r["aids"]) for r in rows]
 
     def best_drill_runs(self, game: str, car: str, track_key: str) -> list[list[float]]:
         """Your best clean drill run through each section: [start, end, ms] (drill runs only)."""

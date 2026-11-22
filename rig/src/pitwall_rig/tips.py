@@ -19,6 +19,7 @@ SHOW_FROM_M = 600.0  # start showing this far before the corner's entry...
 SHOW_UNTIL_M = 150.0  # ...if you're at least this far away (time to read it)
 HIDE_AT_M = 20.0  # gone as you get to the corner
 MAX_S = 10.0
+SETUP_EVERY = 3  # laps between repeats of the same setting suggestion
 
 
 KIND_WORDS = {"off": "went off", "spin": "spun", "slide": "slid", "gear": "wrong gear",
@@ -58,13 +59,17 @@ class Tips:
         self._recent: deque[list[dict[str, Any]]] = deque(maxlen=RECENT_LAPS)
         self.showing: dict[str, Any] | None = None  # {corner, label, text, kind, since}
         self._shown_lap: int | None = None
+        self.setup: dict[str, Any] | None = None  # the advisor's suggestion with a corner to give it at (advisor.py)
+        self._setup_said: dict[str, int] = {}  # suggestion -> laps since it was last given
 
     def reset(self) -> None:
         self._recent.clear()
         self.showing, self._shown_lap = None, None
+        self.setup, self._setup_said = None, {}
 
     def add_lap(self, wrong: list[dict[str, Any]]) -> None:
         """A finished lap's review ("where it went wrong")."""
+        self._setup_said = {k: n + 1 for k, n in self._setup_said.items()}
         self._recent.append([w for w in wrong if w.get("corner") is not None])
 
     def pick(self, focus: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -101,6 +106,11 @@ class Tips:
             return {"corner": c, "label": w["label"], "kind": "trouble",
                     "text": f"Trouble here on {n} of your last {n_laps} laps ({', '.join(sorted(kinds[c]))}). "
                             "Take it a touch easier until it's clean."}
+        # A setting to change (brake bias, ABS, TC): every third lap at most, so it isn't nagging.
+        su = self.setup
+        if su and su.get("corner") is not None and self._setup_said.get(su["key"], SETUP_EVERY) >= SETUP_EVERY:
+            return {"corner": su["corner"], "label": su["label"], "kind": "setup", "key": su["key"],
+                    "text": f"{su['title']}. {su['do']}"}
         if focus and focus.get("fix"):
             return {"corner": focus["corner"], "label": focus["label"], "kind": "focus", "text": focus["fix"]}
         return None
@@ -123,4 +133,6 @@ class Tips:
         if tip is None or approach(tip["corner"]) != next_corner:
             return None
         self.showing, self._shown_lap = {**tip, "since": now, "at": next_corner}, lap
+        if tip["kind"] == "setup":
+            self._setup_said[tip["key"]] = 0
         return tip

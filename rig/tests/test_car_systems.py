@@ -48,7 +48,7 @@ def test_car_profile_is_learnt_and_kept(demo, clock, config, store):
         rig.tick()
     p = rig.car_profile
     assert p["drs"] and p["ers"] and p["battery"] and p["deploy_modes"] == 4 and p["engine_brake_maps"] == 5
-    assert p["abs"] and p["tc"] and p["brake_bias"]  # seen in telemetry
+    assert p["tc"] and p["brake_bias"]  # seen in telemetry (ABS shows at the first hard stop)
     rig.csp_sync({"abs_modes": 12, "tc_modes": 8})  # the in-game app knows the exact levels
     assert rig.car_profile["abs_levels"] == 12
     assert "ABS (12)" in car_profile.summary(rig.car_profile)
