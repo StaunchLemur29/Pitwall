@@ -29,7 +29,7 @@ from .csp import CspLink
 from .input import InputEvent
 from .laps import LapRecorder
 from .models import Frame, GameStatus, Lap, Mode, SessionInfo, mode_for
-from .optimal_run import lap_time, learn_grip, simulate
+from .optimal_run import lap_gears, lap_samples, lap_time, learn_grip, simulate
 from .reference import ReferenceLap, downsample
 from .rig_coach import CoachMixin
 from .rig_common import (
@@ -96,6 +96,7 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
         self.tips = Tips()  # live tips: one a lap, on the straight before the corner  # the track, weather, tyre wear and damage; notices when they change
         self._cue_mode: str | None = None  # the brake-cue setting last applied
         self._opt_busy: set[tuple[str, str, str]] = set()
+        self._lap_samples: dict[int, tuple] = {}  # lap id -> its optimal-run samples and gears (worked out once)
         self._ac_tracks = None  # track loader for past AC tracks when another adapter is running
         self.mode: Mode = Mode.IDLE
         self.reference: ReferenceLap | None = None
@@ -954,15 +955,27 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
     def _work_out_run(self, model: TrackModel, ids: list[int], sig: tuple) -> dict[str, Any]:
         run: dict[str, Any] = {"sig": sig}
         try:
-            traces = [t for t in (self.store.trace(i) for i in ids) if t]
-            grip = learn_grip(traces)
+            # Each lap's samples are worked out once and kept: redoing the run
+            # after a new fast lap only reads that lap.
+            per_lap, gears = [], []
+            for i in ids:
+                got = self._lap_samples.get(i)
+                if got is None:
+                    tr = self.store.trace(i)
+                    got = (lap_samples(tr), lap_gears(tr)) if tr else ([], {})
+                    if len(self._lap_samples) > 200:
+                        self._lap_samples.clear()
+                    self._lap_samples[i] = got
+                per_lap.append(got[0])
+                gears.append(got[1])
+            grip = learn_grip([], per_lap=per_lap, gears=gears)
             tr = simulate(model, grip) if grip else None
             if grip and tr:
                 run.update(
                     trace=tr,
                     lap_s=round(lap_time(tr), 3),
                     grip=grip.to_dict(),
-                    laps_used=len(traces),
+                    laps_used=sum(1 for s in per_lap if s),
                     rows={r["corner"]: r for r in analyse_lap(tr, model)},
                 )
         except Exception:
