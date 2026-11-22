@@ -39,6 +39,7 @@ class PitsMixin:
             self.pit_report = None
             self._stint_t0 = time.time()
             self._stint_laps_driven = 0.0
+            self.stint_s = 0.0
             self._stint_cond = self.conditions.snapshot(f)
         self._in_pits = in_pits
 

@@ -231,6 +231,7 @@ class AssettoCorsaAdapter(GameAdapter):
             ers_recovery=int(phys.ersRecoveryLevel),
             engine_brake=int(phys.engineBrake),
             position=int(gfx.position),
+            session_laps=max(0, int(gfx.numberOfLaps)),
         )
 
     def session(self) -> SessionInfo | None:

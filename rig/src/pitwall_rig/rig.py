@@ -107,6 +107,9 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
         self.delta_s: float | None = None
         self.started_at = time.time()
         self.driving_s = 0.0
+        self.since_break_s = 0.0  # driving since your last real break (BREAK_S off the track)
+        self.stint_s = 0.0  # driving since you last left the pits
+        self._idle_s = 0.0
         self._last_tick: float | None = None
         self.pending_bind: str | None = None
         self.on_open_analysis: Callable[[], object] = lambda: None
@@ -187,8 +190,18 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
             self.mode = mode
             self.emit({"type": "mode", "mode": mode.value})
 
-        if self._last_tick is not None and mode == Mode.DRIVING:
-            self.driving_s += now - self._last_tick
+        if self._last_tick is not None:
+            dt = max(0.0, now - self._last_tick)
+            if mode == Mode.DRIVING:
+                self.driving_s += dt
+                self.since_break_s += dt
+                self._idle_s = 0.0
+                if not frame.in_pit_lane:
+                    self.stint_s += dt
+            else:
+                self._idle_s += dt
+                if self._idle_s >= self.BREAK_S:
+                    self.since_break_s = 0.0  # that was a break
         self._last_tick = now
 
         self._ticks += 1
@@ -231,6 +244,29 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
 
     # -- the pit report ------------------------------------------------------------
 
+
+    BREAK_S = 300.0  # this long out of the car (pits, menus, game closed) counts as a break
+
+    def _timer_live(self) -> dict[str, Any]:
+        """The session timer: this stint, since your last break, what's left of a
+        race, and whether a break reminder is due (only said where it's safe to
+        read: not driving, or on a straight)."""
+        f, s = self.frame, self.session
+        every = self.config["session_timer"]["break_reminder_min"]
+        due = bool(every) and self.since_break_s >= every * 60
+        if due and self.mode == Mode.DRIVING and f is not None:
+            nc = self.track.model.next_corner(f.lap_progress) if self.track is not None else None
+            in_corner = nc is not None and nc[1] < 150  # in one, or nearly at it
+            due = not in_corner and f.brake < 0.1
+        race = None
+        if f is not None and s is not None and s.session_type.value == "race":
+            race = {
+                "position": f.position or None,
+                "laps_left": max(0, f.session_laps - f.lap) if f.session_laps > 0 else None,
+                "time_left_s": f.session_time_left_s if f.session_laps <= 0 else None,
+            }
+        return {"stint_s": round(self.stint_s, 1), "since_break_s": round(self.since_break_s, 1),
+                "break_due": due, "race": race}
 
     def _session_changed(self, s: SessionInfo | None) -> bool:
         a, b = self.session, s
@@ -1140,6 +1176,7 @@ class Rig(CoachMixin, DrillsMixin, PitsMixin, WheelMixin):
             "coach": self._coach_live(),
             "pit_report": self.pit_report,
             "driving_s": round(self.driving_s, 1),
+            "timer": self._timer_live(),
             "track": self.track_live,
         }
 
