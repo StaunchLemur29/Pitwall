@@ -2880,6 +2880,14 @@ select {
   font-weight: 500;
 }
 
+.la__blind h3 {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
 .tools__setup {
   grid-column: 1 / -1;
 }

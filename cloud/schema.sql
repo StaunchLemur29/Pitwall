@@ -74,6 +74,8 @@ create table if not exists public.combo_extras (
   primary key (user_id, game, car, track_key)
 );
 
+alter table public.combo_extras add column if not exists blind_spots jsonb;  -- the blind-spot scan: {findings, laps}
+
 -- AI debriefs (filled in later in phase 2).
 create table if not exists public.debriefs (
   id          bigint generated always as identity primary key,
