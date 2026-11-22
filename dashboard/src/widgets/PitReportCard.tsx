@@ -40,6 +40,18 @@ export function PitReportCard({ r }: { r: PitReport }) {
           </ul>
         </div>
       )}
+      {r.setup && r.setup.length > 0 && (
+        <div>
+          <div className="pitrep__sub">Settings to try</div>
+          <ul>
+            {r.setup.map((a) => (
+              <li key={a.title}>
+                <b>{a.do}</b> <span className="muted">{a.title}.</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {r.next && (
         <div className="pitrep__next">
           <b>Next stint:</b> {r.next}

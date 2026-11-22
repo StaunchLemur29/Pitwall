@@ -69,6 +69,9 @@ DEFAULTS: dict[str, Any] = {
     # tips: live tips, one a lap on the straight before the corner they're about.
     # "game" = on the side screen and in the game, "screen" = side screen only, "off".
     "coach": {"brake_cue": "optimal", "tips": "game"},
+    # The electronics and tyre-pressure advisor. target_psi: a car's ideal hot
+    # pressures {car: [front, rear]}, for cars whose files Pitwall can't read it from.
+    "advisor": {"target_psi": {}},
     # The in-game overlay (CSP app): what it shows as a braking point approaches.
     "overlay": {
         "show_turn": True,  # rally-style: direction + how sharp (R3) and the gear
@@ -191,6 +194,9 @@ def validate(cfg: dict[str, Any]) -> list[str]:
         errs.append("overlay.show_from_m must be between 100 and 600 metres")
     if cfg.get("coach", {}).get("tips", "game") not in ("game", "screen", "off"):
         errs.append("coach.tips must be game, screen or off")
+    for car, psi in (cfg.get("advisor", {}).get("target_psi") or {}).items():
+        if not (isinstance(psi, list) and len(psi) == 2 and all(isinstance(v, (int, float)) and 5 < v < 60 for v in psi)):
+            errs.append(f"advisor.target_psi for {car} must be two pressures in psi: front, rear")
     lead = cfg.get("drills", {}).get("lead_in_s")
     if not isinstance(lead, (int, float)) or not 0 <= lead <= 15:
         errs.append("drills.lead_in_s must be between 0 and 15 seconds")

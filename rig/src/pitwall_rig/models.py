@@ -114,6 +114,7 @@ class Frame:
     tyre_pressure_psi: list[float] | None = None
     tyre_core_temp_c: list[float] | None = None
     tyres_out: int = 0  # number of wheels off track
+    wheel_speed: list[float] | None = None  # how fast each wheel turns (rad/s): lock-ups and wheelspin
     tyre_wear: list[float] | None = None  # AC's tyre wear numbers (falling as they wear)
     tyre_dirt: list[float] | None = None  # AC's tyre dirt level: grass or gravel picked up
     damage: list[float] | None = None  # AC's car damage: front, rear, left, right, centre
@@ -174,6 +175,7 @@ class Lap:
     rewound: bool = False  # rewound after a mistake: a normal lap, but never a best one
     unfinished: bool = False  # you didn't get to the line (quit, restarted): only some corners driven
     conditions: dict[str, Any] | None = None  # track, weather, tyre wear and damage as the lap ended
+    aids: dict[str, Any] | None = None  # lock-ups, wheelspin, ABS / TC use and hot pressures (advisor.py)
 
     def summary(self) -> dict[str, Any]:
         return {

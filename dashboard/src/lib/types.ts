@@ -411,6 +411,8 @@ export interface Config {
   drills: { lead_in_s: number };
   /** brake_cue: "brake in" counts down to the optimal run's braking points, or your best lap's */
   coach: { brake_cue: "optimal" | "best"; tips?: "game" | "screen" | "off" };
+  /** A car's ideal hot tyre pressures [front, rear] in psi, by car, for the advisor. */
+  advisor?: { target_psi: Record<string, number[]> };
   overlay: { show_turn: boolean; show_turn_name: boolean; show_brake: boolean; show_from_m: number; show_drill?: boolean };
   server: { host: string; port: number };
   rates: { poll_hz: number; broadcast_hz: number };
@@ -538,7 +540,21 @@ export interface PitReport {
   counts: Record<string, number>;
   car: string[];
   next: string | null;
+  /** Settings worth changing while you're stopped (the advisor's top two). */
+  setup?: { title: string; do: string; why: string }[];
   race?: { position: number } | null;
+}
+
+/** Brake bias, ABS, TC and tyre-pressure suggestions from your recent laps on the current settings. */
+export interface Advice {
+  laps: number;
+  car?: string;
+  settings: { bb?: number; abs?: number; tc?: number } | null;
+  advice: { key: string; title: string; do: string; why: string; label: string | null }[];
+  /** Hot pressures, psi: front left, front right, rear left, rear right. */
+  psi: number[] | null;
+  /** The car's ideal hot pressures (front, rear), when known. */
+  target_psi: number[] | null;
 }
 
 /** A habit the blind-spot scan found across your recent laps. */

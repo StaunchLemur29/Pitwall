@@ -33,6 +33,7 @@ def stint_report(
     focus: dict[str, Any] | None,
     race: dict[str, Any] | None = None,
     laps_driven: float = 0.0,
+    advice: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """``laps``: the stint's laps, oldest first (store summaries); ``reviews``: lap
     id -> lap review; ``start`` / ``now``: conditions at the start of the stint
@@ -92,6 +93,8 @@ def stint_report(
         out["next"] = f"{focus['label']}: {focus.get('fix') or focus.get('why') or 'the most time to gain'}."
     else:
         out["next"] = None
+    # Settings worth changing while you're stopped (advisor.py): the top two.
+    out["setup"] = [{"title": a["title"], "do": a["do"], "why": a["why"]} for a in (advice or [])[:2]]
     if race:
         out["race"] = race
     return out
