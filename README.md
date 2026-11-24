@@ -5,7 +5,7 @@
 A sim-racing coach for Assetto Corsa. A live dashboard runs on a vertical
 second monitor while you drive; after each lap it shows where the time went
 and what to change. Laps sync to a cloud hub you can open on a laptop or
-phone. [SPEC.md](SPEC.md) has the whole plan.
+phone
 
 ## What it does
 
