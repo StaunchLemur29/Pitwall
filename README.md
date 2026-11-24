@@ -139,7 +139,7 @@ bar (the Pitwall icon). It adds:
 The app needs the Pitwall service running. If it says "Pitwall isn't
 running", start `scripts\start.bat`.
 
-### Cloud hub (laps on the MacBook)
+### Cloud hub (laps on a laptop)
 
 Pitwall can upload your laps to your own free Supabase project, so the hub can
 show them while the PC is off. One-time setup:
@@ -160,7 +160,7 @@ Laps driven offline upload when you're back online. Your password isn't
 stored; Pitwall keeps a sign-in token in `%APPDATA%\Pitwall\cloud.json`.
 Demo and replay laps stay on the PC.
 
-**The hub website** (your laps on the MacBook or phone) is hosted free on
+**The hub website** (your laps on a laptop or phone) is hosted free on
 Vercel. One-time setup:
 
 1. Sign in at [vercel.com](https://vercel.com) with GitHub, then **Add New →
@@ -199,7 +199,7 @@ drill. It shows in the analysis (PC and hub). Setup: create an API key at
 [console.anthropic.com](https://console.anthropic.com) (API Keys, and add some
 credit under Billing), then paste it into **Settings → AI**. It's checked,
 then kept on the PC only (`%APPDATA%\Pitwall\ai.json`). Each debrief costs
-roughly 10 cents. Turn automatic debriefs off in the same tab; the
+about ten cents. Turn automatic debriefs off in the same tab; the
 **Write debrief** button in the analysis still works.
 
 **Debriefs from the hub (PC off).** The hub can write one too, for your latest
